@@ -6,7 +6,7 @@
     "packageManager": "pnpm@10.33.0",
     "scripts": {
         "build:framework": "pnpm --filter gps-plus-slam-app-framework build",
-        "build:recorder": "pnpm install --frozen-lockfile && pnpm --filter gps-plus-slam-app-framework build && pnpm --filter gps-plus-slam-recorder build",
+        "build:recorder": "pnpm --filter gps-plus-slam-app-framework build && pnpm --filter gps-plus-slam-recorder build",
         "test:framework": "pnpm --filter gps-plus-slam-app-framework test",
         "test:recorder": "pnpm --filter gps-plus-slam-recorder test",
         "test:recorder:unit": "pnpm --filter gps-plus-slam-recorder run test:unit",

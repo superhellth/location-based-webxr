@@ -38,6 +38,9 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build AppFramework
+        working-directory: GpsPlusSlamJs_AppFramework
+        run: pnpm run build
       - name: Run tests (format, lint, typecheck, unit)
         working-directory: GpsPlusSlamJs_RecorderApp
         run: pnpm run test:core
@@ -55,6 +58,9 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build AppFramework
+        working-directory: GpsPlusSlamJs_AppFramework
+        run: pnpm run build
       - name: Install Playwright browsers
         working-directory: GpsPlusSlamJs_RecorderApp
         run: pnpm exec playwright install --with-deps chromium
