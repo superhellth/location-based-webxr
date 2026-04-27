@@ -1,0 +1,149 @@
+/**
+ * gps-plus-slam-app-framework
+ *
+ * Reusable AR+GPS app framework layer.
+ *
+ * RECOMMENDED: Import from subpaths for clarity and to avoid name conflicts:
+ *   import { initAR } from 'gps-plus-slam-app-framework/ar';
+ *   import { createRecorderStore } from 'gps-plus-slam-app-framework/state';
+ *
+ * This root barrel re-exports conflict-free names for convenience.
+ * Names that collide across submodules (StorageBackend, SessionMetadata,
+ * RefPointMark, DepthPoint, DepthSample) should be imported from their
+ * specific subpath.
+ */
+
+// Modules with no cross-barrel naming conflicts
+export * from './ar/index.js';
+export * from './sensors/index.js';
+export * from './ref-points/index.js';
+export * from './utils/index.js';
+export * from './types/index.js';
+
+// Modules with potential name conflicts — selective re-exports
+// State: omit types also exported by storage/types (StorageBackend, DepthPoint, etc.)
+export {
+  type RecorderState,
+  type CombinedRootState,
+  type RecorderStore,
+  type RecorderStoreOptions,
+  type RootState,
+  type AppDispatch,
+  createRecorderStore,
+  startSession,
+  endSession,
+  recordDepthSample,
+  recordWriteFailure,
+  setCurrentScenarioName,
+  setZeroPos,
+  recordGpsEvent,
+  add2dImage,
+  markReferencePoint,
+  calcRelativeCoordsInMeters,
+  setImportedRefPoints,
+  incrementRefPointUsage,
+  clearSessionRefPointUsage,
+  resetRefPointsState,
+  selectCachedKnownRefPoints,
+  type RecordingOptions,
+  type RecordingCoordinatorConfig,
+  updateDeviceOrientation,
+  getLastDeviceOrientation,
+  eulerToQuaternion,
+  resetCoordinatorState,
+  extractOdomPosition,
+  extractOdomRotation,
+  buildRawGpsPoint,
+  buildRecordGpsEventPayload,
+  createGpsPositionHandler,
+  type RecordingOptionsInput,
+  type DepthCaptureOptions,
+  type ImageCaptureOptions,
+  STORAGE_KEY,
+  DEFAULT_RECORDING_OPTIONS,
+  DEPTH_CONSTRAINTS,
+  IMAGE_CONSTRAINTS,
+  validateDepthOptions,
+  validateImageOptions,
+  validateRecordingOptions,
+  loadRecordingOptions,
+  saveRecordingOptions,
+  resetRecordingOptions,
+  cloneRecordingOptions,
+  replayRecording,
+  refPointsReducer,
+  navigateTo,
+  type RoutingState,
+  type AppScreen,
+  DEFAULT_MAX_DELAY_MS,
+  type ReplayState,
+  type ProgressCallback,
+  type CompleteCallback,
+  type ErrorCallback,
+  type ReplayAction,
+  extractActionTimestamp,
+  computeInterActionDelay,
+  ReplayEngine,
+  type SubscribableStore,
+  type StoreSubscriberDeps,
+  wireStoreSubscribers,
+} from './state/index.js';
+
+// Storage: omit names that conflict with state (SessionMetadata)
+export {
+  type StorageBackend,
+  NullStorageBackend,
+  OpfsStorageBackend,
+  type CreateSessionResult,
+  resetOpfsStorage,
+  resetSessionHandles,
+  initOpfsStorage,
+  createSession,
+  getSessionHandle,
+  getScenarioHandle,
+  getScenariosRootHandle,
+  listSessions,
+  checkStorageQuota,
+  resetStorageState,
+  resetForNewSession,
+  type WriteAccessResult,
+  verifyWriteAccess,
+  initStorage,
+  startStorageSession,
+  writeAction,
+  writeFrame,
+  formatTimestamp,
+  formatActionFilename,
+  formatFrameFilename,
+  type ImportedRefPoint,
+  type RefPointImportResult,
+  importRefPointsFromFolder,
+  type RefPointObservation,
+  type RefPointDefinition,
+  loadAllRefPoints,
+  loadRefPoint,
+  saveRefPointObservation,
+  listRefPointIds,
+  type RefPointMark,
+  flattenRefPointsToMarks,
+  averageGpsPerRefPoint,
+  type ZipExportResult,
+  exportSessionAsZip,
+  syncToExternalZip,
+  downloadZip,
+  exportAndDownloadSession,
+  MAX_ACTION_FILE_SIZE,
+  type RecordedAction,
+  type ZipActionEntry,
+  readZipEntries,
+  loadActionsFromZip,
+  loadSessionMetadataFromBlob,
+  type GpsPathCoord,
+  loadGpsPathFromBlob,
+} from './storage/index.js';
+
+// Visualization: export from map-overlay (not leaflet-map-overlay) for DEFAULT_ZOOM etc.
+export * from './visualization/index.js';
+
+// Licensing: bundled community license key (default for createRecorderStore)
+export * from './licensing/index.js';

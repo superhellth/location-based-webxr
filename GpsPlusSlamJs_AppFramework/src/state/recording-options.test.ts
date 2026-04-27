@@ -1,0 +1,680 @@
+/**
+ * Tests for recording-options.ts
+ *
+ * Why these tests matter:
+ * - Validates localStorage persistence works correctly
+ * - Ensures validation clamps invalid values to safe ranges
+ * - Confirms schema evolution (partial stored data) merges with defaults
+ * - Guards against regression in option loading/saving
+ */
+
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  loadRecordingOptions,
+  saveRecordingOptions,
+  resetRecordingOptions,
+  validateDepthOptions,
+  validateImageOptions,
+  validateRecordingOptions,
+  cloneRecordingOptions,
+  DEFAULT_RECORDING_OPTIONS,
+  STORAGE_KEY,
+  DEPTH_CONSTRAINTS,
+  IMAGE_CONSTRAINTS,
+  type RecordingOptions,
+} from './recording-options';
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value;
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete store[key];
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+  };
+})();
+
+Object.defineProperty(globalThis, 'localStorage', {
+  value: localStorageMock,
+});
+
+describe('recording-options', () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    vi.clearAllMocks();
+  });
+
+  describe('validateDepthOptions', () => {
+    it('returns defaults when given empty object', () => {
+      const result = validateDepthOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
+    });
+
+    it('preserves valid values', () => {
+      const result = validateDepthOptions({
+        enabled: false,
+        intervalMs: 2000,
+        gridSize: 5,
+      });
+      expect(result).toEqual({
+        enabled: false,
+        intervalMs: 2000,
+        gridSize: 5,
+      });
+    });
+
+    it('clamps intervalMs below minimum to minimum', () => {
+      const result = validateDepthOptions({ intervalMs: 100 });
+      expect(result.intervalMs).toBe(DEPTH_CONSTRAINTS.intervalMs.min);
+    });
+
+    it('clamps intervalMs above maximum to maximum', () => {
+      const result = validateDepthOptions({ intervalMs: 10000 });
+      expect(result.intervalMs).toBe(DEPTH_CONSTRAINTS.intervalMs.max);
+    });
+
+    it('clamps gridSize below minimum to minimum', () => {
+      const result = validateDepthOptions({ gridSize: 1 });
+      expect(result.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.min);
+    });
+
+    it('clamps gridSize above maximum to maximum', () => {
+      const result = validateDepthOptions({ gridSize: 20 });
+      expect(result.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.max);
+    });
+
+    it('handles non-boolean enabled by using default', () => {
+      const result = validateDepthOptions({
+        enabled: 'yes' as unknown as boolean,
+      });
+      expect(result.enabled).toBe(DEFAULT_RECORDING_OPTIONS.depth.enabled);
+    });
+
+    it('handles non-number intervalMs by using default', () => {
+      const result = validateDepthOptions({
+        intervalMs: 'fast' as unknown as number,
+      });
+      expect(result.intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.depth.intervalMs
+      );
+    });
+  });
+
+  describe('validateImageOptions', () => {
+    it('returns defaults when given empty object', () => {
+      const result = validateImageOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+    });
+
+    it('preserves valid values', () => {
+      const result = validateImageOptions({
+        enabled: false,
+        intervalMs: 5000,
+        quality: 0.5,
+        resolutionDivisor: 2,
+      });
+      expect(result).toEqual({
+        enabled: false,
+        intervalMs: 5000,
+        quality: 0.5,
+        resolutionDivisor: 2,
+      });
+    });
+
+    it('clamps quality below minimum to minimum', () => {
+      const result = validateImageOptions({ quality: 0.1 });
+      expect(result.quality).toBe(IMAGE_CONSTRAINTS.quality.min);
+    });
+
+    it('clamps quality above maximum to maximum', () => {
+      const result = validateImageOptions({ quality: 1.5 });
+      expect(result.quality).toBe(IMAGE_CONSTRAINTS.quality.max);
+    });
+
+    it('clamps intervalMs below minimum to minimum', () => {
+      const result = validateImageOptions({ intervalMs: 500 });
+      expect(result.intervalMs).toBe(IMAGE_CONSTRAINTS.intervalMs.min);
+    });
+
+    it('clamps intervalMs above maximum to maximum', () => {
+      const result = validateImageOptions({ intervalMs: 20000 });
+      expect(result.intervalMs).toBe(IMAGE_CONSTRAINTS.intervalMs.max);
+    });
+
+    /**
+     * Why this test matters:
+     * resolutionDivisor controls capture resolution scaling.
+     * Default must be 1 (full resolution) and validation must clamp out-of-range values.
+     */
+    it('defaults resolutionDivisor to 1 when not provided', () => {
+      const result = validateImageOptions({});
+      expect(result.resolutionDivisor).toBe(1);
+    });
+
+    it('preserves valid resolutionDivisor', () => {
+      const result = validateImageOptions({ resolutionDivisor: 2 });
+      expect(result.resolutionDivisor).toBe(2);
+    });
+
+    it('clamps resolutionDivisor below minimum', () => {
+      const result = validateImageOptions({ resolutionDivisor: 0 });
+      expect(result.resolutionDivisor).toBe(
+        IMAGE_CONSTRAINTS.resolutionDivisor.min
+      );
+    });
+
+    it('clamps resolutionDivisor above maximum', () => {
+      const result = validateImageOptions({ resolutionDivisor: 20 });
+      expect(result.resolutionDivisor).toBe(
+        IMAGE_CONSTRAINTS.resolutionDivisor.max
+      );
+    });
+  });
+
+  describe('validateRecordingOptions', () => {
+    it('returns defaults when given empty object', () => {
+      const result = validateRecordingOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('includes default AR crash isolation flags', () => {
+      // Why this test matters:
+      // Pre-recording AR crash isolation must persist alongside the existing
+      // recording-time options so device experiments do not require code edits.
+      const result = validateRecordingOptions({}) as unknown as Record<
+        string,
+        unknown
+      >;
+      const flags = result.arCrashIsolation as
+        | Record<string, unknown>
+        | undefined;
+
+      expect(flags).toEqual({
+        enableDomOverlay: true,
+        enableCameraAccess: true,
+        enableDepthSensingFeature: true,
+        enableCss3dRenderer: true,
+        enableCameraTextureAcquisition: true,
+        applyChromiumProjectionLayerWorkaround: true,
+      });
+    });
+
+    it('merges partial depth options with defaults', () => {
+      const result = validateRecordingOptions({
+        depth: { enabled: false },
+      });
+      expect(result.depth.enabled).toBe(false);
+      expect(result.depth.intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.depth.intervalMs
+      );
+      expect(result.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+    });
+
+    it('merges partial images options with defaults', () => {
+      const result = validateRecordingOptions({
+        images: { quality: 0.9 },
+      });
+      expect(result.images.quality).toBe(0.9);
+      expect(result.images.enabled).toBe(
+        DEFAULT_RECORDING_OPTIONS.images.enabled
+      );
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
+    });
+  });
+
+  describe('loadRecordingOptions', () => {
+    it('returns defaults when localStorage is empty', () => {
+      const result = loadRecordingOptions();
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+      expect(localStorageMock.getItem).toHaveBeenCalledWith(STORAGE_KEY);
+    });
+
+    it('loads and validates stored options', () => {
+      const stored: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 2000, gridSize: 4 },
+        images: {
+          enabled: true,
+          intervalMs: 3000,
+          quality: 0.8,
+          resolutionDivisor: 2,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(stored));
+
+      const result = loadRecordingOptions();
+      expect(result).toEqual(stored);
+    });
+
+    it('merges partial stored options with defaults (schema evolution)', () => {
+      // Simulate older version that only had depth.enabled stored
+      const partialStored = { depth: { enabled: false } };
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify(partialStored)
+      );
+
+      const result = loadRecordingOptions();
+      expect(result.depth.enabled).toBe(false);
+      expect(result.depth.intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.depth.intervalMs
+      );
+      expect(result.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+    });
+
+    it('merges partial stored AR isolation options with defaults', () => {
+      // Why this test matters:
+      // The new diagnostic flags are added after the original recording
+      // settings feature, so old persisted objects must gain safe defaults.
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({
+          arCrashIsolation: { enableCss3dRenderer: false },
+        })
+      );
+
+      const result = loadRecordingOptions() as unknown as Record<
+        string,
+        unknown
+      >;
+      const flags = result.arCrashIsolation as
+        | Record<string, unknown>
+        | undefined;
+
+      expect(flags).toEqual({
+        enableDomOverlay: true,
+        enableCameraAccess: true,
+        enableDepthSensingFeature: true,
+        enableCss3dRenderer: false,
+        enableCameraTextureAcquisition: true,
+        applyChromiumProjectionLayerWorkaround: true,
+      });
+    });
+
+    it('returns defaults when stored JSON is invalid', () => {
+      localStorageMock.getItem.mockReturnValueOnce('not valid json');
+
+      const result = loadRecordingOptions();
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('clamps out-of-range stored values', () => {
+      const stored = {
+        depth: { intervalMs: 50 }, // below min
+        images: { quality: 2.0 }, // above max
+      };
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(stored));
+
+      const result = loadRecordingOptions();
+      expect(result.depth.intervalMs).toBe(DEPTH_CONSTRAINTS.intervalMs.min);
+      expect(result.images.quality).toBe(IMAGE_CONSTRAINTS.quality.max);
+    });
+  });
+
+  describe('saveRecordingOptions', () => {
+    it('saves validated options to localStorage', () => {
+      const options: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 1500, gridSize: 5 },
+        images: {
+          enabled: true,
+          intervalMs: 4000,
+          quality: 0.6,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      saveRecordingOptions(options);
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        STORAGE_KEY,
+        JSON.stringify(options)
+      );
+    });
+
+    it('clamps invalid values before saving', () => {
+      const options: RecordingOptions = {
+        depth: { enabled: true, intervalMs: 50, gridSize: 100 }, // invalid
+        images: {
+          enabled: true,
+          intervalMs: 500,
+          quality: 0.1,
+          resolutionDivisor: 0,
+        }, // invalid
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      saveRecordingOptions(options);
+
+      const savedValue = localStorageMock.setItem.mock.calls[0][1];
+      const savedOptions = JSON.parse(savedValue) as RecordingOptions;
+
+      expect(savedOptions.depth.intervalMs).toBe(
+        DEPTH_CONSTRAINTS.intervalMs.min
+      );
+      expect(savedOptions.depth.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.max);
+      expect(savedOptions.images.intervalMs).toBe(
+        IMAGE_CONSTRAINTS.intervalMs.min
+      );
+      expect(savedOptions.images.quality).toBe(IMAGE_CONSTRAINTS.quality.min);
+    });
+
+    it('persists AR crash isolation flags alongside recording options', () => {
+      // Why this test matters:
+      // Session-request and frame-loop flags must use the same persistence path
+      // as the existing settings so field experiments remain reproducible.
+      saveRecordingOptions({
+        ...DEFAULT_RECORDING_OPTIONS,
+        arCrashIsolation: {
+          enableDomOverlay: true,
+          enableCameraAccess: false,
+          enableDepthSensingFeature: true,
+          enableCss3dRenderer: false,
+          enableCameraTextureAcquisition: true,
+          applyChromiumProjectionLayerWorkaround: true,
+        },
+      });
+
+      const savedValue = localStorageMock.setItem.mock.calls[0][1];
+      const savedOptions = JSON.parse(savedValue) as Record<string, unknown>;
+
+      expect(savedOptions.arCrashIsolation).toEqual({
+        enableDomOverlay: true,
+        enableCameraAccess: false,
+        enableDepthSensingFeature: true,
+        enableCss3dRenderer: false,
+        enableCameraTextureAcquisition: true,
+        applyChromiumProjectionLayerWorkaround: true,
+      });
+    });
+  });
+
+  describe('resetRecordingOptions', () => {
+    it('removes options from localStorage', () => {
+      resetRecordingOptions();
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith(STORAGE_KEY);
+    });
+
+    it('returns default options', () => {
+      const result = resetRecordingOptions();
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+  });
+
+  describe('cloneRecordingOptions', () => {
+    it('creates a deep copy', () => {
+      const original = DEFAULT_RECORDING_OPTIONS;
+      const clone = cloneRecordingOptions(original);
+
+      // Values should be equal
+      expect(clone).toEqual(original);
+
+      // But not the same object references
+      expect(clone).not.toBe(original);
+      expect(clone.depth).not.toBe(original.depth);
+      expect(clone.images).not.toBe(original.images);
+    });
+
+    it('allows mutation without affecting original', () => {
+      const original = {
+        depth: { enabled: true, intervalMs: 1000, gridSize: 3 },
+        images: {
+          enabled: true,
+          intervalMs: 2000,
+          quality: 0.7,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: {
+          enableDomOverlay: true,
+          enableCameraAccess: true,
+          enableDepthSensingFeature: true,
+          enableCss3dRenderer: true,
+          enableCameraTextureAcquisition: true,
+        },
+      } as RecordingOptions;
+      const clone = cloneRecordingOptions(original);
+
+      clone.depth.enabled = false;
+      clone.images.quality = 0.5;
+      (
+        clone as unknown as {
+          arCrashIsolation: { enableCss3dRenderer: boolean };
+        }
+      ).arCrashIsolation.enableCss3dRenderer = false;
+
+      expect(original.depth.enabled).toBe(true);
+      expect(original.images.quality).toBe(0.7);
+      expect(
+        (
+          original as unknown as {
+            arCrashIsolation: { enableCss3dRenderer: boolean };
+          }
+        ).arCrashIsolation.enableCss3dRenderer
+      ).toBe(true);
+    });
+  });
+
+  describe('DEFAULT_RECORDING_OPTIONS', () => {
+    it('has depth enabled by default', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.depth.enabled).toBe(true);
+    });
+
+    it('has images enabled by default', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.images.enabled).toBe(true);
+    });
+
+    it('has reasonable default intervals', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.depth.intervalMs).toBe(1000);
+      expect(DEFAULT_RECORDING_OPTIONS.images.intervalMs).toBe(2000);
+    });
+
+    it('has resolutionDivisor defaulting to 1 (full resolution)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.images.resolutionDivisor).toBe(1);
+    });
+  });
+
+  describe('constraints', () => {
+    it('DEPTH_CONSTRAINTS has valid ranges', () => {
+      expect(DEPTH_CONSTRAINTS.intervalMs.min).toBeLessThan(
+        DEPTH_CONSTRAINTS.intervalMs.max
+      );
+      expect(DEPTH_CONSTRAINTS.gridSize.min).toBeLessThan(
+        DEPTH_CONSTRAINTS.gridSize.max
+      );
+    });
+
+    it('IMAGE_CONSTRAINTS has valid ranges', () => {
+      expect(IMAGE_CONSTRAINTS.intervalMs.min).toBeLessThan(
+        IMAGE_CONSTRAINTS.intervalMs.max
+      );
+      expect(IMAGE_CONSTRAINTS.quality.min).toBeLessThan(
+        IMAGE_CONSTRAINTS.quality.max
+      );
+    });
+
+    it('defaults are within constraint bounds', () => {
+      const { depth, images } = DEFAULT_RECORDING_OPTIONS;
+
+      expect(depth.intervalMs).toBeGreaterThanOrEqual(
+        DEPTH_CONSTRAINTS.intervalMs.min
+      );
+      expect(depth.intervalMs).toBeLessThanOrEqual(
+        DEPTH_CONSTRAINTS.intervalMs.max
+      );
+      expect(depth.gridSize).toBeGreaterThanOrEqual(
+        DEPTH_CONSTRAINTS.gridSize.min
+      );
+      expect(depth.gridSize).toBeLessThanOrEqual(
+        DEPTH_CONSTRAINTS.gridSize.max
+      );
+
+      expect(images.intervalMs).toBeGreaterThanOrEqual(
+        IMAGE_CONSTRAINTS.intervalMs.min
+      );
+      expect(images.intervalMs).toBeLessThanOrEqual(
+        IMAGE_CONSTRAINTS.intervalMs.max
+      );
+      expect(images.quality).toBeGreaterThanOrEqual(
+        IMAGE_CONSTRAINTS.quality.min
+      );
+      expect(images.quality).toBeLessThanOrEqual(IMAGE_CONSTRAINTS.quality.max);
+    });
+  });
+
+  describe('integration: round-trip persistence', () => {
+    it('options survive save → load cycle with exact values', () => {
+      const customOptions: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 2500, gridSize: 7 },
+        images: {
+          enabled: true,
+          intervalMs: 5000,
+          quality: 0.85,
+          resolutionDivisor: 2,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      saveRecordingOptions(customOptions);
+      const loaded = loadRecordingOptions();
+
+      expect(loaded).toEqual(customOptions);
+    });
+
+    it('multiple save/load cycles maintain consistency', () => {
+      const options1: RecordingOptions = {
+        depth: { enabled: true, intervalMs: 1000, gridSize: 3 },
+        images: {
+          enabled: false,
+          intervalMs: 2000,
+          quality: 0.5,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      saveRecordingOptions(options1);
+      const loaded1 = loadRecordingOptions();
+      expect(loaded1).toEqual(options1);
+
+      // Modify and save again
+      loaded1.depth.enabled = false;
+      loaded1.images.quality = 0.9;
+      saveRecordingOptions(loaded1);
+
+      const loaded2 = loadRecordingOptions();
+      expect(loaded2.depth.enabled).toBe(false);
+      expect(loaded2.images.quality).toBe(0.9);
+    });
+
+    it('reset → load returns exact defaults', () => {
+      // First save custom options
+      saveRecordingOptions({
+        depth: { enabled: false, intervalMs: 5000, gridSize: 10 },
+        images: {
+          enabled: false,
+          intervalMs: 10000,
+          quality: 0.3,
+          resolutionDivisor: 4,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      });
+
+      // Reset
+      resetRecordingOptions();
+
+      // Load should return defaults
+      const loaded = loadRecordingOptions();
+      expect(loaded).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('corrupted JSON in storage falls back to defaults gracefully', () => {
+      // Manually corrupt storage
+      localStorageMock.setItem(STORAGE_KEY, '{ broken json }}}');
+
+      const loaded = loadRecordingOptions();
+      expect(loaded).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('partially valid storage merges with defaults', () => {
+      // Store only depth settings (simulating old schema version)
+      const partialData = { depth: { enabled: false } };
+      localStorageMock.setItem(STORAGE_KEY, JSON.stringify(partialData));
+
+      const loaded = loadRecordingOptions();
+
+      // depth.enabled should be from storage
+      expect(loaded.depth.enabled).toBe(false);
+      // Other depth fields should be defaults
+      expect(loaded.depth.intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.depth.intervalMs
+      );
+      // images should be all defaults
+      expect(loaded.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+    });
+  });
+
+  describe('custom storage key (framework-readiness)', () => {
+    /**
+     * Why these tests matter:
+     * Framework-candidate modules must not hardcode app-specific storage keys.
+     * These tests verify that persistence functions accept a custom key so
+     * different apps using the framework can use independent storage namespaces.
+     */
+    const CUSTOM_KEY = 'my-custom-app-options';
+
+    it('loadRecordingOptions reads from custom key', () => {
+      const custom: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 2000, gridSize: 5 },
+        images: {
+          enabled: false,
+          intervalMs: 3000,
+          quality: 0.5,
+          resolutionDivisor: 2,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+      localStorageMock.setItem(CUSTOM_KEY, JSON.stringify(custom));
+
+      const loaded = loadRecordingOptions(CUSTOM_KEY);
+      expect(loaded.depth.enabled).toBe(false);
+      expect(loaded.depth.intervalMs).toBe(2000);
+      expect(loaded.images.quality).toBe(0.5);
+    });
+
+    it('saveRecordingOptions writes to custom key', () => {
+      const opts: RecordingOptions = {
+        ...DEFAULT_RECORDING_OPTIONS,
+        depth: { ...DEFAULT_RECORDING_OPTIONS.depth, enabled: false },
+      };
+      saveRecordingOptions(opts, CUSTOM_KEY);
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        CUSTOM_KEY,
+        expect.any(String)
+      );
+      // Default key should NOT have been touched
+      expect(localStorageMock.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('resetRecordingOptions clears custom key', () => {
+      localStorageMock.setItem(CUSTOM_KEY, '{"depth":{}}');
+      resetRecordingOptions(CUSTOM_KEY);
+
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith(CUSTOM_KEY);
+      expect(localStorageMock.getItem(CUSTOM_KEY)).toBeNull();
+    });
+
+    it('default key is used when no custom key provided', () => {
+      saveRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        STORAGE_KEY,
+        expect.any(String)
+      );
+    });
+  });
+});

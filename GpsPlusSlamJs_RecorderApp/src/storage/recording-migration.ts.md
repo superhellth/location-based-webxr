@@ -1,0 +1,48 @@
+# recording-migration.ts
+
+## Purpose
+
+Migrates old JS recording actions across five recording eras so the reducer always receives actions in the current format (era 5: raw WebXR positions + raw WebXR quaternions + `rawGpsPoint` + `rawDeviceOrientation`).
+
+## Public API
+
+### `ODOM_COORD_VERSION = 5`
+
+Version constant written to `session.json` (`odomCoordVersion: 5`) when stopping a new recording. Replay loading uses this to determine migration era.
+
+### `migrateActionsIfNeeded(actions, metadata)`
+
+- **Input:**
+  - `actions: RecordedAction[]` — Redux actions loaded from the zip file
+  - `metadata: Record<string, unknown> | null` — Parsed `session.json`, or `null` if absent
+- **Output:** `RecordedAction[]` — migrated actions (new array if migration applied, same reference if not)
+- **Error:** Never throws. Actions with malformed or missing payload fields are returned unmodified.
+
+## Five Recording Eras
+
+| Era | Period                    | `odomCoordVersion` | Positions in actions | Rotations in actions | GPS in actions | Migration needed                                                                     |
+| --- | ------------------------- | ------------------ | -------------------- | -------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| 1   | Pre-2026-03-15            | absent             | Raw WebXR            | Raw WebXR            | `gpsPoint`     | Rename `gpsPoint` → `rawGpsPoint`, strip derived fields, swap GPS coords ENU→NUE     |
+| 2   | 2026-03-15 → Conv1 change | `2`                | NUE (pre-converted)  | Raw WebXR            | `gpsPoint`     | Reverse positions NUE→WebXR, rename `gpsPoint` → `rawGpsPoint`, strip derived fields |
+| 3   | Conv1 → Conv2+3 change    | `3`                | Raw WebXR            | Raw WebXR            | `gpsPoint`     | Rename `gpsPoint` → `rawGpsPoint`, strip derived fields                              |
+| 4   | Pre-rotation-unification  | `4`                | Raw WebXR            | Raw WebXR            | `rawGpsPoint`  | No migration (pass-through)                                                          |
+| 5   | Current                   | `5`                | Raw WebXR            | Raw WebXR            | `rawGpsPoint`  | No migration (same action format as era 4; reducer converts rotations to NUE)        |
+
+## Invariants & Assumptions
+
+- **Idempotent for eras 4+5**: If `metadata.odomCoordVersion >= 4`, returns the original array unchanged (same reference). Eras 4 and 5 have identical action formats — the difference is state-side only (era 5 reducer applies `webxrQuaternionToNUE()` to all quaternion fields).
+- **Non-mutating**: Migrated recordings return new array with new payload objects. Original array is never mutated.
+- **Null metadata = era 1**: If `session.json` is absent, the recording is treated as era 1.
+- **`migrateGpsPointField()`** (internal): Renames `gpsPoint` to `rawGpsPoint` and strips derived fields (`coordinates`, `weight`, `zeroRef`, `deviceRotation`). Applied to eras 1, 2, and 3.
+- **Era 2 reverse-migration**: Undoes NUE positions back to WebXR via `[n,u,e] → [e, u, -n]` so the reducer can apply the standard forward conversion.
+- Action types migrated: `gpsData/recordGpsEvent`, `gpsData/markReferencePoint`, `gpsData/add2dImage`, `gpsData/odometryTrackingRestarted`.
+
+## Tests
+
+- `src/storage/recording-migration.test.ts` — 32 unit tests covering all five eras, GPS field migration, position reversal, malformed payload guards, immutability, empty arrays, and null metadata handling.
+
+## Related Docs
+
+- [Raw-storage pattern audit](../../GpsPlusSlamJs_Docs/docs/2026-04-10-raw-storage-pattern-audit.md) — Verification that actions carry raw values and reducers convert
+- [Store Raw, Convert on Read analysis](../../GpsPlusSlamJs_Docs/docs/2026-04-09-raw-storage-convert-on-read.md) — Feasibility study for the raw-storage pattern
+- [Raw data fidelity audit](../../GpsPlusSlamJs_Docs/docs/2026-04-08-raw-data-fidelity-audit.md) — Comprehensive audit of all persisted action payloads

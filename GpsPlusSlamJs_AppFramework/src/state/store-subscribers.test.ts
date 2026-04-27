@@ -1,0 +1,1974 @@
+/**
+ * Store Subscribers — Unit Tests
+ *
+ * Tests for the extracted store subscriber logic (Iteration 4, Risk R2 fix).
+ * This module decouples the subscriber wiring from main.ts so both the
+ * recording path and the replay path can reuse the same subscriber logic.
+ *
+ * Why these tests matter:
+ * - They verify that the extracted module behaves identically to the closures
+ *   that were previously inlined in main.ts.
+ * - They enable replay mode (Issue 2) by providing a reusable entry point for
+ *   wiring store → visualizer subscriptions.
+ * - They serve as regression guardrails: the main.ts refactor must not change
+ *   observable behavior.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { LatLong, Matrix4, Vector3, Quaternion } from 'gps-plus-slam-js';
+import type { CombinedRootState } from './store';
+import {
+  wireStoreSubscribers,
+  type StoreSubscriberDeps,
+  type SubscribableStore,
+} from './store-subscribers';
+
+// ---------------------------------------------------------------------------
+// Helpers — minimal mock factories
+// ---------------------------------------------------------------------------
+
+/** Build a minimal CombinedRootState with only the fields subscribers read. */
+function makeState(
+  overrides: {
+    gpsData?: CombinedRootState['gpsData'];
+  } = {}
+): CombinedRootState {
+  return {
+    gpsData: overrides.gpsData ?? null,
+    // Subscriber logic only reads gpsData, but CombinedRootState also has these:
+    gpsElements: {} as CombinedRootState['gpsElements'],
+    arElements: {} as CombinedRootState['arElements'],
+    recorder: {} as CombinedRootState['recorder'],
+    refPoints: {} as CombinedRootState['refPoints'],
+    routing: {} as CombinedRootState['routing'],
+  };
+}
+
+/** Create a mock store whose getState returns the given state, and whose
+ *  subscribe stores the listener for manual triggering. */
+function makeMockStore(initialState: CombinedRootState) {
+  let currentState = initialState;
+  const listeners: Array<() => void> = [];
+
+  return {
+    store: {
+      getState: () => currentState,
+      subscribe: (listener: () => void) => {
+        listeners.push(listener);
+        return () => {
+          const idx = listeners.indexOf(listener);
+          if (idx !== -1) {
+            listeners.splice(idx, 1);
+          }
+        };
+      },
+    } satisfies SubscribableStore,
+    /** Replace the state and fire all listeners (simulates a dispatch). */
+    setState(newState: CombinedRootState) {
+      currentState = newState;
+      for (const l of listeners) {
+        l();
+      }
+    },
+    /** Number of active listeners */
+    get listenerCount() {
+      return listeners.length;
+    },
+  };
+}
+
+/** Create a full set of mock deps. */
+function makeMockDeps() {
+  return {
+    applyAlignmentMatrix: vi.fn<(matrix: Matrix4) => void>(),
+    gpsEventVisualizer: {
+      getZeroRef: vi.fn<() => LatLong | null>().mockReturnValue(null),
+      setZeroRef: vi.fn<(zero: LatLong) => void>(),
+      addGpsEvent: vi.fn<(gpsCoords: Vector3, odomPosition: Vector3) => void>(),
+      addAlignmentSnapshot: vi.fn<(nuePosition: Vector3) => void>(),
+    },
+    mapOverlay: {
+      setGpsPosition: vi.fn<(lat: number, lon: number) => void>(),
+      addRawGpsPoint: vi.fn<(lat: number, lon: number) => void>(),
+    },
+  } satisfies StoreSubscriberDeps;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('wireStoreSubscribers', () => {
+  let deps: ReturnType<typeof makeMockDeps>;
+
+  beforeEach(() => {
+    deps = makeMockDeps();
+  });
+
+  // --- Subscription lifecycle ---
+
+  it('subscribes to the store and returns an unsubscribe function', () => {
+    // Why: wireStoreSubscribers must hook into the store's subscribe mechanism.
+    // Uses multiple selector subscriptions internally (alignment, GPS, ref points).
+    const mock = makeMockStore(makeState());
+    expect(mock.listenerCount).toBe(0);
+
+    const unsub = wireStoreSubscribers(mock.store, deps);
+    expect(mock.listenerCount).toBeGreaterThan(0);
+    expect(typeof unsub).toBe('function');
+  });
+
+  it('unsubscribe removes all listeners from the store', () => {
+    // Why: callers must be able to tear down subscriptions cleanly
+    const mock = makeMockStore(makeState());
+    const unsub = wireStoreSubscribers(mock.store, deps);
+    expect(mock.listenerCount).toBeGreaterThan(0);
+
+    unsub();
+    expect(mock.listenerCount).toBe(0);
+  });
+
+  it('after unsubscribe, state changes do not trigger callbacks', () => {
+    // Why: prevents leak — after cleanup no deps should be called
+    const mock = makeMockStore(makeState());
+    const unsub = wireStoreSubscribers(mock.store, deps);
+    unsub();
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [],
+            odometryPositions: [],
+          } as unknown as CombinedRootState['gpsData'] extends infer T
+            ? T extends { gpsEvents: infer E }
+              ? E
+              : never
+            : never,
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.applyAlignmentMatrix).not.toHaveBeenCalled();
+  });
+
+  // --- Alignment matrix ---
+
+  it('applies alignment matrix when state has one', () => {
+    // Why: core responsibility — alignment matrix must reach webxr-session
+    const alignmentMatrix = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 5, 5, 1,
+    ] as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix,
+            gpsPositions: [],
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.applyAlignmentMatrix).toHaveBeenCalledWith(alignmentMatrix);
+  });
+
+  it('does not call gpsEventVisualizer.updateAlignment (scene-graph handles it)', () => {
+    // Why: after Issue 5, fused markers live in arWorldGroup and get their
+    // world position via scene-graph propagation. No manual updateAlignment needed.
+    const alignmentMatrix = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    ] as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix,
+            gpsPositions: [],
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    // applyAlignmentMatrix should still be called (it sets arWorldGroup.matrix)
+    expect(deps.applyAlignmentMatrix).toHaveBeenCalledWith(alignmentMatrix);
+    // But no updateAlignment on the visualizer — scene-graph handles it
+    expect(
+      (deps.gpsEventVisualizer as Record<string, unknown>).updateAlignment
+    ).toBeUndefined();
+  });
+
+  it('does not apply alignment when gpsData is null', () => {
+    // Why: before setZeroPos, gpsData is null — must not crash
+    const mock = makeMockStore(makeState({ gpsData: null }));
+    wireStoreSubscribers(mock.store, deps);
+
+    // Trigger subscriber with null gpsData
+    mock.setState(makeState({ gpsData: null }));
+
+    expect(deps.applyAlignmentMatrix).not.toHaveBeenCalled();
+  });
+
+  // --- GPS event visualization ---
+
+  it('sets zero ref on gpsEventVisualizer when available and not yet set', () => {
+    // Why: the visualizer needs the zero reference to convert GPS coords
+    deps.gpsEventVisualizer.getZeroRef.mockReturnValue(null);
+    const zero = { lat: 50.1, lon: 8.2 };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero,
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [],
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.gpsEventVisualizer.setZeroRef).toHaveBeenCalledWith(zero);
+  });
+
+  it('does not set zero ref if already set', () => {
+    // Why: setZeroRef should only be called once (idempotent guard)
+    deps.gpsEventVisualizer.getZeroRef.mockReturnValue({ lat: 50.1, lon: 8.2 });
+    const zero = { lat: 50.1, lon: 8.2 };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero,
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [],
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.gpsEventVisualizer.setZeroRef).not.toHaveBeenCalled();
+  });
+
+  it('adds GPS event markers incrementally for new events', () => {
+    // Why: core responsibility — new GPS events must produce visualization markers
+    const gpsPoint1 = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const odom1: Vector3 = [0.5, 0, 0.5];
+
+    const gpsPoint2 = {
+      id: 'gps-2',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.002,
+      longitude: 8.002,
+      coordinates: [2, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now() + 1000,
+    };
+    const odom2: Vector3 = [1.0, 0, 1.0];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    // First update: 1 GPS event
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1],
+            odometryPositions: [odom1],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenCalledTimes(1);
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenCalledWith(
+      gpsPoint1.coordinates,
+      odom1
+    );
+
+    // Second update: 2 GPS events — only the new one should be added
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1, gpsPoint2],
+            odometryPositions: [odom1, odom2],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenCalledTimes(2);
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenLastCalledWith(
+      gpsPoint2.coordinates,
+      odom2
+    );
+  });
+
+  it('skips GPS events where gpsPoint or odomPos is missing', () => {
+    // Why: defensive — incomplete data should be silently skipped, not crash
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [
+              {
+                id: 'gps-1',
+                zeroRef: { lat: 50, lon: 8 },
+                latitude: 50.001,
+                longitude: 8.001,
+                coordinates: [1, 0, 0] as Vector3,
+                weight: 1,
+                timestamp: Date.now(),
+              },
+            ],
+            // odometryPositions has no matching entry
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.gpsEventVisualizer.addGpsEvent).not.toHaveBeenCalled();
+  });
+
+  // --- Map overlay ---
+
+  it('updates map overlay with latest GPS position', () => {
+    // Why: the 2D map must track the user's position during live & replay
+    const gpsPoint = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.123,
+      longitude: 8.456,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint],
+            odometryPositions: [[0.5, 0, 0.5]],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.mapOverlay.setGpsPosition).toHaveBeenCalledWith(50.123, 8.456);
+  });
+
+  it('handles null mapOverlay gracefully', () => {
+    // Why: replay mode may not have a map overlay (optional dependency)
+    const depsNoMap: StoreSubscriberDeps = {
+      ...deps,
+      mapOverlay: null,
+    };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsNoMap);
+
+    // Should not throw when map overlay is null
+    expect(() => {
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[0.5, 0, 0.5]],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+    }).not.toThrow();
+  });
+
+  it('does not update map overlay when no GPS positions exist', () => {
+    // Why: before any GPS events, there's nothing to show on the map
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [],
+            odometryPositions: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.mapOverlay.setGpsPosition).not.toHaveBeenCalled();
+  });
+
+  it('calls addRawGpsPoint on mapOverlay for each new GPS event', () => {
+    // Why: The Leaflet map overlay (Approach E) needs raw GPS breadcrumbs
+    // to draw the GPS path polyline. Each new GPS event should feed its
+    // lat/lng to the map overlay.
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps);
+
+    const gpsPoint1 = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const gpsPoint2 = {
+      id: 'gps-2',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.002,
+      longitude: 8.002,
+      coordinates: [2, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1, gpsPoint2],
+            odometryPositions: [
+              [0.5, 0, 0.5],
+              [1.0, 0, 1.0],
+            ],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(deps.mapOverlay.addRawGpsPoint).toHaveBeenCalledTimes(2);
+    expect(deps.mapOverlay.addRawGpsPoint).toHaveBeenCalledWith(50.001, 8.001);
+    expect(deps.mapOverlay.addRawGpsPoint).toHaveBeenCalledWith(50.002, 8.002);
+  });
+
+  it('handles mapOverlay without addRawGpsPoint gracefully', () => {
+    // Why: Existing callers may pass a mapOverlay that only has setGpsPosition.
+    // The addRawGpsPoint call is optional-chained and must not throw.
+    const depsMinimal: StoreSubscriberDeps = {
+      ...deps,
+      mapOverlay: {
+        setGpsPosition: vi.fn(),
+        // No addRawGpsPoint
+      },
+    };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsMinimal);
+
+    expect(() => {
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[0.5, 0, 0.5]],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+    }).not.toThrow();
+  });
+
+  // --- Orbit target auto-follow (Risk R9 fix) ---
+
+  it('calls onNewGpsPosition with the latest GPS coordinates when a new event arrives', () => {
+    // Why: In replay mode the orbit camera must auto-follow the latest GPS
+    // position so the user sees events as they appear. Without this, the camera
+    // stays at the origin and the user sees an empty scene (Risk R9).
+    const onNewGpsPosition = vi.fn<(coords: Vector3) => void>();
+    const depsWithOrbit: StoreSubscriberDeps = {
+      ...deps,
+      onNewGpsPosition,
+    };
+
+    const gpsPoint = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [3, 0.5, 7] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const odom: Vector3 = [0.5, 0, 0.5];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithOrbit);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint],
+            odometryPositions: [odom],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(onNewGpsPosition).toHaveBeenCalledTimes(1);
+    expect(onNewGpsPosition).toHaveBeenCalledWith([3, 0.5, 7]);
+  });
+
+  it('calls onNewGpsPosition with the LAST new GPS coordinate when multiple events arrive', () => {
+    // Why: When multiple events arrive at once (e.g. high-speed replay), the
+    // orbit target should jump to the most recent position, not intermediate ones.
+    const onNewGpsPosition = vi.fn<(coords: Vector3) => void>();
+    const depsWithOrbit: StoreSubscriberDeps = {
+      ...deps,
+      onNewGpsPosition,
+    };
+
+    const gpsPoint1 = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const gpsPoint2 = {
+      id: 'gps-2',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.002,
+      longitude: 8.002,
+      coordinates: [2, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now() + 1000,
+    };
+    const odom1: Vector3 = [0.5, 0, 0.5];
+    const odom2: Vector3 = [1.0, 0, 1.0];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithOrbit);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1, gpsPoint2],
+            odometryPositions: [odom1, odom2],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    // Called once per new event
+    expect(onNewGpsPosition).toHaveBeenCalledTimes(2);
+    // Last call should be the latest position
+    expect(onNewGpsPosition).toHaveBeenLastCalledWith([2, 0, 0]);
+  });
+
+  it('does not call onNewGpsPosition when callback is not provided', () => {
+    // Why: The callback is optional — live recording mode does not pass it.
+    // Ensures backwards compatibility (no crash when undefined).
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps); // deps has no onNewGpsPosition
+
+    expect(() => {
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[0.5, 0, 0.5]],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+    }).not.toThrow();
+  });
+
+  // --- Fresh counter per subscription ---
+
+  it('each wireStoreSubscribers call starts with a fresh event counter', () => {
+    // Why: when starting a new recording or replay, the counter must reset.
+    // The old inline code used a module-level variable that was manually reset.
+    // The extracted version must be self-contained per subscription.
+    const gpsPoint1 = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const odom1: Vector3 = [0.5, 0, 0.5];
+
+    const stateWithOneEvent = makeState({
+      gpsData: {
+        zero: { lat: 50, lon: 8 },
+        gpsEvents: {
+          alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+          gpsPositions: [gpsPoint1],
+          odometryPositions: [odom1],
+        },
+        odometryPath: { positions: [], rotations: [] },
+        referencePoints: [],
+      } as unknown as CombinedRootState['gpsData'],
+    });
+
+    // First subscription
+    const mock = makeMockStore(makeState());
+    const unsub1 = wireStoreSubscribers(mock.store, deps);
+    mock.setState(stateWithOneEvent);
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenCalledTimes(1);
+    unsub1();
+
+    // Reset mocks
+    deps.gpsEventVisualizer.addGpsEvent.mockClear();
+
+    // Second subscription — counter should be fresh, so the same event is added again
+    const unsub2 = wireStoreSubscribers(mock.store, deps);
+    mock.setState(stateWithOneEvent);
+    expect(deps.gpsEventVisualizer.addGpsEvent).toHaveBeenCalledTimes(1);
+    unsub2();
+  });
+
+  // --- 6.2: arpose odom pose subscriber ---
+
+  it('calls onNewOdomPose with odom position and rotation when a new event arrives', () => {
+    // Why: In replay mode the arpose Object3D must receive the recorded
+    // odomPosition/odomRotation so camera (child of arpose) moves along
+    // the recorded path. Without this subscriber, arpose stays at identity
+    // and the replay camera never follows the recorded trajectory.
+    const onNewOdomPose =
+      vi.fn<(odomPosition: Vector3, odomRotation: Quaternion) => void>();
+    const depsWithOdom: StoreSubscriberDeps = {
+      ...deps,
+      onNewOdomPose,
+    };
+
+    const gpsPoint = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [3, 0.5, 7] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const odomPos: Vector3 = [1.5, 0.2, -0.8];
+    const odomRot: Quaternion = [0.1, 0.2, 0.3, 0.9];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithOdom);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint],
+            odometryPositions: [odomPos],
+            odometryRotations: [odomRot],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(onNewOdomPose).toHaveBeenCalledTimes(1);
+    expect(onNewOdomPose).toHaveBeenCalledWith(odomPos, odomRot);
+  });
+
+  it('calls onNewOdomPose for each new event incrementally', () => {
+    // Why: When multiple events arrive, onNewOdomPose must fire for each
+    // new event so arpose updates incrementally, matching the recording.
+    const onNewOdomPose =
+      vi.fn<(odomPosition: Vector3, odomRotation: Quaternion) => void>();
+    const depsWithOdom: StoreSubscriberDeps = {
+      ...deps,
+      onNewOdomPose,
+    };
+
+    const gpsPoint1 = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [1, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const gpsPoint2 = {
+      id: 'gps-2',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.002,
+      longitude: 8.002,
+      coordinates: [2, 0, 0] as Vector3,
+      weight: 1,
+      timestamp: Date.now() + 1000,
+    };
+    const odomPos1: Vector3 = [0.5, 0, 0.5];
+    const odomRot1: Quaternion = [0, 0, 0, 1];
+    const odomPos2: Vector3 = [1.0, 0, 1.0];
+    const odomRot2: Quaternion = [0.1, 0.2, 0.3, 0.9];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithOdom);
+
+    // First update: 1 event
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1],
+            odometryPositions: [odomPos1],
+            odometryRotations: [odomRot1],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+    expect(onNewOdomPose).toHaveBeenCalledTimes(1);
+
+    // Second update: 2 events — only the new one fires
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint1, gpsPoint2],
+            odometryPositions: [odomPos1, odomPos2],
+            odometryRotations: [odomRot1, odomRot2],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+    expect(onNewOdomPose).toHaveBeenCalledTimes(2);
+    expect(onNewOdomPose).toHaveBeenLastCalledWith(odomPos2, odomRot2);
+  });
+
+  it('does not crash when onNewOdomPose is not provided', () => {
+    // Why: Live recording mode does not pass onNewOdomPose (arpose is
+    // identity during recording). Must not crash.
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps); // deps has no onNewOdomPose
+
+    expect(() => {
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[0.5, 0, 0.5]],
+              odometryRotations: [[0, 0, 0, 1]],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+    }).not.toThrow();
+  });
+
+  it('skips onNewOdomPose when odom rotation is missing for an event', () => {
+    // Why: Defensive — if odometryRotations array is shorter than
+    // odometryPositions, skip rather than pass undefined.
+    const onNewOdomPose =
+      vi.fn<(odomPosition: Vector3, odomRotation: Quaternion) => void>();
+    const depsWithOdom: StoreSubscriberDeps = {
+      ...deps,
+      onNewOdomPose,
+    };
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithOdom);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [
+              {
+                id: 'gps-1',
+                zeroRef: { lat: 50, lon: 8 },
+                latitude: 50.001,
+                longitude: 8.001,
+                coordinates: [1, 0, 0] as Vector3,
+                weight: 1,
+                timestamp: Date.now(),
+              },
+            ],
+            odometryPositions: [[0.5, 0, 0.5]],
+            // odometryRotations is empty — no matching rotation
+            odometryRotations: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(onNewOdomPose).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Alignment snapshot collection (Issue #1 — feedback session 2026-03-21)
+  // ---------------------------------------------------------------------------
+  describe('alignment snapshot collection', () => {
+    const identity = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    ] as Matrix4;
+    const translation5 = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1,
+    ] as Matrix4;
+    const translation10 = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 0, 1,
+    ] as Matrix4;
+
+    function makeGpsState(
+      overrides: {
+        alignmentMatrix?: Matrix4 | null;
+        gpsPositions?: Array<{
+          latitude: number;
+          longitude: number;
+          zeroRef: LatLong;
+          coordinates: Vector3;
+          weight: number;
+          timestamp: number;
+        }>;
+        odometryPositions?: Vector3[];
+      } = {}
+    ): CombinedRootState {
+      return makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: overrides.alignmentMatrix ?? null,
+            gpsPositions: overrides.gpsPositions ?? [],
+            odometryPositions: overrides.odometryPositions ?? [],
+            odometryRotations: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      });
+    }
+
+    it('calls addAlignmentSnapshot when alignment matrix first appears', () => {
+      // Why: the first alignment update after the system starts is the first
+      // "best GPS estimate" — it must be captured as a snapshot.
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      // State change: alignment matrix appears with an odom position
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: identity,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[1, 2, 3]],
+        })
+      );
+
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(1);
+      // identity × [1,2,3] = [1,2,3]
+      const callArg =
+        deps.gpsEventVisualizer.addAlignmentSnapshot.mock.calls[0][0];
+      expect(callArg[0]).toBeCloseTo(1);
+      expect(callArg[1]).toBeCloseTo(2);
+      expect(callArg[2]).toBeCloseTo(3);
+    });
+
+    it('calls addAlignmentSnapshot when alignment matrix changes', () => {
+      // Why: each alignment re-computation (after new GPS data) produces a
+      // better GPS estimate — the snapshot captures the estimate at that time.
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      // First alignment
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: translation5,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[1, 0, 0]],
+        })
+      );
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(1);
+
+      // Second alignment (matrix changed)
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: translation10,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+            {
+              latitude: 50.001,
+              longitude: 8.001,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [5, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [
+            [1, 0, 0],
+            [2, 0, 0],
+          ],
+        })
+      );
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(2);
+
+      // Second snapshot uses translation10 × [2,0,0] = [12, 0, 0]
+      const call2 =
+        deps.gpsEventVisualizer.addAlignmentSnapshot.mock.calls[1][0];
+      expect(call2[0]).toBeCloseTo(12);
+    });
+
+    it('does NOT call addAlignmentSnapshot when alignment matrix is unchanged', () => {
+      // Why: same alignment matrix means no new GPS data — no new snapshot needed.
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      const state = makeGpsState({
+        alignmentMatrix: identity,
+        gpsPositions: [
+          {
+            latitude: 50,
+            longitude: 8,
+            zeroRef: { lat: 50, lon: 8 },
+            coordinates: [0, 0, 0],
+            weight: 1,
+            timestamp: Date.now(),
+          },
+        ],
+        odometryPositions: [[1, 0, 0]],
+      });
+
+      mock.setState(state);
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(1);
+
+      // Same state again (alignment unchanged — same object reference)
+      mock.setState(state);
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT call addAlignmentSnapshot when there are no odom positions', () => {
+      // Why: without an odometry position we have nothing to transform
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: identity,
+          odometryPositions: [],
+        })
+      );
+
+      expect(
+        deps.gpsEventVisualizer.addAlignmentSnapshot
+      ).not.toHaveBeenCalled();
+    });
+
+    it('uses the latest odometry position for the snapshot', () => {
+      // Why: the latest odom position is the current device position
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: translation5,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+            {
+              latitude: 50.001,
+              longitude: 8.001,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [5, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [
+            [1, 0, 0],
+            [3, 0, 0],
+          ],
+        })
+      );
+
+      // translation5 × [3,0,0] = [8, 0, 0] (uses last odom, not first)
+      const callArg =
+        deps.gpsEventVisualizer.addAlignmentSnapshot.mock.calls[0][0];
+      expect(callArg[0]).toBeCloseTo(8);
+    });
+
+    it('computes correct NUE position with a non-trivial alignment matrix', () => {
+      // Why: verifies the matrix×vector math is correct for arbitrary transforms
+      // This matrix translates by (10, 20, 30) — column-major
+      const translationMatrix = [
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1,
+      ] as Matrix4;
+
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: translationMatrix,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[5, 0, 0]],
+        })
+      );
+
+      // translation(10,20,30) × [5,0,0] = [15, 20, 30]
+      const callArg =
+        deps.gpsEventVisualizer.addAlignmentSnapshot.mock.calls[0][0];
+      expect(callArg[0]).toBeCloseTo(15);
+      expect(callArg[1]).toBeCloseTo(20);
+      expect(callArg[2]).toBeCloseTo(30);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // onAlignmentSnapshot callback (Issue #3 — feedback session 2026-03-21)
+  // ---------------------------------------------------------------------------
+  describe('onAlignmentSnapshot callback', () => {
+    const translation5 = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1,
+    ] as Matrix4;
+
+    function makeGpsState(
+      overrides: {
+        alignmentMatrix?: Matrix4 | null;
+        gpsPositions?: Array<{
+          latitude: number;
+          longitude: number;
+          zeroRef: LatLong;
+          coordinates: Vector3;
+          weight: number;
+          timestamp: number;
+        }>;
+        odometryPositions?: Vector3[];
+      } = {}
+    ): CombinedRootState {
+      return makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: overrides.alignmentMatrix ?? null,
+            gpsPositions: overrides.gpsPositions ?? [],
+            odometryPositions: overrides.odometryPositions ?? [],
+            odometryRotations: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      });
+    }
+
+    it('calls onAlignmentSnapshot with the transformed NUE position when alignment changes', () => {
+      // Why (Issue #3): Replay mode needs the snapshot NUE position to
+      // update the orbit camera target. The onAlignmentSnapshot callback
+      // provides this without coupling store-subscribers to the scene.
+      const onAlignmentSnapshot = vi.fn();
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, { ...deps, onAlignmentSnapshot });
+
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: translation5,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[2, 0, 0]],
+        })
+      );
+
+      expect(onAlignmentSnapshot).toHaveBeenCalledTimes(1);
+      // translation5 × [2,0,0] = [7, 0, 0]
+      const callArg = onAlignmentSnapshot.mock.calls[0][0] as number[];
+      expect(callArg[0]).toBeCloseTo(7);
+      expect(callArg[1]).toBeCloseTo(0);
+      expect(callArg[2]).toBeCloseTo(0);
+    });
+
+    it('is optional — no crash when omitted', () => {
+      // Why: live recording mode does not need this callback
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps); // deps has no onAlignmentSnapshot
+
+      expect(() =>
+        mock.setState(
+          makeGpsState({
+            alignmentMatrix: translation5,
+            gpsPositions: [
+              {
+                latitude: 50,
+                longitude: 8,
+                zeroRef: { lat: 50, lon: 8 },
+                coordinates: [0, 0, 0],
+                weight: 1,
+                timestamp: Date.now(),
+              },
+            ],
+            odometryPositions: [[1, 0, 0]],
+          })
+        )
+      ).not.toThrow();
+    });
+  });
+
+  // --- onNewGpsLatLng callback ---
+
+  /**
+   * Why these tests matter:
+   * The onNewGpsLatLng callback enables live ref point button label updates
+   * by forwarding raw lat/lng from each GPS event to the caller. This follows
+   * the same optional callback pattern as onNewGpsPosition / onNewOdomPose.
+   * See: docs/2026-03-21-live-ref-point-button-plan.md, Change C.
+   */
+
+  it('calls onNewGpsLatLng with latitude and longitude of each new GPS event', () => {
+    const onNewGpsLatLng = vi.fn<(lat: number, lng: number) => void>();
+    const depsWithLatLng: StoreSubscriberDeps = {
+      ...deps,
+      onNewGpsLatLng,
+    };
+
+    const gpsPoint = {
+      id: 'gps-1',
+      zeroRef: { lat: 50, lon: 8 },
+      latitude: 50.001,
+      longitude: 8.001,
+      coordinates: [3, 0.5, 7] as Vector3,
+      weight: 1,
+      timestamp: Date.now(),
+    };
+    const odom: Vector3 = [0.5, 0, 0.5];
+
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, depsWithLatLng);
+
+    mock.setState(
+      makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            gpsPositions: [gpsPoint],
+            odometryPositions: [odom],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      })
+    );
+
+    expect(onNewGpsLatLng).toHaveBeenCalledTimes(1);
+    expect(onNewGpsLatLng).toHaveBeenCalledWith(50.001, 8.001);
+  });
+
+  it('does not call onNewGpsLatLng when callback is not provided', () => {
+    const mock = makeMockStore(makeState());
+    wireStoreSubscribers(mock.store, deps); // deps has no onNewGpsLatLng
+
+    expect(() => {
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[0.5, 0, 0.5]],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+    }).not.toThrow();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 1b: Map overlay — fused path, alignment snapshots, reference points
+  // ---------------------------------------------------------------------------
+
+  describe('map overlay fused path (addFusedPoint)', () => {
+    // Why these tests matter:
+    // The Leaflet map overlay (Approach E) shows a cyan fused path polyline.
+    // For each new GPS event, the subscriber must compute the fused GPS position
+    // (alignmentMatrix × odomPosition → calcGpsCoords) and feed it to the map.
+
+    it('calls addFusedPoint with fused GPS coordinates for each new event', () => {
+      // Why: the fused path is the alignment-corrected trajectory and must
+      // appear as a cyan polyline on the Leaflet map overlay.
+      const depsWithFused: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addFusedPoint: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, depsWithFused);
+
+      // Identity alignment matrix — fused = raw odom in NUE
+      // odom [10, 0, 0] in NUE (North=10m, Up=0, East=0)
+      // zero (50, 8) → fused lat ≈ 50 + 10/110989 ≈ 50.0000901
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[10, 0, 0] as Vector3],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithFused.mapOverlay!.addFusedPoint).toHaveBeenCalledTimes(1);
+      const [lat, lon] = (
+        depsWithFused.mapOverlay!.addFusedPoint as ReturnType<typeof vi.fn>
+      ).mock.calls[0];
+      // 10m north from lat 50 → lat ≈ 50 + 10/110989
+      expect(lat).toBeCloseTo(50 + 10 / 110989, 4);
+      expect(lon).toBeCloseTo(8, 4);
+    });
+
+    it('does not call addFusedPoint when alignment matrix is missing', () => {
+      // Why: without alignment, the fused transform is undefined — skip.
+      const depsWithFused: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addFusedPoint: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, depsWithFused);
+
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: null as unknown as Matrix4,
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[10, 0, 0] as Vector3],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithFused.mapOverlay!.addFusedPoint).not.toHaveBeenCalled();
+    });
+
+    it('does not call addFusedPoint when zeroRef is missing', () => {
+      // Why: without the GPS origin, NUE→GPS conversion is impossible.
+      const depsWithFused: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addFusedPoint: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, depsWithFused);
+
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: null as unknown as { lat: number; lon: number },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [
+                {
+                  id: 'gps-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.001,
+                  longitude: 8.001,
+                  coordinates: [1, 0, 0] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[10, 0, 0] as Vector3],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithFused.mapOverlay!.addFusedPoint).not.toHaveBeenCalled();
+    });
+
+    it('handles mapOverlay without addFusedPoint gracefully', () => {
+      // Why: existing callers may not provide addFusedPoint — must not crash.
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, deps); // deps.mapOverlay has no addFusedPoint
+
+      expect(() => {
+        mock.setState(
+          makeState({
+            gpsData: {
+              zero: { lat: 50, lon: 8 },
+              gpsEvents: {
+                alignmentMatrix: [
+                  1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+                ],
+                gpsPositions: [
+                  {
+                    id: 'gps-1',
+                    zeroRef: { lat: 50, lon: 8 },
+                    latitude: 50.001,
+                    longitude: 8.001,
+                    coordinates: [1, 0, 0] as Vector3,
+                    weight: 1,
+                    timestamp: Date.now(),
+                  },
+                ],
+                odometryPositions: [[0.5, 0, 0.5]],
+              },
+              odometryPath: { positions: [], rotations: [] },
+              referencePoints: [],
+            } as unknown as CombinedRootState['gpsData'],
+          })
+        );
+      }).not.toThrow();
+    });
+  });
+
+  describe('map overlay alignment snapshots (addAlignmentSnapshot)', () => {
+    // Why these tests matter:
+    // When the alignment matrix changes, a snapshot NUE position is computed.
+    // The subscriber already calls gpsEventVisualizer.addAlignmentSnapshot (3D).
+    // It must also call mapOverlay.addAlignmentSnapshot with GPS lat/lon (2D).
+
+    const identity = [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    ] as Matrix4;
+
+    function makeGpsState(
+      overrides: {
+        alignmentMatrix?: Matrix4 | null;
+        gpsPositions?: Array<{
+          latitude: number;
+          longitude: number;
+          zeroRef: { lat: number; lon: number };
+          coordinates: Vector3;
+          weight: number;
+          timestamp: number;
+        }>;
+        odometryPositions?: Vector3[];
+      } = {}
+    ): CombinedRootState {
+      return makeState({
+        gpsData: {
+          zero: { lat: 50, lon: 8 },
+          gpsEvents: {
+            alignmentMatrix: overrides.alignmentMatrix ?? null,
+            gpsPositions: overrides.gpsPositions ?? [],
+            odometryPositions: overrides.odometryPositions ?? [],
+            odometryRotations: [],
+          },
+          odometryPath: { positions: [], rotations: [] },
+          referencePoints: [],
+        } as unknown as CombinedRootState['gpsData'],
+      });
+    }
+
+    it('calls mapOverlay.addAlignmentSnapshot with GPS coords when alignment changes', () => {
+      // Why: the 2D map needs a red marker at each alignment snapshot position.
+      const depsWithSnapshot: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addAlignmentSnapshot: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, depsWithSnapshot);
+
+      // identity × [10, 0, 0] = [10, 0, 0] (NUE: north=10, up=0, east=0)
+      mock.setState(
+        makeGpsState({
+          alignmentMatrix: identity,
+          gpsPositions: [
+            {
+              latitude: 50,
+              longitude: 8,
+              zeroRef: { lat: 50, lon: 8 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[10, 0, 0]],
+        })
+      );
+
+      expect(
+        depsWithSnapshot.mapOverlay!.addAlignmentSnapshot
+      ).toHaveBeenCalledTimes(1);
+      const [lat, lon] = (
+        depsWithSnapshot.mapOverlay!.addAlignmentSnapshot as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls[0];
+      expect(lat).toBeCloseTo(50 + 10 / 110989, 4);
+      expect(lon).toBeCloseTo(8, 4);
+    });
+
+    it('does not call mapOverlay.addAlignmentSnapshot when zeroRef is missing', () => {
+      // Why: without GPS origin, NUE→GPS conversion is impossible.
+      const depsWithSnapshot: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addAlignmentSnapshot: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(
+        makeState({
+          gpsData: {
+            zero: null,
+            gpsEvents: {
+              alignmentMatrix: null,
+              gpsPositions: [],
+              odometryPositions: [],
+              odometryRotations: [],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+      wireStoreSubscribers(mock.store, depsWithSnapshot);
+
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: null,
+            gpsEvents: {
+              alignmentMatrix: identity,
+              gpsPositions: [
+                {
+                  latitude: 50,
+                  longitude: 8,
+                  zeroRef: { lat: 50, lon: 8 },
+                  coordinates: [0, 0, 0],
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+              ],
+              odometryPositions: [[10, 0, 0]],
+              odometryRotations: [],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(
+        depsWithSnapshot.mapOverlay!.addAlignmentSnapshot
+      ).not.toHaveBeenCalled();
+    });
+
+    it('handles mapOverlay without addAlignmentSnapshot gracefully', () => {
+      // Why: existing callers may not provide addAlignmentSnapshot — must not crash.
+      const mock = makeMockStore(makeGpsState());
+      wireStoreSubscribers(mock.store, deps);
+
+      expect(() => {
+        mock.setState(
+          makeGpsState({
+            alignmentMatrix: identity,
+            gpsPositions: [
+              {
+                latitude: 50,
+                longitude: 8,
+                zeroRef: { lat: 50, lon: 8 },
+                coordinates: [0, 0, 0],
+                weight: 1,
+                timestamp: Date.now(),
+              },
+            ],
+            odometryPositions: [[10, 0, 0]],
+          })
+        );
+      }).not.toThrow();
+    });
+  });
+
+  describe('map overlay reference points (addRefPoint)', () => {
+    // Why these tests matter:
+    // When the user marks a reference point during recording, it should appear
+    // on the Leaflet map overlay as a named marker. The subscriber must detect
+    // new entries in state.gpsData.referencePoints and forward them.
+
+    it('calls addRefPoint when a new reference point appears in state', () => {
+      // Why: reference points marked during recording must appear on the map.
+      const depsWithRefPoint: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addRefPoint: vi.fn(),
+        },
+      };
+
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, depsWithRefPoint);
+
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [],
+              odometryPositions: [],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [
+              {
+                id: 'bench',
+                position: [1, 0, 0] as Vector3,
+                rotation: [0, 0, 0, 1] as [number, number, number, number],
+                gpsPoint: {
+                  id: 'gps-ref-1',
+                  zeroRef: { lat: 50, lon: 8 },
+                  latitude: 50.123,
+                  longitude: 8.456,
+                  coordinates: [10, 0, 5] as Vector3,
+                  weight: 1,
+                  timestamp: Date.now(),
+                },
+                timestamp: Date.now(),
+              },
+            ],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithRefPoint.mapOverlay!.addRefPoint).toHaveBeenCalledTimes(1);
+      expect(depsWithRefPoint.mapOverlay!.addRefPoint).toHaveBeenCalledWith(
+        50.123,
+        8.456,
+        'bench'
+      );
+    });
+
+    it('only calls addRefPoint for newly added reference points', () => {
+      // Why: incremental — only new ref points should be forwarded, not existing ones.
+      const depsWithRefPoint: StoreSubscriberDeps = {
+        ...deps,
+        mapOverlay: {
+          setGpsPosition: vi.fn(),
+          addRawGpsPoint: vi.fn(),
+          addRefPoint: vi.fn(),
+        },
+      };
+
+      const refPoint1 = {
+        id: 'bench',
+        position: [1, 0, 0] as Vector3,
+        rotation: [0, 0, 0, 1] as [number, number, number, number],
+        gpsPoint: {
+          id: 'gps-ref-1',
+          zeroRef: { lat: 50, lon: 8 },
+          latitude: 50.123,
+          longitude: 8.456,
+          coordinates: [10, 0, 5] as Vector3,
+          weight: 1,
+          timestamp: Date.now(),
+        },
+        timestamp: Date.now(),
+      };
+      const refPoint2 = {
+        id: 'tree',
+        position: [5, 0, 3] as Vector3,
+        rotation: [0, 0, 0, 1] as [number, number, number, number],
+        gpsPoint: {
+          id: 'gps-ref-2',
+          zeroRef: { lat: 50, lon: 8 },
+          latitude: 50.2,
+          longitude: 8.3,
+          coordinates: [20, 0, 10] as Vector3,
+          weight: 1,
+          timestamp: Date.now(),
+        },
+        timestamp: Date.now(),
+      };
+
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, depsWithRefPoint);
+
+      // First update: 1 ref point
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [],
+              odometryPositions: [],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [refPoint1],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithRefPoint.mapOverlay!.addRefPoint).toHaveBeenCalledTimes(1);
+
+      // Second update: 2 ref points — only the new one should be forwarded
+      mock.setState(
+        makeState({
+          gpsData: {
+            zero: { lat: 50, lon: 8 },
+            gpsEvents: {
+              alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+              gpsPositions: [],
+              odometryPositions: [],
+            },
+            odometryPath: { positions: [], rotations: [] },
+            referencePoints: [refPoint1, refPoint2],
+          } as unknown as CombinedRootState['gpsData'],
+        })
+      );
+
+      expect(depsWithRefPoint.mapOverlay!.addRefPoint).toHaveBeenCalledTimes(2);
+      expect(depsWithRefPoint.mapOverlay!.addRefPoint).toHaveBeenLastCalledWith(
+        50.2,
+        8.3,
+        'tree'
+      );
+    });
+
+    it('handles mapOverlay without addRefPoint gracefully', () => {
+      // Why: existing callers may not provide addRefPoint — must not crash.
+      const mock = makeMockStore(makeState());
+      wireStoreSubscribers(mock.store, deps);
+
+      expect(() => {
+        mock.setState(
+          makeState({
+            gpsData: {
+              zero: { lat: 50, lon: 8 },
+              gpsEvents: {
+                alignmentMatrix: [
+                  1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+                ],
+                gpsPositions: [],
+                odometryPositions: [],
+              },
+              odometryPath: { positions: [], rotations: [] },
+              referencePoints: [
+                {
+                  id: 'bench',
+                  position: [1, 0, 0],
+                  rotation: [0, 0, 0, 1],
+                  gpsPoint: {
+                    id: 'gps-ref-1',
+                    zeroRef: { lat: 50, lon: 8 },
+                    latitude: 50.123,
+                    longitude: 8.456,
+                    coordinates: [10, 0, 5],
+                    weight: 1,
+                    timestamp: Date.now(),
+                  },
+                  timestamp: Date.now(),
+                },
+              ],
+            } as unknown as CombinedRootState['gpsData'],
+          })
+        );
+      }).not.toThrow();
+    });
+  });
+});

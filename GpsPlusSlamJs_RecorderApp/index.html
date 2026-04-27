@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>GpsPlusSlamJs Recorder</title>
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23ef4444'/%3E%3Ccircle cx='50' cy='50' r='15' fill='%23fff'/%3E%3C/svg%3E"
+      type="image/svg+xml"
+    />
+    <!-- Leaflet CSS (for session summary map - Issue #4, 2026-01-27) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- App styles (behavioral CSS + log/legend colors) -->
+    <link rel="stylesheet" href="/styles/app.css" />
+  </head>
+  <body class="bg-black text-white font-sans">
+    <div id="app">
+      <!-- Three.js canvas will be inserted here -->
+
+      <!-- HUD Overlay -->
+      <div id="hud">
+        <div class="bg-black/60 rounded-lg p-3 inline-block">
+          <div id="status" class="text-sm" title="Tap to toggle log panel">
+            <span class="text-gray-400">📋 Status:</span>
+            <span id="status-text" class="text-yellow-400"
+              >Initializing...</span
+            >
+          </div>
+          <div id="gps-info" class="text-sm mt-1 hidden">
+            <span class="text-gray-400">GPS:</span>
+            <span id="gps-accuracy" class="text-green-400">--</span>
+          </div>
+          <div id="ar-info" class="text-sm mt-1 hidden">
+            <span class="text-gray-400">AR:</span>
+            <span id="ar-tracking" class="text-green-400">--</span>
+          </div>
+          <div id="sync-info" class="text-sm mt-1 hidden">
+            <span class="text-gray-400">Sync:</span>
+            <span id="sync-status" class="text-green-400">--</span>
+          </div>
+          <div id="frame-count-info" class="text-sm mt-1 hidden">
+            <span class="text-gray-400">📷 Frames:</span>
+            <span id="frame-count" class="text-green-400">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log Panel Overlay (tap status to show/hide) -->
+      <div id="log-panel" class="hidden">
+        <div id="log-panel-header">
+          <span>📋 Logs</span>
+          <button id="log-panel-close" title="Close">×</button>
+        </div>
+        <div id="log-panel-content"></div>
+      </div>
+
+      <!-- Controls Overlay -->
+      <div id="controls">
+        <div class="flex justify-between items-end">
+          <!-- Left side: Recording controls -->
+          <div class="flex gap-2 items-center">
+            <button
+              id="btn-start"
+              class="bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all"
+            >
+              Start Recording
+            </button>
+            <button
+              id="btn-stop"
+              class="bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all hidden"
+              aria-label="Stop Recording"
+            >
+              ⏹ Stop
+            </button>
+            <!-- Recording indicator (pulsing dot) -->
+            <span
+              id="recording-indicator"
+              class="w-3 h-3 bg-red-500 rounded-full animate-pulse hidden"
+              aria-label="Recording in progress"
+            ></span>
+          </div>
+
+          <!-- Right side: Reference point + Map control group -->
+          <div class="flex gap-2 items-end">
+            <div class="flex gap-1 items-center">
+              <button
+                id="btn-ref-point"
+                class="bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white font-bold py-3 px-4 rounded-full shadow-lg transition-all hidden"
+                title="Mark Reference Point"
+                aria-label="Mark Reference Point"
+              >
+                📍 Mark Point
+              </button>
+              <button
+                id="btn-new-ref-point"
+                class="bg-green-600 hover:bg-green-700 focus:ring-2 focus:ring-green-400 focus:outline-none text-white text-xs p-2 rounded-lg shadow-lg transition-all hidden"
+                title="Add new ref point at current location"
+                aria-label="Add new ref point"
+              >
+                ➕
+              </button>
+            </div>
+            <!-- Map control pill: +, −, 🗺️ stacked vertically -->
+            <div
+              class="flex flex-col bg-gray-700/80 rounded-xl shadow-lg overflow-hidden"
+            >
+              <button
+                id="btn-map-zoom-in"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all text-lg border-b border-gray-600"
+                title="Map Zoom In"
+                aria-label="Map Zoom In"
+              >
+                +
+              </button>
+              <button
+                id="btn-map-zoom-out"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all text-lg border-b border-gray-600"
+                title="Map Zoom Out"
+                aria-label="Map Zoom Out"
+              >
+                −
+              </button>
+              <button
+                id="btn-map"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all"
+                title="Toggle Map"
+                aria-label="Toggle Map"
+              >
+                🗺️
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Replay Controls Overlay (shown during replay playback) -->
+      <div id="replay-controls" class="hidden">
+        <div class="flex justify-between items-end">
+          <!-- Left: Playback controls + speed presets + progress -->
+          <div class="flex gap-2 items-center">
+            <!-- Play/pause + speed presets grouped in a single pill -->
+            <div
+              class="flex items-center bg-gray-700/80 rounded-xl shadow-lg overflow-hidden"
+            >
+              <button
+                id="btn-replay-play-pause"
+                class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 transition-all"
+              >
+                ▶ Play
+              </button>
+              <button
+                data-replay-speed="0.1"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                0.1×
+              </button>
+              <button
+                data-replay-speed="0.2"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                0.2×
+              </button>
+              <button
+                data-replay-speed="0.5"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                0.5×
+              </button>
+              <button
+                data-replay-speed="1"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                1×
+              </button>
+              <button
+                data-replay-speed="2"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                2×
+              </button>
+              <button
+                data-replay-speed="5"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                5×
+              </button>
+              <button
+                data-replay-speed="10"
+                class="replay-live-speed px-2 py-2 text-xs hover:bg-gray-600 text-white transition-all"
+              >
+                10×
+              </button>
+            </div>
+            <span
+              id="replay-progress"
+              class="text-sm text-white bg-black/60 rounded-lg px-3 py-2"
+              >Action 0/0</span
+            >
+          </div>
+
+          <!-- Right: Camera toggle + map control pill -->
+          <div class="flex gap-2 items-end">
+            <button
+              id="btn-camera-toggle"
+              class="bg-gray-700 hover:bg-gray-600 focus:ring-2 focus:ring-gray-400 focus:outline-none text-white font-bold py-3 px-4 rounded-full shadow-lg transition-all"
+              title="Toggle Camera Mode"
+              aria-label="Toggle Camera Mode"
+            >
+              🔄 Orbit
+            </button>
+            <!-- Map control pill: +, −, 🗺️ stacked vertically -->
+            <div
+              class="flex flex-col bg-gray-700/80 rounded-xl shadow-lg overflow-hidden"
+            >
+              <button
+                id="btn-map-zoom-in-replay"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all text-lg border-b border-gray-600"
+                title="Map Zoom In"
+                aria-label="Map Zoom In"
+              >
+                +
+              </button>
+              <button
+                id="btn-map-zoom-out-replay"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all text-lg border-b border-gray-600"
+                title="Map Zoom Out"
+                aria-label="Map Zoom Out"
+              >
+                −
+              </button>
+              <button
+                id="btn-map-toggle-replay"
+                class="hover:bg-gray-600 text-white font-bold py-2 px-3 transition-all"
+                title="Toggle Map"
+                aria-label="Toggle Map"
+              >
+                🗺️
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color legend for replay 3D view (Issue 2, 2026-03-21 feedback) -->
+      <div
+        id="replay-legend"
+        class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 bg-black/60 rounded-lg px-3 py-1.5 flex gap-4 text-xs text-white"
+      >
+        <span data-legend-entry class="flex items-center gap-1"
+          ><span class="w-3 h-3 rounded-full bg-yellow-400 inline-block"></span>
+          GPS</span
+        >
+        <span data-legend-entry class="flex items-center gap-1"
+          ><span class="w-3 h-3 rounded-full bg-cyan-400 inline-block"></span>
+          Fused VIO</span
+        >
+        <span data-legend-entry class="flex items-center gap-1"
+          ><span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+          Alignment Snapshot</span
+        >
+      </div>
+
+      <!-- Session Summary Panel (shown after recording stops - TERMINAL state) -->
+      <div
+        id="session-summary-panel"
+        class="absolute inset-0 bg-black/90 flex items-center justify-center z-50 hidden"
+      >
+        <div
+          class="bg-gray-800 rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+        >
+          <h1 class="text-2xl font-bold mb-4 text-center">
+            📊 Recording Complete
+          </h1>
+
+          <!-- Session Stats Grid -->
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-green-400"
+                id="summary-duration"
+              >
+                --
+              </div>
+              <div class="text-xs text-gray-400">Duration</div>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-blue-400"
+                id="summary-gps-count"
+              >
+                --
+              </div>
+              <div class="text-xs text-gray-400">GPS Events</div>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-yellow-400"
+                id="summary-ref-points"
+              >
+                --
+              </div>
+              <div class="text-xs text-gray-400">Reference Points</div>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-purple-400"
+                id="summary-images"
+              >
+                --
+              </div>
+              <div class="text-xs text-gray-400">Images</div>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center col-span-2">
+              <div
+                class="text-2xl font-bold text-cyan-400"
+                id="summary-depth-samples"
+              >
+                --
+              </div>
+              <div class="text-xs text-gray-400">Depth Samples</div>
+            </div>
+            <!-- Failed Writes (Issue #1 Part B) -->
+            <div
+              class="summary-row bg-gray-700/50 rounded-lg p-3 text-center col-span-2"
+            >
+              <div
+                class="text-2xl font-bold text-gray-400"
+                id="summary-failed-writes"
+              >
+                0
+              </div>
+              <div class="text-xs text-gray-400">Failed Writes</div>
+            </div>
+            <!-- ZIP Stats (Issue #3, 2026-02-06 user feedback) -->
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-orange-400"
+                id="summary-zip-size"
+              >
+                —
+              </div>
+              <div class="text-xs text-gray-400">ZIP Size</div>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div
+                class="text-2xl font-bold text-orange-400"
+                id="summary-zip-files"
+              >
+                —
+              </div>
+              <div class="text-xs text-gray-400">Files in ZIP</div>
+            </div>
+          </div>
+
+          <!-- GPS Validation -->
+          <div class="bg-gray-700/50 rounded-lg p-3 mb-4 space-y-2">
+            <h2 class="text-sm font-medium text-gray-300 mb-2">
+              📍 GPS Validation
+            </h2>
+            <div class="flex justify-between text-sm">
+              <span class="text-gray-400">First GPS:</span>
+              <span id="summary-first-gps" class="text-white font-mono text-xs"
+                >--</span
+              >
+            </div>
+            <div class="flex justify-between text-sm">
+              <span class="text-gray-400">Last GPS:</span>
+              <span id="summary-last-gps" class="text-white font-mono text-xs"
+                >--</span
+              >
+            </div>
+            <div class="flex justify-between text-sm">
+              <span class="text-gray-400">Distance:</span>
+              <span id="summary-distance" class="text-green-400">--</span>
+            </div>
+          </div>
+
+          <!-- GPS Path Map (User Feedback Issue #4, 2026-01-27) -->
+          <div class="bg-gray-700/50 rounded-lg p-3 mb-4">
+            <h2 class="text-sm font-medium text-gray-300 mb-2">
+              🗺️ Recorded Path
+            </h2>
+            <div
+              id="summary-map-container"
+              class="relative w-full h-48 rounded-lg overflow-hidden bg-gray-800"
+            >
+              <!-- Leaflet map will be inserted here -->
+            </div>
+            <div class="flex gap-4 mt-2 text-xs text-gray-400 justify-center">
+              <span class="flex items-center gap-1">
+                <span
+                  class="inline-block w-3 h-1 rounded legend-color-raw-gps"
+                ></span>
+                Raw GPS
+              </span>
+              <span class="flex items-center gap-1">
+                <span
+                  class="inline-block w-3 h-1 rounded legend-color-fused-path"
+                ></span>
+                Fused Path
+              </span>
+            </div>
+          </div>
+
+          <!-- Error Log -->
+          <div class="bg-gray-700/50 rounded-lg p-3 mb-4">
+            <h2 class="text-sm font-medium text-gray-300 mb-2">
+              ⚠️ Errors &amp; Warnings
+            </h2>
+            <pre
+              id="summary-errors"
+              class="text-xs text-red-300 whitespace-pre-wrap max-h-24 overflow-y-auto"
+            >
+No errors</pre
+            >
+          </div>
+
+          <!-- Actions -->
+          <div class="flex gap-2">
+            <button
+              id="btn-share-session"
+              class="hidden flex-1 px-4 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-all"
+            >
+              📤 Share Session
+            </button>
+            <button
+              id="btn-view-logs"
+              class="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-medium transition-all"
+            >
+              📜 View Full Logs
+            </button>
+            <button
+              id="btn-new-recording"
+              class="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-all"
+            >
+              🔄 New Recording
+            </button>
+          </div>
+
+          <p class="text-xs text-gray-500 text-center mt-3">
+            Data saved to selected folder. Reload page for new recording.
+          </p>
+        </div>
+      </div>
+
+      <!-- Setup Modal (shown before AR starts) -->
+      <div
+        id="setup-modal"
+        class="absolute inset-0 bg-black/90 flex items-center justify-center z-50"
+      >
+        <div
+          class="bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+        >
+          <div class="flex justify-between items-center mb-4">
+            <h1 id="setup-title" class="text-2xl font-bold">
+              GpsPlusSlamJs Recorder
+            </h1>
+            <button
+              id="btn-settings"
+              class="p-2 text-gray-400 hover:text-white focus:ring-2 focus:ring-blue-400 focus:outline-none rounded"
+              aria-label="Recording Settings"
+              title="Recording Settings"
+            >
+              ⚙️
+            </button>
+          </div>
+
+          <!-- Collapsible Help Section (Issue 2 - User Feedback 2026-01-27) -->
+          <details id="help-section" class="mb-4" open>
+            <summary
+              class="cursor-pointer text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1 select-none"
+            >
+              <span class="text-base">ℹ️</span> What is this app?
+            </summary>
+            <div
+              id="help-section-content"
+              class="mt-2 p-3 bg-gray-700/50 rounded-lg text-sm text-gray-300 space-y-2"
+            >
+              <p>
+                <strong class="text-white">Purpose:</strong> Record AR + GPS
+                data to test location alignment algorithms. Walk around while
+                the app captures your path, GPS readings, and camera frames.
+              </p>
+              <p>
+                <strong class="text-white">Scenario:</strong> A named physical
+                area you'll revisit for multiple recordings (e.g., "Paris
+                Eiffeltower"). Scenarios group related sessions together.
+              </p>
+              <p>
+                <strong class="text-white">Session:</strong> A single recording
+                within a scenario, automatically named by timestamp. Each
+                session captures one walk-through.
+              </p>
+              <p>
+                <strong class="text-white">Reference Points:</strong> Landmarks
+                you mark during recording for ground-truth validation. Tap "📍
+                Mark Point" when standing at a known location.
+              </p>
+            </div>
+          </details>
+
+          <div class="space-y-4">
+            <!-- Storage Setup - REQUIRED for recording -->
+            <div
+              id="storage-setup"
+              class="bg-gray-700/50 rounded-lg p-3 space-y-3"
+            >
+              <p class="text-xs text-gray-400">
+                Select a folder with your previous recordings to import
+                reference points, then choose where to save this new recording.
+              </p>
+
+              <!-- Step 1: Open folder for reading -->
+              <div class="space-y-1">
+                <button
+                  id="btn-open-folder"
+                  class="w-full bg-blue-600 hover:bg-blue-500 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white py-2 px-3 rounded-lg text-left text-sm"
+                  aria-label="Open folder with previous recordings"
+                >
+                  📂 1. Open Previous Recordings Folder...
+                </button>
+                <p id="folder-status" class="text-xs text-gray-500 truncate">
+                  ❌ No folder selected
+                </p>
+              </div>
+
+              <!-- Step 2: Choose save location -->
+              <div class="space-y-1">
+                <button
+                  id="btn-choose-save"
+                  class="w-full bg-blue-600 hover:bg-blue-500 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white py-2 px-3 rounded-lg text-left text-sm"
+                  aria-label="Choose where to save new recording"
+                >
+                  💾 2. Choose Save Location...
+                </button>
+                <p id="save-status" class="text-xs text-gray-500 truncate">
+                  ❌ No save location chosen
+                </p>
+              </div>
+            </div>
+
+            <!-- Scenario Selection -->
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Scenario</label>
+              <select
+                id="scenario-select"
+                class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+              >
+                <option value="">-- Loading scenarios... --</option>
+              </select>
+            </div>
+
+            <!-- New Scenario Name -->
+            <div
+              id="new-scenario-section"
+              class="hidden transition-all duration-300 ease-in-out opacity-0"
+            >
+              <label class="block text-sm text-gray-400 mb-1"
+                >New Scenario Name</label
+              >
+              <input
+                type="text"
+                id="new-scenario-name"
+                class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                placeholder="e.g., Paris Eiffeltower"
+              />
+            </div>
+
+            <!-- Notes -->
+            <div>
+              <label class="block text-sm text-gray-400 mb-1"
+                >Session Notes (optional)</label
+              >
+              <textarea
+                id="session-notes"
+                class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg resize-none focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                rows="2"
+                placeholder="Weather, device, etc..."
+                disabled
+              ></textarea>
+            </div>
+
+            <!-- Permission Status Section -->
+            <div id="permission-section" class="space-y-2">
+              <label class="block text-sm text-gray-400 mb-1"
+                >Required Permissions</label
+              >
+              <div class="bg-gray-700/50 rounded-lg p-3 space-y-2">
+                <!-- File Storage Status (shown first per user feedback Issue #1) -->
+                <div
+                  id="perm-filestorage"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📁</span>
+                    <span>File Storage</span>
+                  </span>
+                  <span
+                    id="perm-filestorage-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >⏳ Pending</span
+                  >
+                </div>
+                <!-- WebXR/AR Status -->
+                <div
+                  id="perm-webxr"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>🥽</span>
+                    <span>AR + Depth Sensing</span>
+                  </span>
+                  <span
+                    id="perm-webxr-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Geolocation Status -->
+                <div
+                  id="perm-gps"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📍</span>
+                    <span>Location (GPS)</span>
+                  </span>
+                  <span
+                    id="perm-gps-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Camera Status -->
+                <div
+                  id="perm-camera"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📷</span>
+                    <span>Camera</span>
+                  </span>
+                  <span
+                    id="perm-camera-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Orientation Status (optional) -->
+                <div
+                  id="perm-orientation"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>🧭</span>
+                    <span>Compass</span>
+                    <span class="text-xs text-gray-500">(optional)</span>
+                  </span>
+                  <span
+                    id="perm-orientation-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+              </div>
+              <!-- Request Permissions Button -->
+              <button
+                id="btn-request-permissions"
+                class="w-full bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-400 focus:outline-none disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg transition-all hidden"
+                aria-label="Grant required permissions"
+              >
+                Grant Permissions
+              </button>
+              <!-- Permission error message -->
+              <p
+                id="permission-error"
+                class="text-xs text-red-400 text-center hidden"
+              ></p>
+            </div>
+
+            <!-- Start Button -->
+            <button
+              id="btn-enter-ar"
+              class="w-full bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all"
+              disabled
+            >
+              Enter AR
+            </button>
+
+            <!-- Enter AR Hint - explains why button is disabled -->
+            <p id="enter-ar-hint" class="text-xs text-yellow-400 text-center">
+              Select a folder to continue
+            </p>
+
+            <!-- WebXR Support Warning -->
+            <p
+              id="webxr-warning"
+              class="text-xs text-red-400 text-center hidden"
+            >
+              WebXR is not supported on this device/browser.
+            </p>
+
+            <!-- ========================================== -->
+            <!-- Replay Setup (hidden by default, shown     -->
+            <!-- when WebXR is not supported — Issue 1      -->
+            <!-- replay-mode design doc 2026-02-19)         -->
+            <!-- ========================================== -->
+            <div id="replay-setup" class="hidden space-y-4">
+              <!-- Replay Scenario Selection -->
+              <div>
+                <label
+                  class="block text-sm text-gray-400 mb-1"
+                  for="replay-scenario-select"
+                  >Scenario</label
+                >
+                <select
+                  id="replay-scenario-select"
+                  class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  disabled
+                >
+                  <option value="">-- Open a folder first --</option>
+                </select>
+              </div>
+
+              <!-- Session List -->
+              <div>
+                <label class="block text-sm text-gray-400 mb-1">Sessions</label>
+                <div
+                  id="replay-session-list"
+                  class="bg-gray-700/50 rounded-lg p-2 max-h-40 overflow-y-auto space-y-1"
+                >
+                  <p class="text-xs text-gray-500 text-center py-2">
+                    Select a scenario to see sessions
+                  </p>
+                </div>
+              </div>
+
+              <!-- GPS Path Preview Map (Issue #1, 2026-03-23 user feedback) -->
+              <div
+                id="replay-preview-map"
+                class="hidden h-48 rounded-lg overflow-hidden"
+              ></div>
+
+              <!-- Start Replay Button -->
+              <button
+                id="btn-start-replay"
+                class="w-full bg-green-600 hover:bg-green-700 focus:ring-2 focus:ring-green-400 focus:outline-none disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all"
+                disabled
+              >
+                ▶ Start Replay
+              </button>
+
+              <!-- Replay Hint -->
+              <p id="replay-hint" class="text-xs text-yellow-400 text-center">
+                Open a folder and select a session to begin
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reference Point Picker Modal -->
+      <div
+        id="ref-point-picker-modal"
+        class="absolute inset-0 bg-black/80 flex items-center justify-center z-[60] hidden"
+      >
+        <!-- Content populated by ref-point-picker.ts -->
+      </div>
+
+      <!-- Settings Modal -->
+      <div
+        id="settings-modal"
+        class="hidden fixed inset-0 z-[70] bg-black/50 flex items-center justify-center"
+      >
+        <div
+          class="bg-gray-800 rounded-lg p-6 w-80 max-h-[90vh] overflow-y-auto"
+        >
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-white">Recording Settings</h2>
+            <button
+              id="btn-settings-close"
+              class="text-gray-400 hover:text-white text-2xl leading-none"
+            >
+              &times;
+            </button>
+          </div>
+
+          <!-- Image Capture Section -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">📷</span>
+              <span class="font-medium text-white">Image Capture</span>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="images-enabled"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >Capture images during recording</span
+                >
+              </label>
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Interval</span>
+                  <span id="images-interval-value">2.0s</span>
+                </div>
+                <input
+                  type="range"
+                  id="images-interval"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Quality</span>
+                  <span id="images-quality-value">70%</span>
+                </div>
+                <input
+                  type="range"
+                  id="images-quality"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Resolution</span>
+                  <span id="images-resolution-divisor-value">1× (full)</span>
+                </div>
+                <input
+                  type="range"
+                  id="images-resolution-divisor"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Depth Sampling Section -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">📊</span>
+              <span class="font-medium text-white">Depth Sampling</span>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="depth-enabled"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200">Sample depth points</span>
+              </label>
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Interval</span>
+                  <span id="depth-interval-value">1.0s</span>
+                </div>
+                <input
+                  type="range"
+                  id="depth-interval"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Grid Size</span>
+                  <span id="depth-grid-value">3×3</span>
+                </div>
+                <input
+                  type="range"
+                  id="depth-grid"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Performance Note -->
+          <p class="text-xs text-gray-400 mb-4">
+            ⚠️ Higher frequencies may impact performance on some devices.
+          </p>
+
+          <!-- AR Crash Isolation Section -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">🧪</span>
+              <span class="font-medium text-white">AR Crash Isolation</span>
+            </div>
+            <div
+              class="bg-amber-900/20 border border-amber-700/40 rounded-lg p-3 space-y-3"
+            >
+              <p class="text-xs text-amber-200">
+                Diagnostic controls for isolating pre-recording AR startup
+                crashes.
+              </p>
+              <div class="space-y-2">
+                <p
+                  class="text-[11px] uppercase tracking-wide text-amber-300/80"
+                >
+                  XR Session Features
+                </p>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-dom-overlay-enabled"
+                    class="w-4 h-4 accent-amber-500"
+                    checked
+                  />
+                  <span class="text-sm text-gray-200">Request dom-overlay</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-camera-access-enabled"
+                    class="w-4 h-4 accent-amber-500"
+                    checked
+                  />
+                  <span class="text-sm text-gray-200"
+                    >Request camera-access</span
+                  >
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-depth-sensing-enabled"
+                    class="w-4 h-4 accent-amber-500"
+                    checked
+                  />
+                  <span class="text-sm text-gray-200"
+                    >Request depth-sensing</span
+                  >
+                </label>
+              </div>
+              <div class="space-y-2 pt-1">
+                <p
+                  class="text-[11px] uppercase tracking-wide text-amber-300/80"
+                >
+                  Pre-Recording Frame Loop
+                </p>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-css3d-enabled"
+                    class="w-4 h-4 accent-amber-500"
+                    checked
+                  />
+                  <span class="text-sm text-gray-200"
+                    >Enable CSS3D renderer during AR session startup</span
+                  >
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-camera-texture-enabled"
+                    class="w-4 h-4 accent-amber-500"
+                    checked
+                  />
+                  <span class="text-sm text-gray-200"
+                    >Acquire camera texture each XR frame</span
+                  >
+                </label>
+              </div>
+              <div class="space-y-2 pt-1">
+                <p
+                  class="text-[11px] uppercase tracking-wide text-amber-300/80"
+                >
+                  Workarounds
+                </p>
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="ar-chromium-projection-layer-workaround"
+                    class="mt-1 w-4 h-4 accent-amber-500"
+                  />
+                  <span class="text-sm text-gray-200">
+                    Apply Chromium camera-access crash workaround
+                    <span class="block text-[11px] text-amber-200/70">
+                      Forces three.js to use XRWebGLLayer instead of
+                      XRProjectionLayer. May break WebXR on unaffected devices.
+                      Reload required after changing.
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <button
+                id="btn-ar-minimal-baseline"
+                type="button"
+                class="w-full px-3 py-2 text-sm bg-amber-700/70 hover:bg-amber-600 text-white rounded"
+              >
+                Minimal AR Baseline
+              </button>
+              <a
+                href="/ar-hittest-test.html"
+                target="_blank"
+                rel="noopener"
+                class="block w-full px-3 py-2 text-sm text-center bg-amber-900/40 hover:bg-amber-800/60 text-amber-100 rounded border border-amber-700/40"
+              >
+                🧪 Open Isolated WebXR Feature Test
+              </a>
+            </div>
+          </div>
+
+          <!-- Build version stamp -->
+          <p
+            id="build-version-label"
+            class="text-[10px] text-gray-500 mb-4 select-all"
+            title="Build version"
+          ></p>
+
+          <!-- Action Buttons -->
+          <div class="flex gap-2">
+            <button
+              id="btn-settings-reset"
+              class="flex-1 px-3 py-2 text-sm bg-gray-600 hover:bg-gray-500 text-white rounded"
+            >
+              Reset to Defaults
+            </button>
+            <button
+              id="btn-settings-save"
+              class="flex-1 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Entry point -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

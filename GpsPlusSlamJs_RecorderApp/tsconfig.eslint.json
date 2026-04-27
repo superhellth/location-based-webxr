@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "config/**/*",
+    "playwright-tests/**/*",
+    "../GpsPlusSlamJs_AppFramework/src/**/*.ts"
+  ],
+  "exclude": ["../GpsPlusSlamJs_AppFramework/src/**/*.test.ts"]
+}

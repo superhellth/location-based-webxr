@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "project": ["src/**/*.ts"],
+  "entry": ["src/global.d.ts"],
+  "ignoreDependencies": [
+    "@reduxjs/toolkit",
+    "gl-matrix",
+    "@carlosjeurissen/stylelint-csstree-validator",
+    "postcss-html",
+    "stylelint-config-standard",
+    "webxr-polyfill"
+  ]
+}

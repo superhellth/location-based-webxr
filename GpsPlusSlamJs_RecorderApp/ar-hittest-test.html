@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>GPS+SLAM WebXR Feature Combinator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        color: #f3f4f6;
+        min-height: 100vh;
+      }
+      body {
+        padding: 16px 16px 80px;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      p.intro {
+        font-size: 13px;
+        margin: 0 0 16px;
+        color: #d1d5db;
+      }
+      fieldset {
+        border: 1px solid #4b5563;
+        border-radius: 8px;
+        padding: 12px;
+        margin: 0 0 12px;
+      }
+      legend {
+        font-size: 12px;
+        color: #fcd34d;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0 6px;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        padding: 4px 0;
+        cursor: pointer;
+      }
+      input[type='checkbox'],
+      input[type='radio'] {
+        width: 16px;
+        height: 16px;
+        accent-color: #f59e0b;
+      }
+      #start-ar {
+        width: 100%;
+        padding: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        background: #b45309;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #start-ar:hover {
+        background: #92400e;
+      }
+      #payload-preview {
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 11px;
+        color: #fcd34d;
+        background: #1f2937;
+        padding: 8px;
+        border-radius: 6px;
+        margin: 0 0 12px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      #log {
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 11px;
+        background: #111827;
+        padding: 8px;
+        border-radius: 6px;
+        max-height: 220px;
+        overflow: auto;
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+      }
+      #log .err {
+        color: #fca5a5;
+      }
+      #log .ok {
+        color: #86efac;
+      }
+      #log .info {
+        color: #93c5fd;
+      }
+      .ar-btn-slot {
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🧪 WebXR Feature Combinator</h1>
+    <p class="intro">
+      Isolated reproducer for the camera-access crash investigation. Pick a
+      feature combination, tap <strong>Start AR</strong>, and observe. Checkbox
+      state persists across reloads so a tab crash does not erase your last
+      selection. See
+      <code>2026-04-22-camera-access-reproducer-plan.md</code>.
+    </p>
+
+    <fieldset>
+      <legend>Required feature (exactly one)</legend>
+      <label>
+        <input type="radio" name="required" value="hit-test" checked />
+        <span><code>hit-test</code> &mdash; matches upstream example</span>
+      </label>
+      <label>
+        <input type="radio" name="required" value="local-floor" />
+        <span><code>local-floor</code> &mdash; matches our app</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Optional features</legend>
+      <label>
+        <input type="checkbox" id="opt-camera-access" />
+        <span><code>camera-access</code></span>
+      </label>
+      <label>
+        <input type="checkbox" id="opt-dom-overlay" />
+        <span><code>dom-overlay</code> (root = document.body)</span>
+      </label>
+      <label>
+        <input type="checkbox" id="opt-depth-sensing" />
+        <span
+          ><code>depth-sensing</code> (cpu-optimized,
+          luminance-alpha/float32)</span
+        >
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Workarounds (page reloads on toggle)</legend>
+      <label>
+        <input type="checkbox" id="opt-projection-layer-workaround" />
+        <span>
+          Delete <code>XRWebGLBinding.prototype.createProjectionLayer</code>
+          and <code>XRRenderState.prototype.layers</code> at script init
+          (forces three.js to <code>XRWebGLLayer</code>).
+          <span id="workaround-status" style="color: #fcd34d"></span>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>XRSessionInit payload preview</legend>
+      <pre id="payload-preview"></pre>
+    </fieldset>
+
+    <button id="start-ar" type="button">Start AR</button>
+    <div id="ar-button-slot" class="ar-btn-slot"></div>
+
+    <fieldset>
+      <legend>Log</legend>
+      <pre id="log"></pre>
+    </fieldset>
+
+    <script type="module">
+      const STORAGE_KEY = 'webxr-feature-combinator-v1';
+      const LOG_PREFIX = '[WXR-ISO]';
+
+      // EARLY: apply Chromium projection-layer workaround if previously
+      // enabled. Must run before three.js touches any WebXR API. Reading
+      // sessionStorage and deleting the prototype members is synchronous,
+      // so doing it before the dynamic imports below is sufficient.
+      let workaroundApplied = { createProjectionLayer: false, layers: false };
+      try {
+        const raw = sessionStorage.getItem(STORAGE_KEY);
+        const state = raw ? JSON.parse(raw) : null;
+        if (state?.workaround) {
+          if (
+            typeof XRWebGLBinding !== 'undefined' &&
+            'createProjectionLayer' in XRWebGLBinding.prototype
+          ) {
+            delete XRWebGLBinding.prototype.createProjectionLayer;
+            workaroundApplied.createProjectionLayer = true;
+          }
+          if (
+            typeof XRRenderState !== 'undefined' &&
+            'layers' in XRRenderState.prototype
+          ) {
+            delete XRRenderState.prototype.layers;
+            workaroundApplied.layers = true;
+          }
+          console.log(
+            `${LOG_PREFIX} applied projection-layer workaround:`,
+            workaroundApplied
+          );
+        }
+      } catch {
+        /* ignore — workaround is best-effort */
+      }
+
+      const THREE = await import('three');
+      const { ARButton } = await import('three/addons/webxr/ARButton.js');
+
+      const logEl = document.getElementById('log');
+      const payloadEl = document.getElementById('payload-preview');
+      const slot = document.getElementById('ar-button-slot');
+      const startBtn = document.getElementById('start-ar');
+
+      const requiredInputs = document.querySelectorAll(
+        'input[name="required"]'
+      );
+      const optCameraAccess = document.getElementById('opt-camera-access');
+      const optDomOverlay = document.getElementById('opt-dom-overlay');
+      const optDepthSensing = document.getElementById('opt-depth-sensing');
+      const optWorkaround = document.getElementById(
+        'opt-projection-layer-workaround'
+      );
+      const workaroundStatus = document.getElementById('workaround-status');
+
+      function log(msg, cls) {
+        const stamp = new Date().toISOString().slice(11, 23);
+        const line = document.createElement('div');
+        if (cls) line.className = cls;
+        line.textContent = `${stamp} ${msg}`;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+        // eslint-disable-next-line no-console -- diagnostic page
+        console.log(`${LOG_PREFIX} ${msg}`);
+      }
+
+      function getRequired() {
+        for (const input of requiredInputs) {
+          if (input.checked) return input.value;
+        }
+        return 'hit-test';
+      }
+
+      function buildSessionInit() {
+        const required = getRequired();
+        const optional = [];
+        if (optCameraAccess.checked) optional.push('camera-access');
+        if (optDomOverlay.checked) optional.push('dom-overlay');
+        if (optDepthSensing.checked) optional.push('depth-sensing');
+        const init = { requiredFeatures: [required] };
+        if (optional.length) init.optionalFeatures = optional;
+        if (optDomOverlay.checked) {
+          init.domOverlay = { root: document.body };
+        }
+        if (optDepthSensing.checked) {
+          init.depthSensing = {
+            usagePreference: ['cpu-optimized'],
+            dataFormatPreference: ['luminance-alpha', 'float32'],
+          };
+        }
+        return init;
+      }
+
+      function serializablePayload(init) {
+        // Replace the DOM root with a placeholder string so JSON.stringify works.
+        const copy = { ...init };
+        if (copy.domOverlay) copy.domOverlay = { root: '<body>' };
+        return copy;
+      }
+
+      function updatePayloadPreview() {
+        const init = buildSessionInit();
+        payloadEl.textContent = JSON.stringify(
+          serializablePayload(init),
+          null,
+          2
+        );
+      }
+
+      function saveState() {
+        const state = {
+          required: getRequired(),
+          cameraAccess: optCameraAccess.checked,
+          domOverlay: optDomOverlay.checked,
+          depthSensing: optDepthSensing.checked,
+          workaround: optWorkaround.checked,
+        };
+        try {
+          sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch {
+          /* ignore */
+        }
+      }
+
+      function loadState() {
+        try {
+          const raw = sessionStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const state = JSON.parse(raw);
+          for (const input of requiredInputs) {
+            input.checked = input.value === state.required;
+          }
+          optCameraAccess.checked = !!state.cameraAccess;
+          optDomOverlay.checked = !!state.domOverlay;
+          optDepthSensing.checked = !!state.depthSensing;
+          optWorkaround.checked = !!state.workaround;
+        } catch {
+          /* ignore */
+        }
+      }
+
+      for (const input of [
+        ...requiredInputs,
+        optCameraAccess,
+        optDomOverlay,
+        optDepthSensing,
+      ]) {
+        input.addEventListener('change', () => {
+          saveState();
+          updatePayloadPreview();
+        });
+      }
+
+      // Workaround toggle: save state then reload so the early `delete`
+      // block at the top of the script can run with the new value before
+      // any WebXR API is touched.
+      optWorkaround.addEventListener('change', () => {
+        saveState();
+        workaroundStatus.textContent = ' — reloading…';
+        setTimeout(() => location.reload(), 50);
+      });
+
+      loadState();
+      updatePayloadPreview();
+      if (optWorkaround.checked) {
+        workaroundStatus.textContent =
+          workaroundApplied.createProjectionLayer ||
+          workaroundApplied.layers
+            ? ' — applied this load'
+            : ' — enabled but globals absent on this device';
+      }
+
+      // Three.js scene setup — intentionally identical in shape to the upstream
+      // webxr_ar_hittest.html example.
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        70,
+        window.innerWidth / window.innerHeight,
+        0.01,
+        20
+      );
+
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+      light.position.set(0.5, 1, 0.25);
+      scene.add(light);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+      });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      renderer.domElement.style.position = 'fixed';
+      renderer.domElement.style.inset = '0';
+      renderer.domElement.style.zIndex = '-1';
+      document.body.appendChild(renderer.domElement);
+
+      const reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial()
+      );
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      let hitTestSource = null;
+      let hitTestSourceRequested = false;
+      let frameCount = 0;
+      let lastFrameLogTime = 0;
+
+      function animate(_timestamp, frame) {
+        if (frame) {
+          frameCount++;
+          const now = performance.now();
+          if (now - lastFrameLogTime > 1000) {
+            log(`frame #${frameCount}`, 'info');
+            lastFrameLogTime = now;
+          }
+
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          const session = renderer.xr.getSession();
+
+          const required = getRequired();
+          if (required === 'hit-test' && !hitTestSourceRequested) {
+            session.requestReferenceSpace('viewer').then((viewerSpace) => {
+              session
+                .requestHitTestSource({ space: viewerSpace })
+                .then((source) => {
+                  hitTestSource = source;
+                  log('hit-test source acquired', 'ok');
+                })
+                .catch((err) => log(`hit-test source error: ${err}`, 'err'));
+            });
+            session.addEventListener('end', () => {
+              hitTestSourceRequested = false;
+              hitTestSource = null;
+            });
+            hitTestSourceRequested = true;
+          }
+
+          if (hitTestSource && referenceSpace) {
+            const results = frame.getHitTestResults(hitTestSource);
+            if (results.length) {
+              const hit = results[0];
+              reticle.visible = true;
+              reticle.matrix.fromArray(
+                hit.getPose(referenceSpace).transform.matrix
+              );
+            } else {
+              reticle.visible = false;
+            }
+          }
+        }
+        renderer.render(scene, camera);
+      }
+      renderer.setAnimationLoop(animate);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      window.addEventListener('error', (event) => {
+        log(`window error: ${event.message}`, 'err');
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        log(`unhandled rejection: ${event.reason}`, 'err');
+      });
+
+      function rebuildArButton() {
+        slot.replaceChildren();
+        frameCount = 0;
+        hitTestSource = null;
+        hitTestSourceRequested = false;
+        const init = buildSessionInit();
+        log(
+          `creating ARButton with ${JSON.stringify(serializablePayload(init))}`,
+          'info'
+        );
+        const btn = ARButton.createButton(renderer, init);
+        btn.addEventListener('click', () => log('ARButton clicked', 'info'));
+        slot.appendChild(btn);
+      }
+
+      renderer.xr.addEventListener('sessionstart', () => {
+        log('sessionstart', 'ok');
+      });
+      renderer.xr.addEventListener('sessionend', () => {
+        log(`sessionend (total frames: ${frameCount})`, 'info');
+      });
+
+      startBtn.addEventListener('click', rebuildArButton);
+
+      log(`ready. Three.js r${THREE.REVISION}`, 'ok');
+      if (
+        workaroundApplied.createProjectionLayer ||
+        workaroundApplied.layers
+      ) {
+        log(
+          `Chromium projection-layer workaround active (deleted: ${[
+            workaroundApplied.createProjectionLayer && 'createProjectionLayer',
+            workaroundApplied.layers && 'XRRenderState.layers',
+          ]
+            .filter(Boolean)
+            .join(', ')})`,
+          'info'
+        );
+      } else if (optWorkaround.checked) {
+        log(
+          'Workaround toggle is on, but neither prototype member existed to delete.',
+          'info'
+        );
+      }
+      if (!navigator.xr) {
+        log('navigator.xr is undefined on this device/browser', 'err');
+      } else {
+        navigator.xr
+          .isSessionSupported('immersive-ar')
+          .then((supported) =>
+            log(
+              `immersive-ar supported: ${supported}`,
+              supported ? 'ok' : 'err'
+            )
+          )
+          .catch((err) => log(`isSessionSupported error: ${err}`, 'err'));
+      }
+    </script>
+  </body>
+</html>

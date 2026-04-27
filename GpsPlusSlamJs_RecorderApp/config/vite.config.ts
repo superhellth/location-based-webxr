@@ -1,0 +1,119 @@
+import { defineConfig } from 'vite';
+import { fileURLToPath, URL } from 'node:url';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
+
+interface PackageJsonWithVersion {
+  version: string;
+}
+
+function isPackageJsonWithVersion(
+  value: unknown
+): value is PackageJsonWithVersion {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  return typeof (value as { version?: unknown }).version === 'string';
+}
+
+function readPkgVersion(relPath: string): string {
+  const abs = fileURLToPath(new URL(relPath, import.meta.url));
+  const parsed: unknown = JSON.parse(readFileSync(abs, 'utf-8'));
+
+  if (!isPackageJsonWithVersion(parsed)) {
+    throw new Error(
+      `Package JSON at ${abs} does not contain a string version.`
+    );
+  }
+
+  return parsed.version;
+}
+
+function readInstalledPkgVersion(pkgName: string): string {
+  // Read the package's own package.json from RecorderApp's node_modules. This
+  // works for both npm-installed packages (gps-plus-slam-js) and pnpm
+  // workspace symlinks (gps-plus-slam-app-framework). Reading via
+  // `require.resolve('<pkg>/package.json')` does not work when the package
+  // restricts subpath access via its `exports` field.
+  const pkgJsonPath = fileURLToPath(
+    new URL(`../node_modules/${pkgName}/package.json`, import.meta.url)
+  );
+  const parsed: unknown = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
+
+  if (!isPackageJsonWithVersion(parsed)) {
+    throw new Error(
+      `Package JSON for ${pkgName} does not contain a string version.`
+    );
+  }
+
+  return parsed.version;
+}
+
+function gitCommitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return 'dev';
+  }
+}
+
+function createBuildMetadataDefine(): Record<string, string> {
+  const commitHash = gitCommitHash();
+  const buildTime = new Date().toISOString();
+  const appVersion = readPkgVersion('../package.json');
+  const libraryVersion = readInstalledPkgVersion('gps-plus-slam-js');
+  const frameworkVersion = readInstalledPkgVersion(
+    'gps-plus-slam-app-framework'
+  );
+
+  return {
+    __BUILD_COMMIT__: JSON.stringify(commitHash),
+    'globalThis.__BUILD_COMMIT__': JSON.stringify(commitHash),
+    __BUILD_TIME__: JSON.stringify(buildTime),
+    'globalThis.__BUILD_TIME__': JSON.stringify(buildTime),
+    __APP_VERSION__: JSON.stringify(appVersion),
+    'globalThis.__APP_VERSION__': JSON.stringify(appVersion),
+    __LIB_VERSION__: JSON.stringify(libraryVersion),
+    'globalThis.__LIB_VERSION__': JSON.stringify(libraryVersion),
+    __FW_VERSION__: JSON.stringify(frameworkVersion),
+    'globalThis.__FW_VERSION__': JSON.stringify(frameworkVersion),
+  };
+}
+
+export default defineConfig({
+  root: fileURLToPath(new URL('..', import.meta.url)),
+  server: {
+    port: 5173,
+    // Required for WebXR on Android via USB debugging
+    host: true,
+    https: false, // WebXR requires HTTPS in production, but localhost is allowed
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('../index.html', import.meta.url)),
+        arHittestTest: fileURLToPath(
+          new URL('../ar-hittest-test.html', import.meta.url)
+        ),
+      },
+    },
+  },
+  define: createBuildMetadataDefine(),
+  plugins: [
+    // Upload source maps to Sentry during production builds.
+    // Only loaded when SENTRY_AUTH_TOKEN is set — without it the plugin
+    // errors during `vite build`. Local dev and public-repo contributors
+    // build without the token and get no Sentry source-map upload.
+    process.env.SENTRY_AUTH_TOKEN &&
+      sentryVitePlugin({
+        org: 'cs-util-com',
+        project: 'js-gps-recorder',
+      }),
+  ],
+});

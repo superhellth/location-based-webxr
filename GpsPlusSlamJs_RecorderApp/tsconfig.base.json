@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "gps-plus-slam-js": ["../GpsPlusSlamJs/src/index.ts"],
+      "gps-plus-slam-app-framework": ["../GpsPlusSlamJs_AppFramework/src/index.ts"],
+      "gps-plus-slam-app-framework/*": ["../GpsPlusSlamJs_AppFramework/src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "../GpsPlusSlamJs/src/**/*.ts",
+    "../GpsPlusSlamJs_AppFramework/src/**/*.ts"
+  ]
+}

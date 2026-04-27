@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Block pushes unless the full test suite passes.
+
+set -eu
+
+echo "🧪 Running pnpm test before push..."
+pnpm test || {
+  echo "❌ pnpm test failed; push aborted."
+  exit 1
+}
+
+echo "✅ pnpm test passed; proceeding with push."

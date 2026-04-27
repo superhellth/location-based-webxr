@@ -1,0 +1,8 @@
+# Root node_modules (created by pnpm workspaces — hoists shared dependencies)
+node_modules/
+
+# npm/pnpm auth tokens — must never be committed. Project-level .npmrc files
+# may legitimately exist for non-secret config (registry URLs, auto-install-peers),
+# but in this repo we keep all auth in ~/.npmrc only and ignore project-level
+# .npmrc as defense-in-depth against accidental `npm config set ... --location=project`.
+.npmrc

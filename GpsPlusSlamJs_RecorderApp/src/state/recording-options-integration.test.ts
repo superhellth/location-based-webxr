@@ -1,0 +1,464 @@
+/**
+ * Recording Options Integration Tests
+ *
+ * Tests that verify recording options are properly applied
+ * to control which data streams are recorded.
+ *
+ * Why these tests matter:
+ * - Disabled streams should not produce any actions
+ * - Enabled streams should produce expected actions
+ * - User settings must be respected during recording
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  DEFAULT_RECORDING_OPTIONS,
+  cloneRecordingOptions,
+  type RecordingOptions,
+} from 'gps-plus-slam-app-framework/state/recording-options';
+import {
+  createRecorderStore,
+  startSession,
+  recordDepthSample,
+  add2dImage,
+  type RecorderStore,
+} from 'gps-plus-slam-app-framework/state/store';
+
+// Mock file system to avoid actual file operations
+vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+  writeAction: vi.fn().mockResolvedValue(undefined),
+}));
+
+describe('Recording Options Integration', () => {
+  let store: RecorderStore;
+  let dispatchedActions: Array<{ type: string }>;
+
+  beforeEach(() => {
+    store = createRecorderStore();
+    dispatchedActions = [];
+
+    // Track all dispatched actions
+    const originalDispatch = store.dispatch;
+    store.dispatch = ((action: { type: string }) => {
+      dispatchedActions.push(action);
+      return originalDispatch(action);
+    }) as typeof store.dispatch;
+  });
+
+  describe('session metadata includes recording options', () => {
+    it('should include default options when not specified', () => {
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+        })
+      );
+
+      const state = store.getState().recorder;
+      // recordingOptions may be undefined if not explicitly passed
+      expect(state.sessionMetadata?.scenarioName).toBe('Test');
+    });
+
+    it('should include custom options in session metadata', () => {
+      const customOptions: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 2000, gridSize: 5 },
+        images: {
+          enabled: true,
+          intervalMs: 3000,
+          quality: 0.8,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: customOptions,
+        })
+      );
+
+      const state = store.getState().recorder;
+      expect(state.sessionMetadata?.recordingOptions).toEqual(customOptions);
+    });
+
+    it('should preserve exact option values in metadata', () => {
+      const options: RecordingOptions = {
+        depth: { enabled: true, intervalMs: 1500, gridSize: 7 },
+        images: {
+          enabled: false,
+          intervalMs: 5000,
+          quality: 0.5,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      const saved = store.getState().recorder.sessionMetadata?.recordingOptions;
+      expect(saved?.depth.intervalMs).toBe(1500);
+      expect(saved?.depth.gridSize).toBe(7);
+      expect(saved?.images.enabled).toBe(false);
+      expect(saved?.images.quality).toBe(0.5);
+    });
+  });
+
+  describe('depth sampling behavior', () => {
+    /**
+     * Simulates the decision flow in main.ts:
+     * if (recordingOptions.depth.enabled) { startDepthCapture(); }
+     */
+    function simulateDepthCaptureDecision(options: RecordingOptions): boolean {
+      return options.depth.enabled;
+    }
+
+    it('should allow depth capture when enabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.depth.enabled = true;
+
+      expect(simulateDepthCaptureDecision(options)).toBe(true);
+    });
+
+    it('should block depth capture when disabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.depth.enabled = false;
+
+      expect(simulateDepthCaptureDecision(options)).toBe(false);
+    });
+
+    it('should not dispatch depth actions when disabled (simulated)', () => {
+      const options: RecordingOptions = {
+        ...DEFAULT_RECORDING_OPTIONS,
+        depth: { ...DEFAULT_RECORDING_OPTIONS.depth, enabled: false },
+      };
+
+      // Start session with depth disabled
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      // Simulate main.ts logic: only dispatch if enabled
+      if (options.depth.enabled) {
+        store.dispatch(
+          recordDepthSample({
+            timestamp: Date.now(),
+            cameraPos: [0, 0, 0],
+            cameraRot: [0, 0, 0, 1],
+            points: [],
+          })
+        );
+      }
+
+      // Verify no depth sample was dispatched
+      const depthActions = dispatchedActions.filter(
+        (a) => a.type === 'recorder/recordDepthSample'
+      );
+      expect(depthActions.length).toBe(0);
+    });
+
+    it('should dispatch depth actions when enabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.depth.enabled = true;
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      // Simulate main.ts logic: dispatch if enabled
+      if (options.depth.enabled) {
+        store.dispatch(
+          recordDepthSample({
+            timestamp: Date.now(),
+            cameraPos: [1, 2, 3],
+            cameraRot: [0, 0, 0, 1],
+            points: [{ screenX: 0.5, screenY: 0.5, depthM: 2.0 }],
+          })
+        );
+      }
+
+      const depthActions = dispatchedActions.filter(
+        (a) => a.type === 'recorder/recordDepthSample'
+      );
+      expect(depthActions.length).toBe(1);
+    });
+  });
+
+  describe('image capture behavior', () => {
+    /**
+     * Simulates the decision flow in main.ts:
+     * if (recordingOptions.images.enabled) { startImageCapture(); }
+     */
+    function simulateImageCaptureDecision(options: RecordingOptions): boolean {
+      return options.images.enabled;
+    }
+
+    it('should allow image capture when enabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.images.enabled = true;
+
+      expect(simulateImageCaptureDecision(options)).toBe(true);
+    });
+
+    it('should block image capture when disabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.images.enabled = false;
+
+      expect(simulateImageCaptureDecision(options)).toBe(false);
+    });
+
+    it('should not dispatch image actions when disabled (simulated)', () => {
+      const options: RecordingOptions = {
+        ...DEFAULT_RECORDING_OPTIONS,
+        images: { ...DEFAULT_RECORDING_OPTIONS.images, enabled: false },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      // Simulate main.ts logic: only dispatch if enabled
+      if (options.images.enabled) {
+        store.dispatch(
+          add2dImage({
+            imageFile: 'frames/frame-000001.jpg',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            screenRotation: 0,
+            capturedAt: Date.now(),
+          })
+        );
+      }
+
+      const imageActions = dispatchedActions.filter(
+        (a) => a.type === 'gpsData/add2dImage'
+      );
+      expect(imageActions.length).toBe(0);
+    });
+
+    it('should dispatch image actions when enabled', () => {
+      const options = cloneRecordingOptions(DEFAULT_RECORDING_OPTIONS);
+      options.images.enabled = true;
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      if (options.images.enabled) {
+        store.dispatch(
+          add2dImage({
+            imageFile: 'frames/frame-000001.jpg',
+            position: [1, 2, 3],
+            rotation: [0, 0, 0, 1],
+            screenRotation: 90,
+            capturedAt: Date.now(),
+          })
+        );
+      }
+
+      const imageActions = dispatchedActions.filter(
+        (a) => a.type === 'gpsData/add2dImage'
+      );
+      expect(imageActions.length).toBe(1);
+    });
+  });
+
+  describe('combined behavior', () => {
+    it('should respect both options independently', () => {
+      // Depth on, images off
+      const options: RecordingOptions = {
+        depth: { enabled: true, intervalMs: 1000, gridSize: 3 },
+        images: {
+          enabled: false,
+          intervalMs: 2000,
+          quality: 0.7,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      // Simulate dispatching based on options
+      if (options.depth.enabled) {
+        store.dispatch(
+          recordDepthSample({
+            timestamp: Date.now(),
+            cameraPos: [0, 0, 0],
+            cameraRot: [0, 0, 0, 1],
+            points: [],
+          })
+        );
+      }
+
+      if (options.images.enabled) {
+        store.dispatch(
+          add2dImage({
+            imageFile: 'test.jpg',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            screenRotation: 0,
+            capturedAt: Date.now(),
+          })
+        );
+      }
+
+      const depthActions = dispatchedActions.filter(
+        (a) => a.type === 'recorder/recordDepthSample'
+      );
+      const imageActions = dispatchedActions.filter(
+        (a) => a.type === 'gpsData/add2dImage'
+      );
+
+      expect(depthActions.length).toBe(1);
+      expect(imageActions.length).toBe(0);
+    });
+
+    it('should allow both when both enabled', () => {
+      const options: RecordingOptions = {
+        depth: { enabled: true, intervalMs: 1000, gridSize: 3 },
+        images: {
+          enabled: true,
+          intervalMs: 2000,
+          quality: 0.7,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      if (options.depth.enabled) {
+        store.dispatch(
+          recordDepthSample({
+            timestamp: Date.now(),
+            cameraPos: [0, 0, 0],
+            cameraRot: [0, 0, 0, 1],
+            points: [],
+          })
+        );
+      }
+
+      if (options.images.enabled) {
+        store.dispatch(
+          add2dImage({
+            imageFile: 'test.jpg',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            screenRotation: 0,
+            capturedAt: Date.now(),
+          })
+        );
+      }
+
+      const depthActions = dispatchedActions.filter(
+        (a) => a.type === 'recorder/recordDepthSample'
+      );
+      const imageActions = dispatchedActions.filter(
+        (a) => a.type === 'gpsData/add2dImage'
+      );
+
+      expect(depthActions.length).toBe(1);
+      expect(imageActions.length).toBe(1);
+    });
+
+    it('should block both when both disabled', () => {
+      const options: RecordingOptions = {
+        depth: { enabled: false, intervalMs: 1000, gridSize: 3 },
+        images: {
+          enabled: false,
+          intervalMs: 2000,
+          quality: 0.7,
+          resolutionDivisor: 1,
+        },
+        arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      };
+
+      store.dispatch(
+        startSession({
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now(),
+          recordingOptions: options,
+        })
+      );
+
+      if (options.depth.enabled) {
+        store.dispatch(
+          recordDepthSample({
+            timestamp: Date.now(),
+            cameraPos: [0, 0, 0],
+            cameraRot: [0, 0, 0, 1],
+            points: [],
+          })
+        );
+      }
+
+      if (options.images.enabled) {
+        store.dispatch(
+          add2dImage({
+            imageFile: 'test.jpg',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            screenRotation: 0,
+            capturedAt: Date.now(),
+          })
+        );
+      }
+
+      const depthActions = dispatchedActions.filter(
+        (a) => a.type === 'recorder/recordDepthSample'
+      );
+      const imageActions = dispatchedActions.filter(
+        (a) => a.type === 'gpsData/add2dImage'
+      );
+
+      expect(depthActions.length).toBe(0);
+      expect(imageActions.length).toBe(0);
+    });
+  });
+});

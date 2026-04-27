@@ -1,0 +1,81 @@
+# ref-point-loader.ts
+
+## Purpose
+
+Manages loading, saving, and transforming reference points from the scenario's `refPoints/` directory. Each reference point is stored as a separate JSON file containing all observations across sessions.
+
+## Public API
+
+### Types
+
+| Type                  | Description                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `RefPointObservation` | Single observation of a reference point in one session (includes optional `fusedGpsPoint` from alignment) |
+| `RefPointDefinition`  | Complete definition with ID, name, and all observations                                                   |
+| `RefPointMark`        | Flattened observation for visualization (canonical type)                                                  |
+
+### Functions
+
+| Export                    | Signature                                                   | Description                                                                                    |
+| ------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `loadAllRefPoints`        | `(scenarioHandle) => Promise<RefPointDefinition[]>`         | Load all ref point JSON files from refPoints/                                                  |
+| `loadRefPoint`            | `(scenarioHandle, pointId) => Promise<RefPointDefinition?>` | Load specific ref point by ID                                                                  |
+| `saveRefPointObservation` | `(handle, id, name, obs) => Promise<void>`                  | Save/append observation to ref point file                                                      |
+| `listRefPointIds`         | `(scenarioHandle) => Promise<string[]>`                     | List all ref point IDs for autocomplete                                                        |
+| `flattenRefPointsToMarks` | `(defs) => RefPointMark[]`                                  | Transform definitions to flat visualization list (prefers `fusedGpsPoint` over raw `gpsPoint`) |
+| `averageGpsPerRefPoint`   | `(defs) => AveragedRefPoint[]`                              | Compute GPS centroid per ref point ID (prefers fusedGpsPoint over raw gpsPoint)                |
+
+## Invariants & Assumptions
+
+- Reference points stored in `/<ScenarioName>/refPoints/<id>.json`
+- Each JSON file contains all observations across all sessions
+- `RefPointMark` is the canonical type for visualization (re-exported by `store.ts`)
+- `flattenRefPointsToMarks` handles undefined altitude gracefully and **prefers `obs.fusedGpsPoint` over `obs.gpsPoint`** when present (lat/lon and altitude are taken from the same source to avoid mixing). See `2026-04-24-refpoint-positioning-investigation.md` §7.
+- File operations are async and may throw on permission errors
+- **Safe write pattern**: `saveRefPointObservation` uses try/finally with `writable.abort()` on failure to release OPFS file locks, preventing `InvalidStateError` on subsequent writes when storage is full
+- **Deep validation**: `isRefPointDefinition` type guard validates nested observation structure (arPose.position, arPose.rotation, gpsPoint.latitude, gpsPoint.longitude) to prevent runtime crashes from corrupted files
+
+## Data Flow
+
+```
+RefPointDefinition[]  ──flattenRefPointsToMarks()──▶  RefPointMark[]
+       ▲                                                    │
+       │                                                    ▼
+  loadAllRefPoints()                              refPointVisualizer
+       ▲
+       │
+  refPoints/*.json
+```
+
+## Examples
+
+```typescript
+import {
+  loadAllRefPoints,
+  flattenRefPointsToMarks,
+  saveRefPointObservation,
+} from './storage/ref-point-loader';
+
+// Load and flatten for visualization
+const defs = await loadAllRefPoints(scenarioHandle);
+const marks = flattenRefPointsToMarks(defs);
+visualizer.displayPriorRefPoints(marks);
+
+// Save new observation
+await saveRefPointObservation(scenarioHandle, 'pointA', 'Point A', {
+  sessionId: 'recording-2025-01-08',
+  timestamp: Date.now(),
+  arPose: { position: [1, 2, 3], rotation: [0, 0, 0, 1] },
+  gpsPoint: lastGpsPoint,
+});
+```
+
+## Tests
+
+- `ref-point-loader.test.ts` - 35 unit tests
+  - Load/save operations with mock FileSystem handles
+  - Type guard validation for malformed JSON (top-level and nested observations)
+  - `flattenRefPointsToMarks` helper with edge cases
+  - `averageGpsPerRefPoint` centroid computation (single/multiple observations, fusedGpsPoint preference, altitude averaging, empty array)
+  - Writable stream safety: verifies `abort()` is called when `write()` throws
+- Coverage: ~97%

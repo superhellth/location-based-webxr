@@ -1,0 +1,173 @@
+/* ==========================================================================
+   GpsPlusSlamJs Recorder App — Core Styles
+   ==========================================================================
+   Extracted from index.html inline <style> block (Phase 0 refactoring).
+   
+   BEHAVIORAL vs VISUAL:
+   Rules marked [BEHAVIORAL] are contracts the JS relies on (z-index stacking,
+   pointer-events model, safe-area insets, display toggling).
+   Rules marked [VISUAL] are purely decorative and safe to restyle.
+   ========================================================================== */
+
+/* --- Full-screen AR canvas [BEHAVIORAL] --- */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+#app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+/* Three.js inserts a <canvas> as a child of #app.
+   It must be out of document flow to prevent internal scroll
+   offset that causes pointer-event/hitbox mismatch in WebXR
+   DOM overlay mode. */
+#app > canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* --- HUD overlay [BEHAVIORAL] ---
+   pointer-events: none on #hud lets taps pass through to the canvas;
+   children re-enable pointer-events individually. */
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  padding: 1rem;
+  z-index: 10;
+}
+#hud > * {
+  pointer-events: auto;
+}
+
+/* [VISUAL] Only the status area is interactive (toggles log panel) */
+#status {
+  cursor: pointer;
+}
+
+/* --- Log Panel overlay [BEHAVIORAL] ---
+   z-index: 60 places it above HUD (10) and controls (10).
+   .hidden override is needed because the default display is flex. */
+#log-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: rgb(0 0 0 / 90%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgb(255 255 255 / 20%);
+}
+#log-panel.hidden {
+  display: none;
+}
+#log-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  background: rgb(30 30 30 / 95%);
+}
+/* [VISUAL] */
+#log-panel-header span {
+  font-weight: bold;
+  color: #9ca3af;
+}
+#log-panel-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#log-panel-close:hover {
+  color: white;
+}
+#log-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  font-family: monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* --- Log entry severity colors [VISUAL] ---
+   Class names are JS contracts (log-panel.ts adds them), colors are visual. */
+.log-entry {
+  padding: 2px 4px;
+  border-radius: 2px;
+  margin-bottom: 1px;
+}
+.log-entry-debug {
+  color: #9ca3af;
+}
+.log-entry-info {
+  color: #60a5fa;
+}
+.log-entry-warn {
+  color: #fbbf24;
+  background: rgb(251 191 36 / 10%);
+}
+.log-entry-error {
+  color: #f87171;
+  background: rgb(248 113 113 / 15%);
+}
+
+/* --- Warning state for summary rows (Issue #1 Part B) [VISUAL] ---
+   Class name .summary-row.warning is a JS contract (session-summary.ts). */
+.summary-row.warning {
+  background: rgb(251 191 36 / 20%);
+  border: 1px solid #fbbf24;
+}
+.summary-row.warning .text-gray-400 {
+  color: #fbbf24;
+}
+
+/* --- Controls & Replay controls overlays [BEHAVIORAL] ---
+   Same pointer-events model as HUD. z-index: 10 matches HUD layer. */
+#controls,
+#replay-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  padding: 1rem;
+  z-index: 10;
+}
+#controls > *,
+#replay-controls > * {
+  pointer-events: auto;
+}
+
+/* --- Legend color indicators [VISUAL] ---
+   Used in the summary-map legend. Colors match VIS_COLORS in vis-colors.ts. */
+.legend-color-raw-gps {
+  background: #ffff00;
+}
+.legend-color-fused-path {
+  background: #00ffff;
+}

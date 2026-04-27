@@ -1,0 +1,14 @@
+GPS Plus SLAM App Framework
+Copyright 2026 cs-util-com
+
+This product includes software developed at cs-util-com
+(https://github.com/cs-util-com/gps-plus-slam).
+
+This product depends on the following third-party libraries:
+
+- Three.js (https://threejs.org/) — MIT License
+- Leaflet (https://leafletjs.com/) — BSD 2-Clause License
+- Redux Toolkit (https://redux-toolkit.js.org/) — MIT License
+- gl-matrix (https://glmatrix.net/) — MIT License
+- h3-js (https://h3geo.org/) — Apache 2.0 License
+- zip.js (https://gildas-lormeau.github.io/zip.js/) — BSD 3-Clause License

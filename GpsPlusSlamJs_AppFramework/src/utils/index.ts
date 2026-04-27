@@ -1,0 +1,28 @@
+/**
+ * Utils module — Logger, fused-path, failure tracker, concurrency, formatters.
+ */
+
+export {
+  createLogger,
+  LogLevel,
+  getLogBuffer,
+  clearLogBuffer,
+  getGlobalLogLevel,
+  setGlobalLogLevel,
+  subscribeToLogs,
+  type Logger,
+  type LogEntry,
+} from './logger.js';
+export {
+  fusedGpsFromOdom,
+  computeFusedPath,
+  type FusedPathInput,
+} from './fused-path.js';
+export {
+  createFailureTracker,
+  type FailureTracker,
+  type FailureTrackerConfig,
+} from './failure-tracker.js';
+export { mapWithConcurrencyLimit } from './concurrency.js';
+export { formatFileSize } from './format-file-size.js';
+export { listFormatter } from './list-formatter.js';

@@ -1,0 +1,1255 @@
+/**
+ * Recording Session Handlers Tests
+ *
+ * Why these tests matter:
+ * The recording-session-handlers module encapsulates all recording lifecycle
+ * state and event handlers extracted from main.ts (Finding #7 — main.ts
+ * decomposition, Step 3). These tests verify each handler's behavior in
+ * isolation, ensuring the extraction preserves the exact same behavior.
+ *
+ * @vitest-environment jsdom
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { RecorderStore } from 'gps-plus-slam-app-framework/state/store';
+import {
+  DEFAULT_RECORDING_OPTIONS,
+  type RecordingOptions,
+} from 'gps-plus-slam-app-framework/state/recording-options';
+import type { StoreSubscriberDeps } from 'gps-plus-slam-app-framework/state/store-subscribers';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// ── Hoisted mocks ──────────────────────────────────────────────────────
+
+const {
+  mockResetCoordinatorState,
+  mockCreateGpsPositionHandler,
+  mockUpdateDeviceOrientation,
+  mockStartGpsWatch,
+  mockStopGpsWatch,
+  mockStartOrientationWatch,
+  mockStopOrientationWatch,
+  mockFormatTimestamp,
+  mockStartStorageSession,
+  mockGetCurrentScenarioHandle,
+  mockWireStoreSubscribers,
+  mockCreateWriteFailureTracker,
+  mockCreateCaptureFailureTracker,
+  mockStartSession,
+  mockEndSession,
+  mockStartImageCapture,
+  mockStopImageCapture,
+  mockStartDepthCapture,
+  mockStopDepthCapture,
+  mockGetImageCaptureFrameCount,
+  mockGetDepthSampleCount,
+  mockGetSaveFileHandle,
+  mockGetSaveFileName,
+  mockGenerateSessionFilename,
+  mockCreateSyncManager,
+  mockSyncToExternalZip,
+  mockExportSessionAsZip,
+  mockEnableBeforeUnloadWarning,
+  mockDisableBeforeUnloadWarning,
+  mockPushScreenState,
+  mockReplaceScreenState,
+  mockShowRecordingControls,
+  mockHideRecordingControls,
+  mockShowError,
+  mockUpdateStatus,
+  mockHideFrameCount,
+  mockShowSessionSummary,
+  mockShowConfirmDialog,
+  mockGpsEventVisualizer,
+  mockRefPointVisualizer,
+  mockComputeFusedPath,
+  mockCreateGpsErrorHandler,
+  mockGetCurrentArPose,
+  mockCalcGpsCoords,
+  mockGetBuildInfo,
+  mockSyncManagerInstance,
+  mockWriteFailureTrackerInstance,
+  mockCaptureFailureTrackerInstance,
+  mockUnsubscribe,
+} = vi.hoisted(() => {
+  const mockSyncManagerInstance = {
+    start: vi.fn(),
+    stop: vi.fn(),
+    syncNow: vi.fn().mockResolvedValue(undefined),
+    getStatus: vi.fn().mockReturnValue({ state: 'idle' }),
+  };
+
+  const mockWriteFailureTrackerInstance = {
+    recordSuccess: vi.fn(),
+    recordFailure: vi.fn(),
+    getFailureCount: vi.fn().mockReturnValue(0),
+    hasWarned: vi.fn().mockReturnValue(false),
+    reset: vi.fn(),
+  };
+
+  const mockCaptureFailureTrackerInstance = {
+    recordSuccess: vi.fn(),
+    recordFailure: vi.fn(),
+    getFailureCount: vi.fn().mockReturnValue(0),
+    hasWarned: vi.fn().mockReturnValue(false),
+    reset: vi.fn(),
+  };
+
+  const mockUnsubscribe = vi.fn();
+
+  return {
+    mockResetCoordinatorState: vi.fn(),
+    mockCreateGpsPositionHandler: vi.fn().mockReturnValue(() => {}),
+    mockUpdateDeviceOrientation: vi.fn(),
+    mockStartGpsWatch: vi.fn(),
+    mockStopGpsWatch: vi.fn(),
+    mockStartOrientationWatch: vi.fn(),
+    mockStopOrientationWatch: vi.fn(),
+    mockFormatTimestamp: vi.fn().mockReturnValue('2026-01-01_12-00-00'),
+    mockStartStorageSession: vi.fn().mockResolvedValue(undefined),
+    mockGetCurrentScenarioHandle: vi
+      .fn()
+      .mockReturnValue(null as FileSystemDirectoryHandle | null),
+    mockWireStoreSubscribers: vi.fn().mockReturnValue(mockUnsubscribe),
+    mockCreateWriteFailureTracker: vi
+      .fn()
+      .mockReturnValue(mockWriteFailureTrackerInstance),
+    mockCreateCaptureFailureTracker: vi
+      .fn()
+      .mockReturnValue(mockCaptureFailureTrackerInstance),
+    mockStartSession: vi.fn((payload: unknown) => ({
+      type: 'recorder/startSession',
+      payload,
+    })),
+    mockEndSession: vi.fn(() => ({ type: 'recorder/endSession' })),
+    mockStartImageCapture: vi.fn(),
+    mockStopImageCapture: vi.fn(),
+    mockStartDepthCapture: vi.fn(),
+    mockStopDepthCapture: vi.fn(),
+    mockGetImageCaptureFrameCount: vi.fn().mockReturnValue(0),
+    mockGetDepthSampleCount: vi.fn().mockReturnValue(0),
+    mockGetSaveFileHandle: vi.fn().mockReturnValue(null),
+    mockGetSaveFileName: vi.fn().mockReturnValue(null),
+    mockGenerateSessionFilename: vi
+      .fn()
+      .mockReturnValue('2026-01-01_12-00-00utc.zip'),
+    mockCreateSyncManager: vi.fn().mockReturnValue(mockSyncManagerInstance),
+    mockSyncToExternalZip: vi.fn().mockResolvedValue(undefined),
+    mockExportSessionAsZip: vi
+      .fn()
+      .mockResolvedValue({ blob: new Blob(['test']), fileCount: 1 }),
+    mockEnableBeforeUnloadWarning: vi.fn(),
+    mockDisableBeforeUnloadWarning: vi.fn(),
+    mockPushScreenState: vi.fn(),
+    mockReplaceScreenState: vi.fn(),
+    mockShowRecordingControls: vi.fn(),
+    mockHideRecordingControls: vi.fn(),
+    mockShowError: vi.fn(),
+    mockUpdateStatus: vi.fn(),
+    mockHideFrameCount: vi.fn(),
+    mockShowSessionSummary: vi.fn(),
+    mockShowConfirmDialog: vi.fn().mockResolvedValue(false),
+    mockGpsEventVisualizer: {
+      clearAll: vi.fn(),
+      getCounts: vi.fn().mockReturnValue({ raw: 0, fused: 0, snapshots: 0 }),
+      getAlignmentSnapshotPositions: vi.fn().mockReturnValue([]),
+    },
+    mockRefPointVisualizer: {
+      setZeroRef: vi.fn(),
+      displayPriorRefPoints: vi.fn(),
+    },
+    mockComputeFusedPath: vi.fn().mockReturnValue([]),
+    mockCreateGpsErrorHandler: vi.fn().mockReturnValue(() => {}),
+    mockGetCurrentArPose: vi.fn().mockReturnValue(null),
+    mockCalcGpsCoords: vi
+      .fn()
+      .mockImplementation(
+        (_origin: { lat: number; lon: number }, pos: number[]) => ({
+          lat: 50 + pos[0] * 0.00001,
+          lon: 8 + pos[2] * 0.00001,
+        })
+      ),
+    mockGetBuildInfo: vi.fn().mockReturnValue({
+      commitHash: 'abc1234',
+      appVersion: '0.1.0',
+      libraryVersion: '1.0.0',
+      frameworkVersion: '0.1.0',
+      buildTime: '2026-04-20T10:00:00.000Z',
+    }),
+    mockSyncManagerInstance,
+    mockWriteFailureTrackerInstance,
+    mockCaptureFailureTrackerInstance,
+    mockUnsubscribe,
+  };
+});
+
+// ── Module mocks ───────────────────────────────────────────────────────
+
+vi.mock('gps-plus-slam-app-framework/state/recording-coordinator', () => ({
+  resetCoordinatorState: mockResetCoordinatorState,
+  createGpsPositionHandler: mockCreateGpsPositionHandler,
+  updateDeviceOrientation: mockUpdateDeviceOrientation,
+}));
+
+vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
+  startGpsWatch: mockStartGpsWatch,
+  stopGpsWatch: mockStopGpsWatch,
+  startOrientationWatch: mockStartOrientationWatch,
+  stopOrientationWatch: mockStopOrientationWatch,
+}));
+
+vi.mock('gps-plus-slam-app-framework/storage/file-system-utils', () => ({
+  formatTimestamp: mockFormatTimestamp,
+}));
+
+vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+  startSession: mockStartStorageSession,
+  getCurrentScenarioHandle: mockGetCurrentScenarioHandle,
+}));
+
+vi.mock('gps-plus-slam-app-framework/state/store-subscribers', () => ({
+  wireStoreSubscribers: mockWireStoreSubscribers,
+}));
+
+vi.mock('gps-plus-slam-app-framework/state/store', () => ({
+  startSession: mockStartSession,
+  endSession: mockEndSession,
+}));
+
+vi.mock('../storage/write-failure-tracker', () => ({
+  createWriteFailureTracker: mockCreateWriteFailureTracker,
+}));
+
+vi.mock('gps-plus-slam-app-framework/ar/capture-failure-tracker', () => ({
+  createCaptureFailureTracker: mockCreateCaptureFailureTracker,
+}));
+
+vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
+  startImageCapture: mockStartImageCapture,
+  stopImageCapture: mockStopImageCapture,
+  startDepthCapture: mockStartDepthCapture,
+  stopDepthCapture: mockStopDepthCapture,
+  getImageCaptureFrameCount: mockGetImageCaptureFrameCount,
+  getDepthSampleCount: mockGetDepthSampleCount,
+  getCurrentArPose: mockGetCurrentArPose,
+}));
+
+vi.mock('../storage/external-file-storage', () => ({
+  getSaveFileHandle: mockGetSaveFileHandle,
+  getSaveFileName: mockGetSaveFileName,
+  generateSessionFilename: mockGenerateSessionFilename,
+}));
+
+vi.mock('../storage/sync-manager', () => ({
+  createSyncManager: mockCreateSyncManager,
+}));
+
+vi.mock('gps-plus-slam-app-framework/storage/zip-export', () => ({
+  syncToExternalZip: mockSyncToExternalZip,
+  exportSessionAsZip: mockExportSessionAsZip,
+}));
+
+vi.mock('../ui/navigation', () => ({
+  enableBeforeUnloadWarning: mockEnableBeforeUnloadWarning,
+  disableBeforeUnloadWarning: mockDisableBeforeUnloadWarning,
+  pushScreenState: mockPushScreenState,
+  replaceScreenState: mockReplaceScreenState,
+}));
+
+vi.mock('../ui/hud', () => ({
+  showRecordingControls: mockShowRecordingControls,
+  hideRecordingControls: mockHideRecordingControls,
+  showError: mockShowError,
+  updateStatus: mockUpdateStatus,
+  hideFrameCount: mockHideFrameCount,
+  updateRefPointButtonLabel: vi.fn(),
+  setNewRefPointButtonVisible: vi.fn(),
+}));
+
+vi.mock('../ui/session-summary', () => ({
+  showSessionSummary: mockShowSessionSummary,
+}));
+
+vi.mock('../ui/confirm-dialog', () => ({
+  showConfirmDialog: mockShowConfirmDialog,
+}));
+
+vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
+  gpsEventVisualizer: mockGpsEventVisualizer,
+}));
+
+vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
+  refPointVisualizer: mockRefPointVisualizer,
+}));
+
+vi.mock('gps-plus-slam-app-framework/utils/fused-path', () => ({
+  computeFusedPath: mockComputeFusedPath,
+}));
+
+vi.mock('gps-plus-slam-app-framework/sensors/gps-error-handler', () => ({
+  createGpsErrorHandler: mockCreateGpsErrorHandler,
+}));
+
+vi.mock('gps-plus-slam-js', () => ({
+  calcGpsCoords: mockCalcGpsCoords,
+}));
+
+vi.mock('../utils/build-info', () => ({
+  getBuildInfo: mockGetBuildInfo,
+}));
+
+vi.mock('gps-plus-slam-app-framework/utils/logger', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
+// ── Imports (after mocks) ──────────────────────────────────────────────
+
+import {
+  createRecordingSessionHandlers,
+  type RecordingSessionHandlers,
+  type RecordingSessionDeps,
+} from './recording-session-handlers';
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+function createMockStore(): RecorderStore {
+  return {
+    getState: vi.fn().mockReturnValue({
+      gpsData: {
+        gpsEvents: {
+          gpsPositions: [],
+          odometryPositions: [],
+        },
+        referencePoints: [],
+      },
+      recorder: {
+        sessionMetadata: {
+          scenarioName: 'TestScenario',
+          sessionName: 'test-session',
+          startTime: 1000000,
+        },
+        failedWriteCount: 0,
+        currentScenarioName: 'TestScenario',
+      },
+    }),
+    subscribe: vi.fn().mockReturnValue(() => {}),
+    dispatch: vi.fn(),
+    replaceReducer: vi.fn(),
+    writeFrame: vi.fn().mockResolvedValue(undefined),
+    writeSessionMetadata: vi.fn().mockResolvedValue(undefined),
+  } as unknown as RecorderStore;
+}
+
+const defaultOptions: RecordingOptions = {
+  images: {
+    enabled: false,
+    intervalMs: 1000,
+    quality: 0.8,
+    resolutionDivisor: 1,
+  },
+  depth: { enabled: false, intervalMs: 1000, gridSize: 3 },
+  arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+};
+
+function createMockDeps(
+  overrides?: Partial<RecordingSessionDeps>
+): RecordingSessionDeps {
+  const mockStore = createMockStore();
+  return {
+    getStore: () => mockStore,
+    setStore: vi.fn(),
+    createNewStore: vi.fn().mockReturnValue(createMockStore()),
+    getRecordingOptions: () => defaultOptions,
+    getMapOverlay: () => null,
+    clearRefPointUsage: vi.fn(),
+    getSessionNotes: () => '',
+    waitForZeroReference: vi.fn().mockResolvedValue(null),
+    loadAndDisplayRefPoints: vi
+      .fn()
+      .mockResolvedValue({ refPointCount: 0, observationCount: 0 }),
+    collectTrackerErrors: vi.fn(),
+    applyAlignmentMatrix: vi.fn(),
+    ...overrides,
+  };
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+describe('createRecordingSessionHandlers', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handlers = createRecordingSessionHandlers(deps);
+  });
+
+  // --- Factory creation ---
+
+  it('should return an object with all expected methods', () => {
+    // Why: Verify the factory produces the correct public interface
+    expect(handlers).toBeDefined();
+    expect(typeof handlers.handleStartRecording).toBe('function');
+    expect(typeof handlers.handleStopRecording).toBe('function');
+    expect(typeof handlers.handleBackDuringRecording).toBe('function');
+    expect(typeof handlers.getCurrentSessionName).toBe('function');
+    expect(typeof handlers.setCurrentSessionName).toBe('function');
+    expect(typeof handlers.recordWriteSuccess).toBe('function');
+    expect(typeof handlers.recordWriteFailure).toBe('function');
+    expect(typeof handlers.recordCaptureSuccess).toBe('function');
+    expect(typeof handlers.recordCaptureFailure).toBe('function');
+    expect(typeof handlers.cleanupForNewRecording).toBe('function');
+    expect(typeof handlers.reset).toBe('function');
+  });
+
+  // --- State accessors ---
+
+  it('should return empty session name initially', () => {
+    // Why: Session name is only set when recording starts
+    expect(handlers.getCurrentSessionName()).toBe('');
+  });
+
+  it('should allow setting session name', () => {
+    // Why: main.ts needs to set session name in some scenarios
+    handlers.setCurrentSessionName('my-session');
+    expect(handlers.getCurrentSessionName()).toBe('my-session');
+  });
+});
+
+describe('handleStartRecording', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handlers = createRecordingSessionHandlers(deps);
+  });
+
+  it('should reset coordinator state', async () => {
+    // Why: Each recording starts with fresh coordinator state
+    await handlers.handleStartRecording();
+    expect(mockResetCoordinatorState).toHaveBeenCalled();
+  });
+
+  it('should clear GPS event visualizer', async () => {
+    // Why: Previous recording markers must be cleared
+    await handlers.handleStartRecording();
+    expect(mockGpsEventVisualizer.clearAll).toHaveBeenCalled();
+  });
+
+  it('should clear ref point usage tracking', async () => {
+    // Why: Session-level ref point usage resets per recording
+    await handlers.handleStartRecording();
+    expect(deps.clearRefPointUsage).toHaveBeenCalled();
+  });
+
+  it('should create a new store via deps', async () => {
+    // Why: Each recording gets a fresh Redux store
+    await handlers.handleStartRecording();
+    expect(deps.createNewStore).toHaveBeenCalled();
+  });
+
+  it('should call setStore with the new store', async () => {
+    // Why: main.ts module-level store must be replaced
+    await handlers.handleStartRecording();
+    expect(deps.setStore).toHaveBeenCalled();
+  });
+
+  it('should generate a session name from timestamp', async () => {
+    // Why: Session names follow the recording-YYYY-MM-DD_HH-MM-SS format
+    await handlers.handleStartRecording();
+    expect(handlers.getCurrentSessionName()).toBe(
+      'recording-2026-01-01_12-00-00'
+    );
+  });
+
+  it('should call startStorageSession before dispatching actions', async () => {
+    // Why: Storage must be initialized before any store actions are dispatched
+    await handlers.handleStartRecording();
+    expect(mockStartStorageSession).toHaveBeenCalledWith('TestScenario');
+  });
+
+  it('should wire store subscribers', async () => {
+    // Why: Store subscribers drive UI updates and visualization
+    await handlers.handleStartRecording();
+    expect(mockWireStoreSubscribers).toHaveBeenCalled();
+  });
+
+  it('should pass a late-binding map overlay proxy to wireStoreSubscribers', async () => {
+    // Why: The map overlay is created lazily (on button click) AFTER recording
+    // starts. If the subscriber captures the initial null value, the overlay
+    // never receives GPS updates in live mode. A proxy that calls
+    // getMapOverlay() on each invocation ensures late-created overlays work.
+    const mockOverlay = {
+      setGpsPosition: vi.fn(),
+      addRawGpsPoint: vi.fn(),
+      addFusedPoint: vi.fn(),
+      addAlignmentSnapshot: vi.fn(),
+      addRefPoint: vi.fn(),
+    };
+    // getMapOverlay returns null initially
+    const getMapOverlay = vi.fn().mockReturnValue(null);
+    deps = createMockDeps({ getMapOverlay });
+    handlers = createRecordingSessionHandlers(deps);
+
+    await handlers.handleStartRecording();
+
+    // Extract the mapOverlay proxy passed to wireStoreSubscribers
+    const wireCall = mockWireStoreSubscribers.mock.calls[0];
+    const subscriberDeps = wireCall[1] as StoreSubscriberDeps;
+    const mapProxy = subscriberDeps.mapOverlay as Required<
+      NonNullable<StoreSubscriberDeps['mapOverlay']>
+    >;
+
+    // Proxy must be a non-null object (not the captured null)
+    expect(mapProxy).not.toBeNull();
+    expect(mapProxy).toBeDefined();
+
+    // Calling proxy methods when overlay is null should be safe (no-op)
+    expect(() => mapProxy.setGpsPosition(50, 8)).not.toThrow();
+    expect(() => mapProxy.addRawGpsPoint(50, 8)).not.toThrow();
+    expect(() => mapProxy.addFusedPoint(50, 8)).not.toThrow();
+    expect(() => mapProxy.addAlignmentSnapshot(50, 8)).not.toThrow();
+    expect(() => mapProxy.addRefPoint(50, 8, 'RP1')).not.toThrow();
+
+    // Now simulate the overlay being created (user tapped map button)
+    getMapOverlay.mockReturnValue(mockOverlay);
+
+    // Proxy should now forward calls to the real overlay
+    mapProxy.setGpsPosition(51, 9);
+    expect(mockOverlay.setGpsPosition).toHaveBeenCalledWith(51, 9);
+
+    mapProxy.addRawGpsPoint(51.1, 9.1);
+    expect(mockOverlay.addRawGpsPoint).toHaveBeenCalledWith(51.1, 9.1);
+
+    mapProxy.addFusedPoint(51.2, 9.2);
+    expect(mockOverlay.addFusedPoint).toHaveBeenCalledWith(51.2, 9.2);
+
+    mapProxy.addAlignmentSnapshot(51.3, 9.3);
+    expect(mockOverlay.addAlignmentSnapshot).toHaveBeenCalledWith(51.3, 9.3);
+
+    mapProxy.addRefPoint(51.4, 9.4, 'RP2');
+    expect(mockOverlay.addRefPoint).toHaveBeenCalledWith(51.4, 9.4, 'RP2');
+  });
+
+  it('should create write and capture failure trackers', async () => {
+    // Why: Trackers monitor for write/capture failures during recording
+    await handlers.handleStartRecording();
+    expect(mockCreateWriteFailureTracker).toHaveBeenCalled();
+    expect(mockCreateCaptureFailureTracker).toHaveBeenCalled();
+  });
+
+  it('should dispatch startSession action', async () => {
+    // Why: Store must record session metadata
+    // Note: handleStartRecording creates a NEW store via createNewStore(),
+    // so we check the mock that createNewStore returns.
+    const newStore = createMockStore();
+    deps = createMockDeps({
+      createNewStore: vi.fn().mockReturnValue(newStore),
+    });
+    handlers = createRecordingSessionHandlers(deps);
+    await handlers.handleStartRecording();
+    expect(newStore.dispatch).toHaveBeenCalled();
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scenarioName: 'TestScenario',
+        sessionName: 'recording-2026-01-01_12-00-00',
+      })
+    );
+  });
+
+  it('should start GPS watch with position handler', async () => {
+    // Why: GPS tracking is the core recording capability
+    await handlers.handleStartRecording();
+    expect(mockStartGpsWatch).toHaveBeenCalled();
+  });
+
+  it('should start orientation watch', async () => {
+    // Why: Device orientation data is recorded alongside GPS
+    await handlers.handleStartRecording();
+    expect(mockStartOrientationWatch).toHaveBeenCalled();
+  });
+
+  it('should enable beforeunload warning', async () => {
+    // Why: Prevents accidental data loss during recording
+    await handlers.handleStartRecording();
+    expect(mockEnableBeforeUnloadWarning).toHaveBeenCalled();
+  });
+
+  it('should push recording screen state', async () => {
+    // Why: Navigation state machine tracks current screen
+    await handlers.handleStartRecording();
+    expect(mockPushScreenState).toHaveBeenCalledWith('recording');
+  });
+
+  it('should show recording controls', async () => {
+    // Why: UI must switch to recording mode
+    await handlers.handleStartRecording();
+    expect(mockShowRecordingControls).toHaveBeenCalled();
+  });
+
+  it('should update status with session name', async () => {
+    // Why: HUD shows current recording name
+    await handlers.handleStartRecording();
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      expect.stringContaining('Recording:')
+    );
+  });
+
+  it('should start image capture when enabled in options', async () => {
+    // Why: Image capture is controlled by user settings
+    const opts: RecordingOptions = {
+      images: {
+        enabled: true,
+        intervalMs: 500,
+        quality: 0.9,
+        resolutionDivisor: 2,
+      },
+      depth: { enabled: false, intervalMs: 1000, gridSize: 3 },
+      arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+    };
+    deps = createMockDeps({ getRecordingOptions: () => opts });
+    handlers = createRecordingSessionHandlers(deps);
+    await handlers.handleStartRecording();
+    expect(mockStartImageCapture).toHaveBeenCalledWith(
+      { intervalMs: 500, quality: 0.9 },
+      2
+    );
+  });
+
+  it('should NOT start image capture when disabled in options', async () => {
+    // Why: Respects user preference to disable image capture
+    await handlers.handleStartRecording();
+    expect(mockStartImageCapture).not.toHaveBeenCalled();
+  });
+
+  it('should start depth capture when enabled in options', async () => {
+    // Why: Depth capture is controlled by user settings
+    const opts: RecordingOptions = {
+      images: {
+        enabled: false,
+        intervalMs: 1000,
+        quality: 0.8,
+        resolutionDivisor: 1,
+      },
+      depth: { enabled: true, intervalMs: 500, gridSize: 3 },
+      arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+    };
+    deps = createMockDeps({ getRecordingOptions: () => opts });
+    handlers = createRecordingSessionHandlers(deps);
+    await handlers.handleStartRecording();
+    expect(mockStartDepthCapture).toHaveBeenCalled();
+  });
+
+  it('should NOT start depth capture when disabled in options', async () => {
+    // Why: Respects user preference to disable depth capture
+    await handlers.handleStartRecording();
+    expect(mockStartDepthCapture).not.toHaveBeenCalled();
+  });
+
+  it('should start SyncManager when save file handle is available', async () => {
+    // Why: External ZIP backup runs during recording if user selected save location
+    const fakeHandle = {} as FileSystemFileHandle;
+    mockGetSaveFileHandle.mockReturnValue(fakeHandle);
+    await handlers.handleStartRecording();
+    expect(mockCreateSyncManager).toHaveBeenCalled();
+    expect(mockSyncManagerInstance.start).toHaveBeenCalled();
+  });
+
+  it('should NOT start SyncManager when no save file handle', async () => {
+    // Why: OPFS-only storage mode doesn't need sync
+    mockGetSaveFileHandle.mockReturnValue(null);
+    await handlers.handleStartRecording();
+    expect(mockCreateSyncManager).not.toHaveBeenCalled();
+  });
+
+  it('should unsubscribe previous store subscription before creating new one', async () => {
+    // Why: Prevents orphan subscriptions from leaking
+    // Start recording twice to create two subscriptions
+    await handlers.handleStartRecording();
+    const firstUnsubscribe = mockUnsubscribe;
+    await handlers.handleStartRecording();
+    expect(firstUnsubscribe).toHaveBeenCalled();
+  });
+
+  it('should abort and show error when storage session fails', async () => {
+    // Why: If storage init fails, recording cannot proceed
+    mockStartStorageSession.mockRejectedValueOnce(new Error('OPFS error'));
+    await handlers.handleStartRecording();
+    expect(mockShowError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to create session folder')
+    );
+    // Should NOT proceed to start GPS etc.
+    expect(mockStartGpsWatch).not.toHaveBeenCalled();
+  });
+
+  it('should include session notes in startSession dispatch', async () => {
+    // Why: User notes must be persisted in session metadata
+    deps = createMockDeps({ getSessionNotes: () => 'My test notes' });
+    handlers = createRecordingSessionHandlers(deps);
+    await handlers.handleStartRecording();
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({ notes: 'My test notes' })
+    );
+  });
+
+  it('should use Default Scenario when scenario name is empty', async () => {
+    // Why: Fallback for unset scenario name — store has empty currentScenarioName
+    const emptyScenarioStore = createMockStore();
+    vi.mocked(emptyScenarioStore.getState).mockReturnValue({
+      ...emptyScenarioStore.getState(),
+      recorder: {
+        ...emptyScenarioStore.getState().recorder,
+        currentScenarioName: '',
+      },
+    });
+    deps = createMockDeps({ getStore: () => emptyScenarioStore });
+    handlers = createRecordingSessionHandlers(deps);
+    await handlers.handleStartRecording();
+    expect(mockStartStorageSession).toHaveBeenCalledWith('Default Scenario');
+  });
+
+  it('should preserve scenario name from old store when creating new store (Issue #12)', async () => {
+    // Why: The dropdown dispatches setCurrentScenarioName on the CURRENT store.
+    // handleStartRecording creates a NEW store (which has no scenario name).
+    // The scenario name must be read from the OLD store BEFORE replacement,
+    // otherwise every recording is filed under 'Default Scenario' regardless
+    // of the user's dropdown selection.
+    const oldStore = createMockStore();
+    vi.mocked(oldStore.getState).mockReturnValue({
+      ...oldStore.getState(),
+      recorder: {
+        ...oldStore.getState().recorder,
+        currentScenarioName: 'Paris',
+      },
+    });
+
+    // New store has no scenario name (fresh state)
+    const newStore = createMockStore();
+    vi.mocked(newStore.getState).mockReturnValue({
+      ...newStore.getState(),
+      recorder: {
+        ...newStore.getState().recorder,
+        currentScenarioName: '',
+      },
+    });
+
+    let currentStore = oldStore;
+    deps = createMockDeps({
+      getStore: () => currentStore,
+      setStore: (s: RecorderStore) => {
+        currentStore = s;
+      },
+      createNewStore: vi.fn().mockReturnValue(newStore),
+    });
+    handlers = createRecordingSessionHandlers(deps);
+
+    await handlers.handleStartRecording();
+
+    // Storage session and startSession action should both use 'Paris'
+    expect(mockStartStorageSession).toHaveBeenCalledWith('Paris');
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({ scenarioName: 'Paris' })
+    );
+  });
+});
+
+describe('handleStopRecording', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+  let mockStore: RecorderStore;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockStore = createMockStore();
+    deps = createMockDeps({
+      getStore: () => mockStore,
+      setStore: vi.fn(),
+      createNewStore: vi.fn().mockReturnValue(mockStore),
+    });
+    handlers = createRecordingSessionHandlers(deps);
+    // Start a recording first so there's state to clean up
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+  });
+
+  it('should disable beforeunload warning', async () => {
+    // Why: Warning only needed during active recording
+    await handlers.handleStopRecording();
+    expect(mockDisableBeforeUnloadWarning).toHaveBeenCalled();
+  });
+
+  it('should stop image and depth capture', async () => {
+    // Why: Sensors must be stopped when recording ends
+    await handlers.handleStopRecording();
+    expect(mockStopImageCapture).toHaveBeenCalled();
+    expect(mockStopDepthCapture).toHaveBeenCalled();
+  });
+
+  it('should stop GPS and orientation watches', async () => {
+    // Why: All sensor watches must be cleaned up
+    await handlers.handleStopRecording();
+    expect(mockStopGpsWatch).toHaveBeenCalled();
+    expect(mockStopOrientationWatch).toHaveBeenCalled();
+  });
+
+  it('should write session metadata', async () => {
+    // Why: session.json must be persisted before ending, and new recordings
+    // must keep the current era marker so replay migration stays correct.
+    await handlers.handleStopRecording();
+    expect(mockStore.writeSessionMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 1,
+        odomCoordVersion: 5,
+        scenarioName: 'TestScenario',
+      })
+    );
+  });
+
+  it('should dispatch endSession', async () => {
+    // Why: Store must know recording has ended
+    await handlers.handleStopRecording();
+    expect(mockEndSession).toHaveBeenCalled();
+    expect(mockStore.dispatch).toHaveBeenCalled();
+  });
+
+  it('should call collectTrackerErrors for both trackers', async () => {
+    // Why: Failure counts must be collected before showing summary
+    await handlers.handleStopRecording();
+    expect(deps.collectTrackerErrors).toHaveBeenCalledTimes(2);
+  });
+
+  it('should replace screen state with summary', async () => {
+    // Why: Recording → Summary is a terminal state transition
+    await handlers.handleStopRecording();
+    expect(mockReplaceScreenState).toHaveBeenCalledWith('summary');
+  });
+
+  it('should show session summary with data', async () => {
+    // Why: User sees recording results after stopping
+    await handlers.handleStopRecording();
+    expect(mockShowSessionSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gpsEventCount: expect.any(Number),
+        imageCount: expect.any(Number),
+      })
+    );
+  });
+
+  it('should stop and null out sync manager', async () => {
+    // Why: Sync manager must be cleaned up
+    // Restart with sync manager active
+    mockGetSaveFileHandle.mockReturnValue({});
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+
+    await handlers.handleStopRecording();
+    expect(mockSyncManagerInstance.syncNow).toHaveBeenCalled();
+    expect(mockSyncManagerInstance.stop).toHaveBeenCalled();
+  });
+
+  it('should generate ZIP from OPFS when no external save location', async () => {
+    // Why: Issue 3 — summary always needs ZIP data for share button
+    mockGetSaveFileHandle.mockReturnValue(null);
+    await handlers.handleStopRecording();
+    expect(mockExportSessionAsZip).toHaveBeenCalled();
+  });
+
+  it('should call exportSessionAsZip on main thread (Bug 12 — known limitation)', async () => {
+    // Why: Bug 12 documents that ZIP export runs on the main thread, blocking
+    // the UI during stop-recording. This test verifies the current behavior so
+    // any future Worker-offload refactor has a baseline to replace.
+    // When offloaded, this test should be updated to verify Worker usage.
+    mockGetSaveFileHandle.mockReturnValue(null);
+    await handlers.handleStopRecording();
+
+    // exportSessionAsZip is called directly (not via a Worker)
+    expect(mockExportSessionAsZip).toHaveBeenCalledWith(
+      expect.any(String), // scenarioName
+      expect.any(String) // sessionName
+    );
+  });
+
+  it('should clean up store subscription', async () => {
+    // Why: Prevents memory leaks from dangling subscriptions
+    await handlers.handleStopRecording();
+    expect(mockUnsubscribe).toHaveBeenCalled();
+  });
+
+  it('should hide frame count HUD element', async () => {
+    // Why: Frame counter is only visible during recording
+    await handlers.handleStopRecording();
+    expect(mockHideFrameCount).toHaveBeenCalled();
+  });
+
+  it('should hide recording controls before showing summary (Bug 8)', async () => {
+    // Why: Recording controls (Stop, Ref Point, pulsing indicator) must be
+    // hidden when transitioning to the summary screen. Leaving them visible
+    // causes CSS animation waste, accessibility issues, and potential touch
+    // bleed-through under the 90% opacity summary overlay.
+    await handlers.handleStopRecording();
+    expect(mockHideRecordingControls).toHaveBeenCalled();
+  });
+
+  it('should capture endTime at stop and use consistently in metadata and summary (Issue #4)', async () => {
+    // Why: Both session metadata (endedAt) and the summary panel (endTime)
+    // must use the same timestamp — the moment recording stopped, not a
+    // later time after async operations (sync, ZIP export) have completed.
+    // If Date.now() is called independently for each, the endTime drifts.
+    const stopTime = 1700000000000;
+    let callCount = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      callCount++;
+      // Each call returns a progressively later time to expose independent calls
+      return stopTime + (callCount - 1) * 10000;
+    });
+
+    await handlers.handleStopRecording();
+
+    // Summary endTime must be the captured stop time (first Date.now call)
+    const summaryCall = mockShowSessionSummary.mock.calls[0]?.[0] as {
+      duration: { startTime: number; endTime: number };
+    };
+    expect(summaryCall.duration.endTime).toBe(stopTime);
+
+    // Metadata endedAt must match the same captured stop time
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { endedAt: string };
+    expect(new Date(metadataCall.endedAt).getTime()).toBe(stopTime);
+
+    vi.restoreAllMocks();
+  });
+
+  it('should include build info in session metadata', async () => {
+    // Why: session.json must carry build metadata (commit hash, versions,
+    // build time) so that exported ZIPs are self-describing for debugging.
+    await handlers.handleStopRecording();
+
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { build?: unknown };
+    expect(metadataCall.build).toEqual({
+      commitHash: 'abc1234',
+      appVersion: '0.1.0',
+      libraryVersion: '1.0.0',
+      frameworkVersion: '0.1.0',
+      buildTime: '2026-04-20T10:00:00.000Z',
+    });
+  });
+
+  it('should store pageUrl without query or hash in session metadata', async () => {
+    // Why: session.json is exported and shared, so debug URL metadata must not
+    // persist query-string tokens or hash fragments that may contain secrets.
+    vi.stubGlobal('location', {
+      href: 'https://example.com/recorder/session?scenario=test&token=secret#debug-panel',
+    });
+
+    await handlers.handleStopRecording();
+
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { pageUrl?: string };
+    expect(metadataCall.pageUrl).toBe('https://example.com/recorder/session');
+  });
+
+  it('should preserve scheme for file:// URLs in session metadata', async () => {
+    // Why: file:// URLs have an opaque origin (url.origin === "null"), so
+    // naively concatenating origin + pathname would produce a broken value
+    // like "null/C:/foo/index.html". The sanitizer must preserve the scheme.
+    vi.stubGlobal('location', {
+      href: 'file:///C:/foo/index.html?token=secret#frag',
+    });
+
+    await handlers.handleStopRecording();
+
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { pageUrl?: string };
+    expect(metadataCall.pageUrl).toBe('file:///C:/foo/index.html');
+  });
+
+  it('should omit pageUrl when location href is unavailable', async () => {
+    // Why: stop-recording must degrade gracefully in tests or non-browser
+    // environments where location metadata is missing.
+    vi.stubGlobal('location', {});
+
+    await handlers.handleStopRecording();
+
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { pageUrl?: string };
+    expect(metadataCall.pageUrl).toBeUndefined();
+  });
+
+  it('should still write session metadata when build info lookup fails', async () => {
+    // Why: Build metadata is optional debug information. A lookup failure must
+    // not skip session.json or break stop-recording cleanup.
+    mockGetBuildInfo.mockImplementation(() => {
+      throw new Error('Missing or invalid build metadata: __BUILD_COMMIT__');
+    });
+
+    await handlers.handleStopRecording();
+
+    expect(mockStore.writeSessionMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        version: 1,
+        scenarioName: 'TestScenario',
+      })
+    );
+
+    const metadataCall = (
+      mockStore.writeSessionMetadata as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0] as { build?: unknown };
+    expect(metadataCall.build).toBeUndefined();
+  });
+
+  it('should include alignment snapshot GPS path in summary data (Issue #1)', async () => {
+    // Why: alignment snapshots must be converted to GPS coords and included in
+    // the summary so the summary map can render red dots at alignment positions.
+    //
+    // The visualizer returns NUE positions; the handler converts them to GPS coords
+    // using calcGpsCoords and the zeroRef, then adds them to SessionSummaryData.
+    mockGpsEventVisualizer.getAlignmentSnapshotPositions.mockReturnValue([
+      [10, 0, 5],
+      [20, 1, 10],
+    ]);
+
+    // Provide GPS data so there's a zeroRef available
+    (mockStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
+      gpsData: {
+        gpsEvents: {
+          gpsPositions: [
+            {
+              latitude: 50.0,
+              longitude: 8.0,
+              zeroRef: { lat: 50.0, lon: 8.0 },
+              coordinates: [0, 0, 0],
+              weight: 1,
+              timestamp: Date.now(),
+            },
+          ],
+          odometryPositions: [[0, 0, 0]],
+          alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        },
+        referencePoints: [],
+      },
+      recorder: {
+        sessionMetadata: {
+          scenarioName: 'Test',
+          sessionName: 'test-session',
+          startTime: Date.now() - 60000,
+        },
+        failedWriteCount: 0,
+        currentScenarioName: 'Test',
+      },
+    });
+
+    await handlers.handleStopRecording();
+
+    expect(
+      mockGpsEventVisualizer.getAlignmentSnapshotPositions
+    ).toHaveBeenCalled();
+
+    const summaryCall = mockShowSessionSummary.mock.calls[0]?.[0] as {
+      alignmentSnapshotPath?: Array<{ lat: number; lng: number }>;
+    };
+    expect(summaryCall).toBeDefined();
+    expect(summaryCall.alignmentSnapshotPath).toBeDefined();
+    expect(summaryCall.alignmentSnapshotPath).toHaveLength(2);
+    // Each entry should be a GpsCoord with lat/lng
+    for (const coord of summaryCall.alignmentSnapshotPath!) {
+      expect(typeof coord.lat).toBe('number');
+      expect(typeof coord.lng).toBe('number');
+    }
+  });
+});
+
+describe('handleBackDuringRecording', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handlers = createRecordingSessionHandlers(deps);
+  });
+
+  it('should show confirm dialog', async () => {
+    // Why: User must confirm they want to stop recording
+    await handlers.handleBackDuringRecording();
+    expect(mockShowConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Stop recording and go back?',
+      })
+    );
+  });
+
+  it('should re-push recording state when user cancels', async () => {
+    // Why: Navigation state must be restored after cancelled back
+    mockShowConfirmDialog.mockResolvedValueOnce(false);
+    await handlers.handleBackDuringRecording();
+    expect(mockPushScreenState).toHaveBeenCalledWith('recording');
+  });
+
+  it('should stop recording when user confirms', async () => {
+    // Why: Confirmed back = stop recording flow
+    mockShowConfirmDialog.mockResolvedValueOnce(true);
+    // Need a started recording for stop to work
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+    mockShowConfirmDialog.mockResolvedValueOnce(true);
+    await handlers.handleBackDuringRecording();
+    expect(mockDisableBeforeUnloadWarning).toHaveBeenCalled();
+  });
+
+  it('should block concurrent calls via synchronous lock', async () => {
+    // Why: Rapid back presses must not spawn multiple dialogs
+    // Make dialog hang until we resolve it
+    let resolveDialog!: (v: boolean) => void;
+    mockShowConfirmDialog.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveDialog = r;
+      })
+    );
+
+    const first = handlers.handleBackDuringRecording();
+    // Second call while first is pending
+    await handlers.handleBackDuringRecording();
+    // Second call should re-push state without showing dialog
+    expect(mockPushScreenState).toHaveBeenCalledWith('recording');
+    expect(mockShowConfirmDialog).toHaveBeenCalledTimes(1);
+
+    // Resolve first dialog
+    resolveDialog(false);
+    await first;
+  });
+
+  it('should re-push recording state on error', async () => {
+    // Why: Navigation must not break if dialog throws
+    mockShowConfirmDialog.mockRejectedValueOnce(new Error('dialog error'));
+    await handlers.handleBackDuringRecording();
+    expect(mockPushScreenState).toHaveBeenCalledWith('recording');
+  });
+
+  it('should reset lock after completion', async () => {
+    // Why: Lock must be released so subsequent back presses work
+    mockShowConfirmDialog.mockResolvedValueOnce(false);
+    await handlers.handleBackDuringRecording();
+
+    vi.clearAllMocks();
+    // Second call should work normally (lock was released)
+    mockShowConfirmDialog.mockResolvedValueOnce(false);
+    await handlers.handleBackDuringRecording();
+    expect(mockShowConfirmDialog).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('cleanupForNewRecording', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handlers = createRecordingSessionHandlers(deps);
+    // Start a recording to create state that needs cleanup
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+  });
+
+  it('should unsubscribe from store', () => {
+    // Why: Old subscription must be removed before creating new store
+    handlers.cleanupForNewRecording();
+    expect(mockUnsubscribe).toHaveBeenCalled();
+  });
+
+  it('should reset failure trackers', () => {
+    // Why: Trackers must be cleaned up and nulled for next session
+    handlers.cleanupForNewRecording();
+    expect(mockWriteFailureTrackerInstance.reset).toHaveBeenCalled();
+    expect(mockCaptureFailureTrackerInstance.reset).toHaveBeenCalled();
+  });
+
+  it('should stop sync manager if active', async () => {
+    // Why: Sync must be stopped between recordings
+    // Start with sync manager
+    mockGetSaveFileHandle.mockReturnValue({});
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+
+    handlers.cleanupForNewRecording();
+    expect(mockSyncManagerInstance.stop).toHaveBeenCalled();
+  });
+
+  it('should clear session name', () => {
+    // Why: Session name resets between recordings
+    handlers.setCurrentSessionName('test-session');
+    handlers.cleanupForNewRecording();
+    expect(handlers.getCurrentSessionName()).toBe('');
+  });
+});
+
+describe('reset', () => {
+  let handlers: RecordingSessionHandlers;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    handlers = createRecordingSessionHandlers(createMockDeps());
+  });
+
+  it('should clear session name', () => {
+    // Why: Full reset clears all state
+    handlers.setCurrentSessionName('my-session');
+    handlers.reset();
+    expect(handlers.getCurrentSessionName()).toBe('');
+  });
+});
+
+describe('tracker proxy methods', () => {
+  let handlers: RecordingSessionHandlers;
+  let deps: RecordingSessionDeps;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handlers = createRecordingSessionHandlers(deps);
+  });
+
+  it('should be no-ops before recording starts (no trackers)', () => {
+    // Why: Proxies must be null-safe before trackers are created
+    expect(() => handlers.recordWriteSuccess()).not.toThrow();
+    expect(() => handlers.recordWriteFailure(new Error('test'))).not.toThrow();
+    expect(() => handlers.recordCaptureSuccess()).not.toThrow();
+    expect(() => handlers.recordCaptureFailure()).not.toThrow();
+  });
+
+  it('should delegate to trackers after recording starts', async () => {
+    // Why: During recording, proxy methods reach the real trackers
+    await handlers.handleStartRecording();
+
+    handlers.recordWriteSuccess();
+    expect(mockWriteFailureTrackerInstance.recordSuccess).toHaveBeenCalled();
+
+    handlers.recordWriteFailure(new Error('disk full'));
+    expect(mockWriteFailureTrackerInstance.recordFailure).toHaveBeenCalledWith(
+      expect.any(Error)
+    );
+
+    handlers.recordCaptureSuccess();
+    expect(mockCaptureFailureTrackerInstance.recordSuccess).toHaveBeenCalled();
+
+    handlers.recordCaptureFailure();
+    expect(mockCaptureFailureTrackerInstance.recordFailure).toHaveBeenCalled();
+  });
+});

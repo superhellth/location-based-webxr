@@ -1,0 +1,128 @@
+// @ts-check
+import { fileURLToPath } from 'node:url';
+import globals from 'globals';
+import eslint from '@eslint/js';
+import { defineConfig } from 'eslint/config';
+import tseslint from 'typescript-eslint';
+import vitest from '@vitest/eslint-plugin';
+import prettierConfig from 'eslint-config-prettier';
+
+const tsconfigRootDir = fileURLToPath(new URL('..', import.meta.url));
+const tsconfigForLint = fileURLToPath(
+  new URL('../tsconfig.eslint.json', import.meta.url)
+);
+
+export default defineConfig(
+  eslint.configs.recommended,
+
+  {
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+    rules: {
+      curly: 'error',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      'no-var': 'error',
+      'prefer-const': 'error',
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-extend-native': 'error',
+      complexity: ['warn', 10],
+      'max-depth': ['warn', 4],
+    },
+  },
+
+  {
+    files: [
+      '**/*.test.{js,ts,tsx,mts,cts}',
+      '**/*.spec.{js,ts,tsx,mts,cts}',
+      '**/*.property.test.{js,ts}',
+    ],
+    plugins: {
+      vitest,
+    },
+    languageOptions: {
+      globals: {
+        ...vitest.environments.env.globals,
+      },
+    },
+    rules: {
+      ...vitest.configs.recommended.rules,
+      'vitest/valid-expect': ['error', { maxArgs: 2 }],
+      'vitest/expect-expect': [
+        'error',
+        {
+          assertFunctionNames: ['expect', 'expectTypeOf'],
+        },
+      ],
+    },
+  },
+
+  {
+    files: ['**/*.ts', '**/*.tsx', '**/*.cts', '**/*.mts'],
+    extends: [
+      ...tseslint.configs.recommended,
+      ...tseslint.configs.recommendedTypeChecked,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: tsconfigForLint,
+        tsconfigRootDir,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/return-await': ['error', 'in-try-catch'],
+      'no-console': 'warn',
+      'no-shadow': 'off',
+      '@typescript-eslint/no-shadow': 'error',
+    },
+  },
+
+  {
+    files: ['**/*.js', '**/*.jsx', '**/*.mjs'],
+    rules: {
+      'no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+
+  {
+    files: [
+      '**/*.test.{ts,tsx,mts,cts}',
+      '**/*.spec.{ts,tsx,mts,cts}',
+      '**/*.property.test.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-shadow': 'off',
+      'no-console': 'off',
+    },
+  },
+
+  // Ignore generated artefacts and vendor directories
+  {
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
+  },
+
+  // Disable ESLint rules that conflict with Prettier (must be last)
+  prettierConfig
+);

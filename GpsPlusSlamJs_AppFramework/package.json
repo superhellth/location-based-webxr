@@ -1,0 +1,105 @@
+{
+  "name": "gps-plus-slam-app-framework",
+  "version": "0.1.0",
+  "description": "Reusable AR+GPS app framework layer — WebXR session management, Three.js visualization, GPS sensors, storage abstractions, replay engine, and store wiring for gps-plus-slam-js.",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./ar": "./dist/ar/index.js",
+    "./ar/*": "./dist/ar/*.js",
+    "./sensors": "./dist/sensors/index.js",
+    "./sensors/*": "./dist/sensors/*.js",
+    "./state": "./dist/state/index.js",
+    "./state/*": "./dist/state/*.js",
+    "./storage": "./dist/storage/index.js",
+    "./storage/*": "./dist/storage/*.js",
+    "./ref-points": "./dist/ref-points/index.js",
+    "./ref-points/*": "./dist/ref-points/*.js",
+    "./visualization": "./dist/visualization/index.js",
+    "./visualization/*": "./dist/visualization/*.js",
+    "./utils": "./dist/utils/index.js",
+    "./utils/*": "./dist/utils/*.js",
+    "./types": "./dist/types/index.js",
+    "./types/*": "./dist/types/*.js",
+    "./licensing": "./dist/licensing/index.js",
+    "./licensing/*": "./dist/licensing/*.js",
+    "./test-utils/*": "./dist/test-utils/*.js"
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "test": "pnpm run test:core",
+    "test:core": "pnpm run format && pnpm run lint && pnpm run typecheck && pnpm run typecheck:tests && pnpm run test:unit",
+    "format": "prettier --log-level warn --write --ignore-unknown --no-error-on-unmatched-pattern \"src\" \"config\" package.json README.md",
+    "format:check": "prettier --check --ignore-unknown .",
+    "build": "tsdown --config config/tsdown.config.ts",
+    "verify:pack": "pnpm pack --dry-run",
+    "prepublishOnly": "pnpm run build && pnpm run verify:pack",
+    "test:unit": "vitest run --coverage --config config/vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.vitest.json --noEmit",
+    "lint": "eslint . --config config/eslint.config.mjs",
+    "test:watch": "vitest --config config/vitest.config.ts",
+    "check:cycles": "dpdm -T --exit-code circular:1 --no-warning --no-tree ./src/index.ts",
+    "setup": "bash ./scripts/setup.sh"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.11.2",
+    "gl-matrix": "3.4.4",
+    "gps-plus-slam-js": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@sentry/browser": ">=10.0.0",
+    "@zip.js/zip.js": ">=2.7.0",
+    "h3-js": ">=4.0.0",
+    "leaflet": ">=1.9.0",
+    "three": ">=0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "leaflet": {
+      "optional": true
+    },
+    "@sentry/browser": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@sentry/browser": "^10.49.0",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^25.6.0",
+    "@types/three": "^0.184.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/eslint-plugin": "^1.6.16",
+    "@zip.js/zip.js": "^2.8.26",
+    "dpdm": "^4.0.1",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "fast-check": "^4.7.0",
+    "globals": "^17.5.0",
+    "h3-js": "^4.4.0",
+    "jsdom": "^29.0.2",
+    "leaflet": "^1.9.4",
+    "prettier": "^3.8.3",
+    "three": "^0.184.0",
+    "tsdown": "^0.21.9",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.0",
+    "vitest": "^4.1.5"
+  },
+  "keywords": [
+    "ar",
+    "gps",
+    "slam",
+    "webxr",
+    "three.js",
+    "framework"
+  ],
+  "author": "cs-util-com",
+  "license": "Apache-2.0"
+}
