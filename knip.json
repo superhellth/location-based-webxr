@@ -1,0 +1,43 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "rules": {
+    "exports": "warn",
+    "types": "warn"
+  },
+  "workspaces": {
+    "GpsPlusSlamJs_AppFramework": {
+      "entry": [
+        "src/index.ts",
+        "src/ar/index.ts",
+        "src/sensors/index.ts",
+        "src/state/index.ts",
+        "src/storage/index.ts",
+        "src/ref-points/index.ts",
+        "src/visualization/index.ts",
+        "src/utils/index.ts",
+        "src/types/index.ts",
+        "src/licensing/index.ts",
+        "src/test-utils/**/*.ts"
+      ],
+      "project": ["src/**/*.ts"]
+    },
+    "GpsPlusSlamJs_RecorderApp": {
+      "entry": [
+        "src/global.d.ts",
+        "config/stylelint.config.mjs",
+        "playwright-tests/**/*.{js,ts}"
+      ],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": [
+        "@carlosjeurissen/stylelint-csstree-validator",
+        "postcss-html",
+        "stylelint-config-standard",
+        "webxr-polyfill"
+      ]
+    },
+    "GpsPlusSlamJs_MinimalExample": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["gps-plus-slam-js"]
+    }
+  }
+}

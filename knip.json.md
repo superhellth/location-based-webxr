@@ -1,0 +1,60 @@
+# knip.json (root)
+
+## Purpose
+
+Single source of truth for [knip](https://knip.dev) dead-code detection
+across all three workspace packages in the public repo. Replaces the
+former per-package `GpsPlusSlamJs_RecorderApp/config/knip.json`.
+
+Why root-level: knip invoked from a subdirectory cannot trace imports
+through pnpm workspace symlinks. Running from the workspace root lets
+knip resolve cross-package imports natively, which removed several
+`ignoreDependencies` entries (`@reduxjs/toolkit`, `gl-matrix`) and
+even let us drop those dependencies from `GpsPlusSlamJs_RecorderApp`
+entirely after confirming they were only transitively pulled in.
+
+## How it's run
+
+- `pnpm run check:deadcode` at the workspace root (`knip` invocation).
+- `GpsPlusSlamJs_RecorderApp`'s `check:deadcode` script delegates here
+  via `pnpm --workspace-root run check:deadcode`, so per-package
+  invocations remain ergonomic but use the single root config.
+- CI runs the root invocation in a dedicated `deadcode` job
+  (see `.github/workflows/ci.yml`).
+
+## Severity policy
+
+- `dependencies`, `files`, `unlisted`, `duplicates`, `binaries`,
+  `unresolved`, `enumMembers`, `classMembers`: knip default (`error`).
+  These are CI gates.
+- `exports`, `types`: `warn`. These surface in the report but do not
+  fail CI today. Pre-existing findings are tracked in
+  [GpsPlusSlamJs_Docs/docs/2026-04-28-knip-unused-exports-followup.md](../GpsPlusSlamJs_Docs/docs/2026-04-28-knip-unused-exports-followup.md).
+  Once that follow-up lands, flip these back to `error`.
+
+## Per-workspace configuration notes
+
+- **GpsPlusSlamJs_AppFramework** — barrels listed under
+  [`src/index.ts`](../GpsPlusSlamJs_AppFramework/src/index.ts) and
+  per-module `index.ts` files are entry points because the package is
+  consumed externally via the `exports` map. Test utilities under
+  [`src/test-utils/`](../GpsPlusSlamJs_AppFramework/src/test-utils/)
+  are also entries (consumed by sibling packages' tests).
+- **GpsPlusSlamJs_RecorderApp** — main entry is auto-detected from
+  `package.json` "main"/"module"; we explicitly list `src/global.d.ts`,
+  `playwright-tests/**`, and the stylelint config. Non-source tooling
+  packages (`stylelint-config-standard`, `postcss-html`, etc.) are
+  ignored because knip cannot trace them through their own configs.
+- **GpsPlusSlamJs_MinimalExample** — `gps-plus-slam-js` is in
+  `dependencies` to demonstrate the install path (anonymous npm
+  registry resolution, see [§C9 in the public-repo plan](../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-03-30-separate-public-repo-plan.md#phase-c-public-repo-infrastructure))
+  even though `main.ts` only imports from
+  `gps-plus-slam-app-framework`. Ignored to keep that dependency
+  declaration honest.
+
+## Tests
+
+This config is verified by running it: `pnpm run check:deadcode`. No
+unit tests cover it — knip itself is the gate. The
+[follow-up doc](../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-04-28-knip-unused-exports-followup.md)
+lists the current findings; the report is also visible in CI.
