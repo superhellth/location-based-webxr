@@ -7,11 +7,13 @@
     "scripts": {
         "build:framework": "pnpm run --filter gps-plus-slam-app-framework... build",
         "build:recorder": "pnpm run --filter gps-plus-slam-recorder... build",
+        "build:example": "pnpm run --filter gps-plus-slam-minimal-example... build",
         "test:framework": "pnpm --filter gps-plus-slam-app-framework test",
         "test:recorder": "pnpm --filter gps-plus-slam-recorder test",
         "test:recorder:unit": "pnpm --filter gps-plus-slam-recorder run test:unit",
         "test:recorder:e2e": "pnpm --filter gps-plus-slam-recorder run test:e2e",
-        "test": "pnpm run test:framework && pnpm run test:recorder"
+        "test:example": "pnpm --filter gps-plus-slam-minimal-example test",
+        "test": "pnpm run test:framework && pnpm run test:recorder && pnpm run test:example"
     },
     "engines": {
         "node": ">=20.0.0"
