@@ -1,0 +1,86 @@
+name: Publish AppFramework to npm
+
+# Publishes `gps-plus-slam-app-framework` to the npm registry whenever a
+# GitHub Release is published on this (public) repository. Mirrors the
+# private repo's `gps-plus-slam-js` publish workflow but without the
+# K5/R8 community-key re-signing step (AppFramework has no embedded key).
+#
+# Background: GpsPlusSlamJs_Docs/docs/2026-03-30-separate-public-repo-plan.md
+# §10.3 (Phase F) in the private repo.
+#
+# Authentication: npm Trusted Publishing (OIDC). No long-lived NPM_TOKEN
+# secret. The Trusted Publisher must be registered on npmjs.com →
+# gps-plus-slam-app-framework → Settings → Trusted Publishers with
+# provider=GitHub Actions, owner=cs-util-com, repo=location-based-webxr,
+# workflow=publish.yml (Phase F task F4).
+#
+# Tag scheme: this workflow only fires for releases whose tag starts with
+# `app-framework@` (e.g. `app-framework@1.0.0`). Future RecorderApp or
+# other workspace-package releases use distinct tag prefixes so a single
+# repo can host multiple independent release streams without ambiguity.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance + Trusted Publishing OIDC
+
+jobs:
+  publish:
+    # Only run for AppFramework releases. Other release tags (e.g. for
+    # RecorderApp deployments) fall through to a no-op.
+    if: startsWith(github.event.release.tag_name, 'app-framework@')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the exact tagged commit so a later push to main cannot
+          # change what gets published.
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+          # Even with Trusted Publishing (no token), the registry-url line
+          # in .npmrc is still required so pnpm targets the public registry.
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify tag matches package.json version
+        # Two-version model: package.json#version is the source of truth
+        # shipped to npm; the GitHub release tag is metadata. Abort fast if
+        # they disagree so a typo in the GitHub UI cannot ship.
+        working-directory: GpsPlusSlamJs_AppFramework
+        run: |
+          PKG_VERSION="app-framework@$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${{ github.event.release.tag_name }}" ]; then
+            echo "::error::Release tag ${{ github.event.release.tag_name }} does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      # The `prepublishOnly` script in AppFramework's package.json runs
+      # `build` + `verify:pack` automatically inside `pnpm publish`.
+      #
+      # No NODE_AUTH_TOKEN: authentication is via npm Trusted Publishing.
+      # The id-token: write permission above + the publisher registration
+      # on npmjs.com authorize this publish.
+      #
+      # --provenance surfaces a "Built and signed on GitHub Actions" badge
+      # on the npm page.
+      #
+      # Pre-releases land on the `next` dist-tag so `pnpm install
+      # gps-plus-slam-app-framework` keeps installing the GA `latest`.
+      - name: Publish AppFramework
+        working-directory: GpsPlusSlamJs_AppFramework
+        run: |
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            pnpm publish --access public --no-git-checks --tag next --provenance
+          else
+            pnpm publish --access public --no-git-checks --provenance
+          fi
