@@ -5,6 +5,10 @@
     "types": "warn"
   },
   "workspaces": {
+    ".": {
+      "entry": ["tests/**/*.test.js"],
+      "project": ["tests/**/*.js"]
+    },
     "GpsPlusSlamJs_AppFramework": {
       "entry": [
         "src/index.ts",

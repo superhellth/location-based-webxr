@@ -9,18 +9,21 @@
         "build:recorder": "pnpm run --filter gps-plus-slam-recorder... build",
         "build:example": "pnpm run --filter gps-plus-slam-minimal-example... build",
         "check:deadcode": "knip",
+        "test:repo-config": "vitest run --config vitest.config.js",
         "test:framework": "pnpm --filter gps-plus-slam-app-framework test",
         "test:recorder": "pnpm --filter gps-plus-slam-recorder test",
         "test:recorder:unit": "pnpm --filter gps-plus-slam-recorder run test:unit",
         "test:recorder:e2e": "pnpm --filter gps-plus-slam-recorder run test:e2e",
         "test:example": "pnpm --filter gps-plus-slam-minimal-example test",
-        "test": "pnpm run test:framework && pnpm run test:recorder && pnpm run test:example"
+        "test": "pnpm run test:repo-config && pnpm run test:framework && pnpm run test:recorder && pnpm run test:example"
     },
     "engines": {
         "node": ">=20.0.0"
     },
     "license": "Apache-2.0",
     "devDependencies": {
-        "knip": "^6.7.0"
+        "knip": "^6.7.0",
+        "vitest": "^4.1.5",
+        "yaml": "^2.6.0"
     }
 }

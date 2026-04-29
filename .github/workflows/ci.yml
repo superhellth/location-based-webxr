@@ -25,6 +25,21 @@ jobs:
       - name: Run knip across all workspaces
         run: pnpm run check:deadcode
 
+  repo-config-tests:
+    name: Repo-config Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run repo-meta tests (CLA artifact consistency)
+        run: pnpm run test:repo-config
+
   framework-tests:
     name: Framework Tests
     runs-on: ubuntu-latest
