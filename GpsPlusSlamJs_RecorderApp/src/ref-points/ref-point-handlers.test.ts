@@ -34,6 +34,7 @@ const {
   mockRefPointVisualizer,
   mockShowError,
   mockUpdateStatus,
+  mockShowToast,
   mockIsRefPointPickerVisible,
   mockMarkReferencePoint,
   mockCalcGpsCoords,
@@ -66,6 +67,7 @@ const {
   },
   mockShowError: vi.fn(),
   mockUpdateStatus: vi.fn(),
+  mockShowToast: vi.fn(),
   mockIsRefPointPickerVisible: vi.fn<() => boolean>().mockReturnValue(false),
   mockMarkReferencePoint: vi.fn((payload: unknown) => ({
     type: 'recorder/markReferencePoint',
@@ -119,6 +121,12 @@ vi.mock('gps-plus-slam-app-framework/state/recording-coordinator', () => ({
 vi.mock('../ui/hud', () => ({
   showError: mockShowError,
   updateStatus: mockUpdateStatus,
+}));
+
+vi.mock('../ui/toast', () => ({
+  showToast: mockShowToast,
+  initToast: vi.fn(),
+  TOAST_DURATION_ERROR: 8000,
 }));
 
 vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
@@ -1609,5 +1617,121 @@ describe('handleMarkRefPoint — forceNew', () => {
 
     // Picker should NOT have been shown (re-observation path)
     expect(mockShowRefPointPicker).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// handleMarkRefPoint — re-observation toast feedback (Finding 3)
+// ============================================================================
+
+/**
+ * Why these tests matter
+ * ----------------------
+ * Field test 2026-04-29 — Finding 3 in
+ * `GpsPlusSlamJs_Docs/docs/2026-04-29-ref-points-user-feedback.md`: pressing
+ * the capture button gives no visible feedback when the press lands on the
+ * single-click re-observation branch (no picker is shown, so the user has no
+ * confirmation that anything happened).
+ *
+ * Decision: show a toast **only** on the re-observation branch. The
+ * picker-driven path (new ref point) already has implicit feedback via the
+ * picker UI. The toast must fire after the on-disk persistence has settled
+ * so it reflects the durable end state.
+ */
+describe('handleMarkRefPoint — re-observation toast feedback', () => {
+  function setupReObservationFixture() {
+    vi.clearAllMocks();
+    mockIsRefPointPickerVisible.mockReturnValue(false);
+    const mockArPose = createMockArPose();
+    const mockGpsPoint = createMockGpsPoint();
+    mockGetCurrentArPose.mockReturnValue(mockArPose);
+    const store = createMockStore([mockGpsPoint]);
+    const handle = createMockScenarioHandle();
+    mockGetCurrentScenarioHandle.mockReturnValue(handle);
+    mockExtractOdomPosition.mockReturnValue([1, 2, 3] as Vector3);
+    mockExtractOdomRotation.mockReturnValue([0, 0, 0, 1] as Quaternion);
+    const handlers = createRefPointHandlers(
+      createDefaultDeps({ getStore: () => store })
+    );
+    handlers.setImportedRefPoints([
+      {
+        id: 'Bank',
+        name: 'Bank',
+        lat: 49.0,
+        lon: 8.0,
+        sourceZipName: 'prev.zip',
+      },
+    ]);
+    return { handlers, store };
+  }
+
+  it('shows a toast naming the ref point on a single-click re-observation', async () => {
+    const { handlers } = setupReObservationFixture();
+
+    await handlers.handleMarkRefPoint();
+
+    expect(mockShowToast).toHaveBeenCalledTimes(1);
+    const [message] = mockShowToast.mock.calls[0];
+    expect(message).toContain('Bank');
+  });
+
+  it('fires the toast after the OPFS write resolves (durable state)', async () => {
+    const { handlers } = setupReObservationFixture();
+
+    // Order observers: capture call sequence across persist + toast.
+    const callOrder: string[] = [];
+    mockSaveRefPointObservation.mockImplementation(async () => {
+      callOrder.push('save');
+    });
+    mockShowToast.mockImplementation(() => {
+      callOrder.push('toast');
+    });
+
+    await handlers.handleMarkRefPoint();
+
+    expect(callOrder).toEqual(['save', 'toast']);
+  });
+
+  it('does NOT show a toast on the picker-driven new ref point path', async () => {
+    vi.clearAllMocks();
+    mockIsRefPointPickerVisible.mockReturnValue(false);
+    mockGetCurrentArPose.mockReturnValue(createMockArPose());
+    const store = createMockStore([createMockGpsPoint()]);
+    mockGetCurrentScenarioHandle.mockReturnValue(createMockScenarioHandle());
+    mockExtractOdomPosition.mockReturnValue([1, 2, 3] as Vector3);
+    mockExtractOdomRotation.mockReturnValue([0, 0, 0, 1] as Quaternion);
+    mockShowRefPointPicker.mockResolvedValue({ id: 'New Point', isNew: true });
+
+    const handlers = createRefPointHandlers(
+      createDefaultDeps({ getStore: () => store })
+    );
+    // No imported ref points near GPS → picker path
+    await handlers.handleMarkRefPoint();
+
+    expect(mockShowRefPointPicker).toHaveBeenCalledTimes(1);
+    expect(mockShowToast).not.toHaveBeenCalled();
+  });
+
+  it('does NOT show a toast when re-observation is rejected by the cooldown', async () => {
+    const { handlers } = setupReObservationFixture();
+
+    await handlers.handleMarkRefPoint();
+    expect(mockShowToast).toHaveBeenCalledTimes(1);
+
+    // Second tap inside the 10s cooldown window
+    await handlers.handleMarkRefPoint();
+    // Still only the first toast — cooldown rejections are silent
+    expect(mockShowToast).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT show a toast when the OPFS write fails', async () => {
+    const { handlers } = setupReObservationFixture();
+    mockSaveRefPointObservation.mockRejectedValueOnce(new Error('disk full'));
+
+    await handlers.handleMarkRefPoint();
+
+    // showError is the existing failure feedback channel
+    expect(mockShowError).toHaveBeenCalled();
+    expect(mockShowToast).not.toHaveBeenCalled();
   });
 });

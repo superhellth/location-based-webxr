@@ -28,6 +28,7 @@ import {
   extractOdomRotation,
 } from 'gps-plus-slam-app-framework/state/recording-coordinator';
 import { showError, updateStatus } from '../ui/hud';
+import { showToast } from '../ui/toast';
 import {
   markReferencePoint,
   setImportedRefPoints as setImportedRefPointsAction,
@@ -182,7 +183,7 @@ export function createRefPointHandlers(
     refPointId: string,
     refPointName: string,
     observation: RefPointObservation
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await saveRefPointObservation(
         scenarioHandle,
@@ -191,9 +192,11 @@ export function createRefPointHandlers(
         observation
       );
       log.info(`Saved reference point ${refPointId} to scenario refPoints/`);
+      return true;
     } catch (err) {
       log.error('Failed to save reference point:', err);
       showError('Failed to save reference point to disk');
+      return false;
     }
   }
 
@@ -356,6 +359,7 @@ export function createRefPointHandlers(
       );
 
       // Persist to disk
+      let persistOk = true;
       if (scenarioHandle) {
         const observation = buildRefPointObservation(
           odomPosition,
@@ -364,7 +368,7 @@ export function createRefPointHandlers(
           timestamp,
           fusedGpsPoint
         );
-        await persistRefPointObservation(
+        persistOk = await persistRefPointObservation(
           scenarioHandle,
           refPointId,
           refPointName,
@@ -383,6 +387,16 @@ export function createRefPointHandlers(
       );
 
       updateStatus(`Marked reference point: ${refPointId}`);
+
+      // Re-observation toast feedback (Finding 3, 2026-04-29 user feedback):
+      // the single-click re-observation branch shows no picker, so the user
+      // otherwise has no confirmation. Picker-driven new-ref-point flow has
+      // implicit feedback via the picker UI itself, so it does NOT toast.
+      // Only fire after the OPFS write succeeds — the toast reflects the
+      // durable end state, not just the dispatch.
+      if (nearbyMatch && persistOk) {
+        showToast(`Re-observed "${refPointName}"`, { severity: 'info' });
+      }
 
       // Track usage in current session (Issue 6) via Redux
       deps.getStore().dispatch(incrementRefPointUsage(refPointId));
