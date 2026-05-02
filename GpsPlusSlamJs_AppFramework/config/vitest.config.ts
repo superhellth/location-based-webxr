@@ -5,7 +5,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'src/**/*.spec.ts',
+      // Pick up node-only `.mjs` script tests (e.g. the pre-publish
+      // guardrails under `scripts/`). They share the project's `node`
+      // environment but live outside `src/`.
+      'scripts/**/*.test.mjs',
+    ],
     setupFiles: [
       fileURLToPath(new URL('../src/test-setup.ts', import.meta.url)),
     ],

@@ -58,7 +58,30 @@ COMMUNITY_KEY_MIN_DAYS=350 COMMUNITY_KEY_MAX_DAYS=370 \
 
 ## Tests
 
-No unit tests for this script — it is a thin pre-publish guard with
-explicit error messages. The corresponding behavior in the core library
-is fully tested in
+Covered by [`verify-community-key-lifetime.test.mjs`](./verify-community-key-lifetime.test.mjs)
+(23 tests, vitest). The script exposes three pure helpers
+(`extractTokenLiteral`, `decodeJwtPayload`, `evaluateLifetime`) so the
+parsing/decoding/banding logic can be locked without spawning a
+sub-process.
+
+Test groups (with the "why this matters" rationale on each test):
+
+- **Bundler output shape compatibility** — pins the regex against
+  backtick template literals (the shape that broke `app-framework@1.0.4`
+  publish), single-quoted, double-quoted, and un-minified
+  `COMMUNITY_LICENSE_KEY = "..."` forms. Also asserts `null` on missing /
+  malformed literals.
+- **JWT decoding** — pins the `code` discriminator on the thrown error
+  (`no-dot` / `invalid-base64` / `invalid-json`) so `main()` can branch
+  on it.
+- **Lifetime band logic** — example-based boundary tests
+  (mid-band / lower / upper / just-below / just-above) and `invalid-exp`
+  rejection for missing / non-number / NaN values.
+- **End-to-end** — runs `extract → decode → evaluate` against the actual
+  `gps-plus-slam-js@1.0.4` dist line at a `nowSec` 355 days before exp.
+- **Property-based (fast-check)** — every finite-`exp` input lands in
+  exactly one of `ok` / `too-short` / `too-long`, and any non-finite-
+  number `exp` is rejected as `invalid-exp`.
+
+The corresponding behavior in the core library is fully tested in
 [../../gps-plus-slam/GpsPlusSlamJs/scripts/verify-community-key-lifetime.mjs.md](../../gps-plus-slam/GpsPlusSlamJs/scripts/verify-community-key-lifetime.mjs.md).
