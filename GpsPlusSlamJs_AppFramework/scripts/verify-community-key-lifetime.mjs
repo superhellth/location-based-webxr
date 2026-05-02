@@ -73,8 +73,12 @@ try {
 // (`<payloadB64url>.<sigB64url>` of `[A-Za-z0-9_\-.]+`) is identical to the
 // one the core's own verifier uses, so any change there must be matched here.
 const distSource = readFileSync(bundledTokenFile, 'utf8');
+// Match the JWT literal regardless of whether the bundler emitted it as a
+// single-quoted, double-quoted, or template-literal string. tsdown/rolldown
+// switched to backticks in `gps-plus-slam-js@1.0.4`, which the original
+// `['"]` class missed and caused this guardrail to false-positive.
 const tokenMatch = distSource.match(
-  /(?:COMMUNITY_LICENSE_KEY|[A-Za-z_$][\w$]*)\s*=\s*['"]([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)['"]/
+  /(?:COMMUNITY_LICENSE_KEY|[A-Za-z_$][\w$]*)\s*=\s*['"`]([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)['"`]/
 );
 if (!tokenMatch) {
   console.error(
