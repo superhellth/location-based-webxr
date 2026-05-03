@@ -3,7 +3,7 @@
  */
 
 // --- storage-backend ---
-export { type StorageBackend } from './storage-backend.js';
+export { type StorageBackend, type CreateSessionResult } from './storage-backend.js';
 
 // --- null-storage-backend ---
 export { NullStorageBackend } from './null-storage-backend.js';
@@ -14,14 +14,13 @@ export { OpfsStorageBackend } from './opfs-storage-backend.js';
 // --- opfs-storage ---
 export {
   type SessionMetadata,
-  type CreateSessionResult,
   resetOpfsStorage,
   resetSessionHandles,
   initOpfsStorage,
   createSession,
   getSessionHandle,
-  getScenarioHandle,
-  getScenariosRootHandle,
+  getSessionsRootHandle,
+  getAppRootHandle,
   listSessions,
   checkStorageQuota,
   writeSessionMetadata,
@@ -42,6 +41,8 @@ export {
   loadScenarioRefPoints,
   getCurrentScenarioHandle,
   setCurrentScenario,
+  ensureScenarioDirectory,
+  listSessions as listSessionsFromFileSystem,
 } from './file-system.js';
 
 // --- file-system-utils ---

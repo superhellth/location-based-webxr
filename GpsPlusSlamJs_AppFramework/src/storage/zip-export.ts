@@ -45,11 +45,21 @@ export interface ZipExportResult {
 /**
  * Get the OPFS scenarios directory handle.
  * Re-acquires from navigator.storage to avoid holding stale references.
+ * Creates on demand so it works even when initOpfsStorage only creates sessions/.
  */
 async function getScenariosHandle(): Promise<FileSystemDirectoryHandle> {
   const opfsRoot = await navigator.storage.getDirectory();
   const gpsRecorderDir = await opfsRoot.getDirectoryHandle('gps-recorder');
-  return gpsRecorderDir.getDirectoryHandle('scenarios');
+  return gpsRecorderDir.getDirectoryHandle('scenarios', { create: true });
+}
+
+/**
+ * Get the OPFS sessions directory handle (flat layout).
+ */
+async function getSessionsHandle(): Promise<FileSystemDirectoryHandle> {
+  const opfsRoot = await navigator.storage.getDirectory();
+  const gpsRecorderDir = await opfsRoot.getDirectoryHandle('gps-recorder');
+  return gpsRecorderDir.getDirectoryHandle('sessions');
 }
 
 /**
@@ -156,59 +166,74 @@ async function streamSessionRefPointsToZip(
  * - session.json (at root)
  * - actions/000001.json, actions/000002.json, ...
  * - frames/frame-000001.jpg, frames/frame-000002.jpg, ...
- * - refPoints/{h3}.json (only observations from this session)
+ * - refPoints/{h3}.json (only observations from this session, scenario layout only)
  *
  * Uses "store" mode (compression level 0) for fast packaging.
  *
- * @param scenarioName - Name of the scenario
- * @param sessionName - Name of the session folder
+ * Supports both flat and scenario-based layouts:
+ * - `exportSessionAsZip(sessionName)` — flat layout (sessions/)
+ * - `exportSessionAsZip(scenarioName, sessionName)` — scenario layout (scenarios/{name}/)
+ *
  * @returns ZIP export result with blob and file count
- * @throws Error if scenario or session not found
+ * @throws Error if session not found
  */
 export async function exportSessionAsZip(
-  scenarioName: string,
-  sessionName: string
+  scenarioNameOrSessionName: string,
+  sessionName?: string
 ): Promise<ZipExportResult> {
-  log.info(`Exporting session: ${scenarioName}/${sessionName}`);
-
-  // Get scenario handle
-  const scenariosDir = await getScenariosHandle();
-  let scenarioHandle: FileSystemDirectoryHandle;
-  try {
-    scenarioHandle = await scenariosDir.getDirectoryHandle(scenarioName);
-  } catch {
-    throw new Error(`Scenario "${scenarioName}" not found in OPFS storage`);
-  }
-
-  // Get session handle
   let sessionHandle: FileSystemDirectoryHandle;
-  try {
-    sessionHandle = await scenarioHandle.getDirectoryHandle(sessionName);
-  } catch {
-    throw new Error(
-      `Session "${sessionName}" not found in scenario "${scenarioName}"`
-    );
+  let scenarioHandle: FileSystemDirectoryHandle | null = null;
+  const effectiveSessionName = sessionName ?? scenarioNameOrSessionName;
+
+  if (sessionName) {
+    // Scenario-based layout: scenarios/{scenarioName}/{sessionName}
+    const scenarioName = scenarioNameOrSessionName;
+    log.info(`Exporting session: ${scenarioName}/${sessionName}`);
+
+    const scenariosDir = await getScenariosHandle();
+    try {
+      scenarioHandle = await scenariosDir.getDirectoryHandle(scenarioName);
+    } catch {
+      throw new Error(`Scenario "${scenarioName}" not found in OPFS storage`);
+    }
+
+    try {
+      sessionHandle = await scenarioHandle.getDirectoryHandle(sessionName);
+    } catch {
+      throw new Error(
+        `Session "${sessionName}" not found in scenario "${scenarioName}"`
+      );
+    }
+  } else {
+    // Flat layout: sessions/{sessionName}
+    log.info(`Exporting session: ${scenarioNameOrSessionName}`);
+
+    const sessionsDir = await getSessionsHandle();
+    try {
+      sessionHandle = await sessionsDir.getDirectoryHandle(
+        scenarioNameOrSessionName
+      );
+    } catch {
+      throw new Error(
+        `Session "${scenarioNameOrSessionName}" not found in OPFS storage`
+      );
+    }
   }
 
-  // Create ZIP using @zip.js/zip.js with store mode (level 0 = no compression)
-  // Files are streamed directly — read one, write one — to avoid OOM on
-  // large recordings with many frames.
   const blobWriter = new BlobWriter('application/zip');
   const zipWriter = new ZipWriter(blobWriter, { level: 0 });
 
   let fileCount = await streamDirectoryToZip(sessionHandle, zipWriter);
 
-  // Include per-session ref point observations from the scenario-level refPoints/ dir.
-  // Each ref point file is filtered to only contain observations where sessionId
-  // matches the current session. Ref points not observed in this session are skipped.
-  // This allows full reconstruction by merging refPoints/ from all session ZIPs.
-  fileCount += await streamSessionRefPointsToZip(
-    scenarioHandle,
-    sessionName,
-    zipWriter
-  );
+  // Include per-session ref point observations (scenario layout only)
+  if (scenarioHandle) {
+    fileCount += await streamSessionRefPointsToZip(
+      scenarioHandle,
+      effectiveSessionName,
+      zipWriter
+    );
+  }
 
-  // Close and get the blob
   const blob = await zipWriter.close();
   log.info(`ZIP created: ${blob.size} bytes, ${fileCount} files`);
 
