@@ -16,6 +16,7 @@ import {
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
 import { getBuildInfo } from '../utils/build-info';
+import { showConfirmDialog } from './confirm-dialog';
 
 const log = createLogger('SettingsModal');
 
@@ -26,6 +27,9 @@ let workingOptions: RecordingOptions | null = null;
 
 /** Callback to notify when options are saved */
 let onOptionsChanged: ((options: RecordingOptions) => void) | null = null;
+
+/** Callback to clear the reference-point cache across all scenarios */
+let onClearRefPointCache: (() => void | Promise<void>) | null = null;
 
 // --- DOM Elements ---
 
@@ -58,9 +62,11 @@ let arChromiumProjectionLayerWorkaroundCheckbox: HTMLInputElement | null = null;
  * @param changeCallback - Called when options are saved
  */
 export function initSettingsModal(
-  changeCallback?: (options: RecordingOptions) => void
+  changeCallback?: (options: RecordingOptions) => void,
+  clearRefPointCacheCallback?: () => void | Promise<void>
 ): void {
   onOptionsChanged = changeCallback ?? null;
+  onClearRefPointCache = clearRefPointCacheCallback ?? null;
 
   // Get modal elements
   modal = document.getElementById('settings-modal');
@@ -75,6 +81,9 @@ export function initSettingsModal(
   const btnSave = document.getElementById('btn-settings-save');
   const btnReset = document.getElementById('btn-settings-reset');
   const btnMinimalBaseline = document.getElementById('btn-ar-minimal-baseline');
+  const btnClearRefPointCache = document.getElementById(
+    'btn-clear-refpoint-cache'
+  );
 
   // Get form elements
   depthEnabledCheckbox = document.getElementById(
@@ -129,6 +138,9 @@ export function initSettingsModal(
   btnSave?.addEventListener('click', handleSave);
   btnReset?.addEventListener('click', handleReset);
   btnMinimalBaseline?.addEventListener('click', applyMinimalArBaselinePreset);
+  btnClearRefPointCache?.addEventListener('click', () => {
+    void handleClearRefPointCache();
+  });
 
   // Modal backdrop click to close
   modal.addEventListener('click', (e) => {
@@ -461,6 +473,32 @@ function handleReset(): void {
   workingOptions = resetRecordingOptions();
   populateForm(workingOptions);
   log.debug('Settings reset to defaults');
+}
+
+async function handleClearRefPointCache(): Promise<void> {
+  if (!onClearRefPointCache) {
+    log.warn('Clear ref-point cache requested but no callback is wired');
+    return;
+  }
+
+  const confirmed = await showConfirmDialog({
+    message:
+      'Clear cached reference points for all scenarios? They will be re-imported from your *.zip recordings the next time a scenario is opened. Observations not yet exported to a zip will be lost.',
+    confirmLabel: 'Clear Cache',
+    cancelLabel: 'Cancel',
+  });
+
+  if (!confirmed) {
+    log.debug('User cancelled clearing ref-point cache');
+    return;
+  }
+
+  try {
+    await onClearRefPointCache();
+    log.info('Ref-point cache cleared');
+  } catch (err) {
+    log.error('Failed to clear ref-point cache:', err);
+  }
 }
 
 function applyMinimalArBaselinePreset(): void {

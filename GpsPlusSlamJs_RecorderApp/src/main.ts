@@ -77,6 +77,8 @@ import { applyChromiumProjectionLayerWorkaround } from 'gps-plus-slam-app-framew
 import {
   initStorage,
   resetForNewSession,
+  clearRefPointsCacheForAllScenarios,
+  getCurrentScenarioHandle,
 } from 'gps-plus-slam-app-framework/storage/file-system';
 import {
   getReadFolderHandle,
@@ -337,6 +339,51 @@ export function loadAndDisplayRefPoints(
 }
 
 /**
+ * Clear the cached ref-point definitions across all OPFS scenarios so that
+ * the next scenario load re-imports them from the read folder's *.zip
+ * recordings. If a scenario is currently selected, immediately reload its
+ * ref points so the user sees the freshly imported state without leaving
+ * the start screen.
+ *
+ * Wired to the "Clear Reference Point Cache" button in the settings modal
+ * (confirm dialog handled by settings-modal.ts).
+ */
+export async function handleClearRefPointCache(): Promise<void> {
+  try {
+    const result = await clearRefPointsCacheForAllScenarios();
+
+    // If a scenario is already selected, force a re-import so the visualizers
+    // and the H3 cache reflect the cleared state immediately.
+    const currentHandle = getCurrentScenarioHandle();
+    if (currentHandle) {
+      try {
+        await folderManager.loadAndDisplayRefPoints(currentHandle);
+      } catch (err) {
+        log.warn('Re-import after cache clear failed:', err);
+      }
+    } else {
+      // No active scenario — clear in-memory imported ref points so any
+      // proximity checks don't keep referring to stale entries.
+      refPointHandlers.setImportedRefPoints([]);
+    }
+
+    const cleared = result.scenariosCleared;
+    const errs = result.errors.length;
+    const message =
+      errs > 0
+        ? `⚠️ Cleared ref-point cache for ${cleared} scenario${cleared === 1 ? '' : 's'} (${errs} failed)`
+        : cleared === 0
+          ? 'No cached ref points to clear'
+          : `✅ Cleared ref-point cache for ${cleared} scenario${cleared === 1 ? '' : 's'}`;
+    showToast(message);
+    log.info(message, result);
+  } catch (err) {
+    log.error('Failed to clear ref-point cache:', err);
+    showError('Failed to clear ref-point cache — see logs');
+  }
+}
+
+/**
  * Get current replay session entries (for testing purposes).
  * Allows tests to verify scenario change populates the session list.
  */
@@ -524,10 +571,13 @@ async function main(): Promise<void> {
 
   // Initialize settings modal with callback to update options
   // This must happen early so settings button works even if WebXR fails
-  initSettingsModal((newOptions) => {
-    recordingOptions = newOptions;
-    log.info('Recording options updated:', recordingOptions);
-  });
+  initSettingsModal(
+    (newOptions) => {
+      recordingOptions = newOptions;
+      log.info('Recording options updated:', recordingOptions);
+    },
+    () => handleClearRefPointCache()
+  );
 
   // Initialize ref point picker modal content BEFORE WebXR check
   // This allows E2E tests to work even without WebXR support

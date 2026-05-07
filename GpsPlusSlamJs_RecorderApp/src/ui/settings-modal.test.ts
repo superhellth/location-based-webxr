@@ -64,6 +64,26 @@ Object.defineProperty(globalThis, 'localStorage', {
   value: localStorageMock,
 });
 
+/** Resolve once `query` returns a non-null element, polling microtasks. */
+async function waitFor<T>(query: () => T | null): Promise<T> {
+  for (let i = 0; i < 50; i++) {
+    const value = query();
+    if (value) return value;
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  const value = query();
+  if (!value) {
+    throw new Error('waitFor timed out');
+  }
+  return value;
+}
+
+/** Yield to the microtask queue so awaited promise chains complete. */
+async function flush(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+}
+
 describe('settings-modal', () => {
   beforeEach(() => {
     // Reset localStorage
@@ -132,6 +152,16 @@ describe('settings-modal', () => {
       expect(html).toContain('id="ar-camera-texture-enabled"');
       expect(html).toContain('id="btn-ar-minimal-baseline"');
     });
+
+    it('includes "Clear Reference Point Cache" button', () => {
+      // Why this test matters:
+      // The cache reset button must be present in production HTML so users
+      // can force a re-import of ref points from *.zip recordings when the
+      // OPFS cache becomes stale. See main.ts handleClearRefPointCache.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="btn-clear-refpoint-cache"');
+      expect(html).toContain('Clear Reference Point Cache');
+    });
   });
 
   describe('loadSettingsButtonHtml (production HTML)', () => {
@@ -166,6 +196,52 @@ describe('settings-modal', () => {
       initSettingsModal(callback);
       // Callback should not be called until save
       expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('invokes the clear-cache callback after the user confirms', async () => {
+      // Why this test matters:
+      // The "Clear Reference Point Cache" button must show a confirm dialog
+      // (destructive action) and only invoke the host callback when the user
+      // confirms. Verifies the click → confirm → callback wiring.
+      const onClearCache = vi.fn().mockResolvedValue(undefined);
+      initSettingsModal(undefined, onClearCache);
+
+      const btn = document.getElementById(
+        'btn-clear-refpoint-cache'
+      ) as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      btn.click();
+
+      // Confirm dialog inserts a confirm button asynchronously.
+      const confirmBtn = await waitFor(() =>
+        document.querySelector<HTMLButtonElement>(
+          '[data-testid="confirm-dialog-confirm"]'
+        )
+      );
+      confirmBtn.click();
+
+      await flush();
+      expect(onClearCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not invoke the clear-cache callback when the user cancels', async () => {
+      const onClearCache = vi.fn();
+      initSettingsModal(undefined, onClearCache);
+
+      const btn = document.getElementById(
+        'btn-clear-refpoint-cache'
+      ) as HTMLButtonElement;
+      btn.click();
+
+      const cancelBtn = await waitFor(() =>
+        document.querySelector<HTMLButtonElement>(
+          '[data-testid="confirm-dialog-cancel"]'
+        )
+      );
+      cancelBtn.click();
+
+      await flush();
+      expect(onClearCache).not.toHaveBeenCalled();
     });
   });
 

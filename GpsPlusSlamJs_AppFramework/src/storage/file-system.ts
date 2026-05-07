@@ -369,3 +369,63 @@ export async function ensureScenarioDirectory(
     return null;
   }
 }
+
+/**
+ * Result of clearing the reference-point cache across all scenarios.
+ */
+export interface ClearRefPointsCacheResult {
+  /** Number of scenarios whose `refPoints/` directory was deleted. */
+  readonly scenariosCleared: number;
+  /** Total number of scenarios scanned (including ones with no cache). */
+  readonly scenariosScanned: number;
+  /** Names of scenarios that failed to clear, with reason. */
+  readonly errors: { scenarioName: string; reason: string }[];
+}
+
+/**
+ * Clear the cached `refPoints/` directory for every scenario in OPFS.
+ *
+ * Used by the "Clear Reference Point Cache" maintenance action so that the
+ * next scenario load re-imports ref points from the read folder's `*.zip`
+ * recordings (see ref-point-recovery in the recorder app).
+ *
+ * Failures for individual scenarios are collected in `errors` rather than
+ * aborting the whole operation — partial progress is still useful.
+ */
+export async function clearRefPointsCacheForAllScenarios(): Promise<ClearRefPointsCacheResult> {
+  const errors: { scenarioName: string; reason: string }[] = [];
+  let scenariosCleared = 0;
+  let scenariosScanned = 0;
+
+  const scenarios = await listScenarios();
+  for (const scenarioName of scenarios) {
+    scenariosScanned++;
+    try {
+      const handle = await scenariosDir?.getDirectoryHandle(scenarioName);
+      if (!handle) continue;
+      try {
+        await handle.removeEntry('refPoints', { recursive: true });
+        scenariosCleared++;
+      } catch (err) {
+        // NotFoundError is fine — scenario simply has no cached ref points yet.
+        const name =
+          err instanceof Error ? err.name : String((err as { name?: string })?.name);
+        if (name === 'NotFoundError') continue;
+        errors.push({
+          scenarioName,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      errors.push({
+        scenarioName,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  log.info(
+    `Cleared ref-point cache for ${scenariosCleared}/${scenariosScanned} scenarios (${errors.length} errors)`
+  );
+  return { scenariosCleared, scenariosScanned, errors };
+}
