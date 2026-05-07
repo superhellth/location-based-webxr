@@ -391,8 +391,20 @@ export interface ClearRefPointsCacheResult {
  *
  * Failures for individual scenarios are collected in `errors` rather than
  * aborting the whole operation — partial progress is still useful.
+ *
+ * @throws Error if OPFS storage is unavailable (e.g. `initStorage()` not yet
+ *   called, or browser does not support OPFS). Surfacing this loudly avoids
+ *   reporting a silent "0 scenarios cleared" success that would mask the
+ *   real failure to the user.
  */
 export async function clearRefPointsCacheForAllScenarios(): Promise<ClearRefPointsCacheResult> {
+  const dir = await ensureScenariosDir();
+  if (!dir) {
+    throw new Error(
+      'clearRefPointsCacheForAllScenarios: OPFS scenarios directory is unavailable — call initStorage() first or check OPFS support'
+    );
+  }
+
   const errors: { scenarioName: string; reason: string }[] = [];
   let scenariosCleared = 0;
   let scenariosScanned = 0;
@@ -401,7 +413,7 @@ export async function clearRefPointsCacheForAllScenarios(): Promise<ClearRefPoin
   for (const scenarioName of scenarios) {
     scenariosScanned++;
     try {
-      const handle = await scenariosDir?.getDirectoryHandle(scenarioName);
+      const handle = await dir.getDirectoryHandle(scenarioName);
       if (!handle) continue;
       try {
         await handle.removeEntry('refPoints', { recursive: true });

@@ -65,6 +65,22 @@ describe('File System Storage', () => {
       const blob = new Blob(['test'], { type: 'image/jpeg' });
       await expect(writeFrame(blob, 0)).rejects.toThrow('No active session');
     });
+
+    /**
+     * Why this test matters:
+     * If the maintenance action is invoked before `initStorage()` succeeds
+     * (or in a browser without OPFS), silently returning a zero-count result
+     * would mislead the UI into reporting "No cached ref points to clear".
+     * Throwing surfaces the real failure to the existing showError channel.
+     */
+    it('clearRefPointsCacheForAllScenarios throws when storage not initialized', async () => {
+      const { clearRefPointsCacheForAllScenarios } = await import(
+        './file-system'
+      );
+      await expect(clearRefPointsCacheForAllScenarios()).rejects.toThrow(
+        /OPFS scenarios directory is unavailable/i
+      );
+    });
   });
 });
 
