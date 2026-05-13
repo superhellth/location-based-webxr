@@ -14,6 +14,27 @@ export {
   recordingReducer,
 } from './recording-slice.js';
 
+// --- tracking-slice (AR tracking state machine; ports the legacy
+//     TrackingStateManager class — see P2 step 2 in
+//     2026-05-07-csharp-features-not-yet-ported.md). ---
+export {
+  type TrackingPhase,
+  type TrackingSliceState,
+  type DeviceOrientation,
+  type ResetTransformData,
+  type PoseReceivedPayload,
+  poseReceived,
+  poseLost,
+  originReset,
+  resetTracking,
+  clearLastRestartedPayload,
+  trackingReducer,
+  selectTrackingPhase,
+  selectLastValidPose,
+  selectLostFrameCount,
+  selectLastRestartedPayload,
+} from './tracking-slice.js';
+
 // --- ref-points-slice — moved to recorder app in Iter 3 of the
 //     AppFramework / RecorderApp boundary migration. Recorder consumers
 //     import these from their own local slice now. ---

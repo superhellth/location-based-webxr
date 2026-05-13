@@ -34,6 +34,7 @@ import { COMMUNITY_LICENSE_KEY } from 'gps-plus-slam-js/community-license-key';
 import type { StorageBackend } from '../storage/storage-backend';
 import type { SessionMetadata as OpfsSessionMetadata } from '../storage/opfs-storage';
 import { recordingReducer, type RecordingState } from './recording-slice';
+import { trackingReducer, type TrackingSliceState } from './tracking-slice';
 import { createPersistenceMiddleware } from './persistence-middleware';
 
 /**
@@ -44,6 +45,7 @@ import { createPersistenceMiddleware } from './persistence-middleware';
  */
 export interface SlamAppRootState extends LibraryRootState {
   recording: RecordingState;
+  tracking: TrackingSliceState;
 }
 
 /** A bare-minimum middleware signature compatible with RTK's middleware list. */
@@ -151,6 +153,7 @@ export function createSlamAppStore<
     gpsElements: gpsElementsReducer,
     arElements: arElementsReducer,
     recording: recordingReducer,
+    tracking: trackingReducer,
     ...(extraReducers ?? ({} as ExtraReducers)),
   };
 
