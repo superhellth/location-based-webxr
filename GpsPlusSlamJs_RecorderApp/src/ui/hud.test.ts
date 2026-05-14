@@ -2373,4 +2373,3 @@ describe('updatePermissionStatus — Grant Permissions button visibility', () =>
     expect(err.classList.contains('hidden')).toBe(true);
   });
 });
-

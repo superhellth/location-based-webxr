@@ -1,8 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  fakeWebXRSupport,
-  waitForTestHooks,
-} from './test-helpers.js';
+import { fakeWebXRSupport, waitForTestHooks } from './test-helpers.js';
 
 /**
  * Permission button visibility (Issue 2 of
