@@ -4,7 +4,7 @@
  * Phase A of docs/2026-05-16-tracking-quality-metrics-plan.md. Focus
  * is on the pure compute helpers (§4.1–§4.7) and the slice/listener
  * wiring. The full Investigation parameter sweep is exercised
- * separately in `GpsPlusSlamJs_Investigation/src/tracking-quality.test.ts`.
+ * separately in `GpsPlusSlamJs_Investigation/src/investigations/tracking-quality.test.ts`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -27,7 +27,9 @@ import {
   selectTrackingQuality,
   selectRecentAlignments,
   createTrackingQualityListenerMiddleware,
+  degradedCountUpdated,
   DEFAULT_TRACKING_QUALITY_OPTIONS,
+  selectFirstAgreementObservationIndex,
   type TrackingQualityReport,
   type AlignmentSnapshot,
 } from './tracking-quality';
@@ -470,6 +472,7 @@ function buildRootState(input: {
   snapshots?: readonly AlignmentSnapshot[];
   sensorOrientation?: DeviceOrientation;
   lastValidPose?: ARPose;
+  firstAgreementObservationIndex?: number | null;
 }): MinimalRoot {
   return {
     gpsData: {
@@ -493,8 +496,10 @@ function buildRootState(input: {
     },
     trackingQuality: {
       recentAlignments: [...(input.snapshots ?? [])],
-      firstAgreementObservationIndex: null,
+      firstAgreementObservationIndex:
+        input.firstAgreementObservationIndex ?? null,
       report: null,
+      degradedConsecutiveCount: 0,
     },
   };
 }
@@ -860,6 +865,416 @@ describe('createTrackingQualityListenerMiddleware', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// §11 (d) — corpus-derived defaults regression test
+// ---------------------------------------------------------------------------
+
+// Why this test matters: the §6.1 parameter sweep (§11 (c)) derived these
+// values from the TestDataJs corpus. Changing them without re-running the
+// sweep risks silently degrading the tracking-quality signal. If this test
+// fails, re-run the §6.1 sweep and update both the defaults and this test.
+describe('§11 (d) corpus-derived defaults', () => {
+  it('matrixHistorySize, residualWindowSize, and gpsAccuracyWindowSize match corpus results', () => {
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.matrixHistorySize).toBe(5);
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.residualWindowSize).toBe(16);
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.gpsAccuracyWindowSize).toBe(30);
+  });
+
+  it('compass and coverage thresholds are unchanged from initial seeds', () => {
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.compassWarnDeg).toBe(15);
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.compassFailDeg).toBe(35);
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.coverageWalkedDistanceM).toBe(15);
+    expect(DEFAULT_TRACKING_QUALITY_OPTIONS.coverageDirectionSpreadDeg).toBe(90);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §11 (e) — compassDriftDetected / first-agreement detector
+// ---------------------------------------------------------------------------
+
+describe('compassDriftDetected (§4.3 first-agreement)', () => {
+  // Why this test matters: compassDriftDetected should only fire after
+  // first-agreement has been established — it catches compass/alignment
+  // drift mid-session, not the initial convergence phase.
+  it('is false when firstAgreementObservationIndex is null', () => {
+    const odom: Vector3[] = [];
+    for (let i = 0; i <= 20; i++) odom.push([i, 0, 0]);
+    for (let i = 1; i <= 20; i++) odom.push([20, 0, i]);
+    const gpsPts = odom.map((p, i) => gps(i, p[0], p[2], 2));
+    const snapshots: AlignmentSnapshot[] = Array.from(
+      { length: 8 },
+      (_, i) => ({ observationIndex: i + 30, matrix: [...IDENTITY] })
+    );
+    // Compass disagrees (90° vs 270°) but first agreement never reached.
+    const root = buildRootState({
+      alignmentMatrix: IDENTITY,
+      gpsPositions: gpsPts,
+      odometryPositions: odom,
+      zeroRef: ZERO_REF,
+      snapshots,
+      sensorOrientation: { alpha: 90, beta: 0, gamma: 0, absolute: true },
+      firstAgreementObservationIndex: null,
+    });
+    const report = computeTrackingQualityReport(root as never);
+    expect(report.diagnostics.compassDriftDetected).toBe(false);
+  });
+
+  // Why this test matters: after first-agreement, if the compass heading
+  // diverges from the alignment beyond the warn threshold, drift is flagged.
+  it('is true when firstAgreement is set and heading diverges past warnDeg', () => {
+    const odom: Vector3[] = [];
+    for (let i = 0; i <= 20; i++) odom.push([i, 0, 0]);
+    for (let i = 1; i <= 20; i++) odom.push([20, 0, i]);
+    const gpsPts = odom.map((p, i) => gps(i, p[0], p[2], 2));
+    const snapshots: AlignmentSnapshot[] = Array.from(
+      { length: 8 },
+      (_, i) => ({ observationIndex: i + 30, matrix: [...IDENTITY] })
+    );
+    // Compass disagrees (90° off from alignment heading of 270°).
+    const root = buildRootState({
+      alignmentMatrix: IDENTITY,
+      gpsPositions: gpsPts,
+      odometryPositions: odom,
+      zeroRef: ZERO_REF,
+      snapshots,
+      sensorOrientation: { alpha: 90, beta: 0, gamma: 0, absolute: true },
+      firstAgreementObservationIndex: 5,
+    });
+    const report = computeTrackingQualityReport(root as never);
+    expect(report.diagnostics.compassDriftDetected).toBe(true);
+  });
+
+  // Why this test matters: when heading is within the warn threshold after
+  // first agreement, drift should NOT be flagged — the compass is fine.
+  it('is false when firstAgreement is set but heading agrees', () => {
+    const odom: Vector3[] = [];
+    for (let i = 0; i <= 20; i++) odom.push([i, 0, 0]);
+    for (let i = 1; i <= 20; i++) odom.push([20, 0, i]);
+    const gpsPts = odom.map((p, i) => gps(i, p[0], p[2], 2));
+    const snapshots: AlignmentSnapshot[] = Array.from(
+      { length: 8 },
+      (_, i) => ({ observationIndex: i + 30, matrix: [...IDENTITY] })
+    );
+    // Compass agrees (270° matches alignment heading for identity matrix).
+    const root = buildRootState({
+      alignmentMatrix: IDENTITY,
+      gpsPositions: gpsPts,
+      odometryPositions: odom,
+      zeroRef: ZERO_REF,
+      snapshots,
+      sensorOrientation: { alpha: 270, beta: 0, gamma: 0, absolute: true },
+      firstAgreementObservationIndex: 5,
+    });
+    const report = computeTrackingQualityReport(root as never);
+    expect(report.diagnostics.compassDriftDetected).toBe(false);
+  });
+});
+
+// Why this test matters: the middleware must detect when convergence is
+// high and compass agrees for enough consecutive observations, then
+// dispatch firstAgreementReached so that compassDriftDetected can fire.
+describe('first-agreement detector in listener middleware', () => {
+  function makeFirstAgreementStore() {
+    const gpsDataReducer = (
+      state: ListenerHarnessState['gpsData'] = {
+        gpsEvents: {
+          alignmentMatrix: null,
+          gpsPositions: [],
+          odometryPositions: [],
+          odometryRotations: [],
+        },
+        zero: ZERO_REF,
+        referencePoints: [],
+      },
+      action: Action
+    ): ListenerHarnessState['gpsData'] => {
+      if (
+        action.type === 'gpsData/recordGpsEvent' ||
+        action.type === 'gpsData/setZeroPos'
+      ) {
+        return (action as { payload: ListenerHarnessState['gpsData'] }).payload;
+      }
+      return state;
+    };
+
+    return configureStore({
+      reducer: {
+        gpsData: gpsDataReducer,
+        tracking: trackingReducer,
+        trackingQuality: trackingQualityReducer,
+      },
+      middleware: (getDefault) =>
+        getDefault({ serializableCheck: false }).prepend(
+          createTrackingQualityListenerMiddleware({
+            matrixHistorySize: 10,
+            warmupMinObservations: 2,
+            warmupMinCoverage: 0,
+            firstAgreementMinStreak: 3,
+          })
+        ),
+    });
+  }
+
+  // Helper: dispatch GPS observations with slightly varying matrices so
+  // the ring buffer collects ≥ 2 snapshots and convergence is non-zero.
+  function feedObservations(
+    store: ReturnType<typeof makeFirstAgreementStore>,
+    count: number,
+    matrix: Matrix4 = IDENTITY
+  ) {
+    const odom: Vector3[] = [];
+    const gpsPts: GpsPoint[] = [];
+    for (let i = 0; i < count; i++) {
+      odom.push([i, 0, 0]);
+      gpsPts.push(gps(i, i, 0, 2));
+      // First observation uses a tiny offset so a second unique snapshot
+      // is created when observation 1 switches to the real matrix.
+      const mat: Matrix4 = i === 0 ? shifted(0.001, 0, 0) : matrix;
+      store.dispatch({
+        type: 'gpsData/recordGpsEvent',
+        payload: {
+          gpsEvents: {
+            alignmentMatrix: mat,
+            gpsPositions: [...gpsPts],
+            odometryPositions: [...odom],
+            odometryRotations: [],
+          },
+          zero: ZERO_REF,
+          referencePoints: [],
+        },
+      });
+    }
+  }
+
+  it('dispatches firstAgreementReached after 3 consecutive good observations', () => {
+    const store = makeFirstAgreementStore();
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: { alpha: 270, beta: 0, gamma: 0, absolute: true },
+      })
+    );
+    feedObservations(store, 8);
+
+    const idx = selectFirstAgreementObservationIndex(store.getState());
+    expect(idx).not.toBeNull();
+  });
+
+  it('does not fire firstAgreementReached when compass disagrees', () => {
+    const store = makeFirstAgreementStore();
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: { alpha: 90, beta: 0, gamma: 0, absolute: true },
+      })
+    );
+    feedObservations(store, 8);
+
+    expect(selectFirstAgreementObservationIndex(store.getState())).toBeNull();
+  });
+
+  it('resets firstAgreementObservationIndex on session reset', () => {
+    const store = makeFirstAgreementStore();
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: { alpha: 270, beta: 0, gamma: 0, absolute: true },
+      })
+    );
+    feedObservations(store, 6);
+    expect(selectFirstAgreementObservationIndex(store.getState())).not.toBeNull();
+    store.dispatch({ type: 'recording/startSession' });
+    expect(selectFirstAgreementObservationIndex(store.getState())).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §11 (f) — §4.8 hysteresis (degradedHoldoff)
+// ---------------------------------------------------------------------------
+
+describe('§4.8 hysteresis (degradedHoldoff)', () => {
+  function makeHysteresisStore(holdoff = 3) {
+    const gpsDataReducer = (
+      state: ListenerHarnessState['gpsData'] = {
+        gpsEvents: {
+          alignmentMatrix: null,
+          gpsPositions: [],
+          odometryPositions: [],
+          odometryRotations: [],
+        },
+        zero: ZERO_REF,
+        referencePoints: [],
+      },
+      action: Action
+    ): ListenerHarnessState['gpsData'] => {
+      if (
+        action.type === 'gpsData/recordGpsEvent' ||
+        action.type === 'gpsData/setZeroPos'
+      ) {
+        return (action as { payload: ListenerHarnessState['gpsData'] }).payload;
+      }
+      return state;
+    };
+
+    return configureStore({
+      reducer: {
+        gpsData: gpsDataReducer,
+        tracking: trackingReducer,
+        trackingQuality: trackingQualityReducer,
+      },
+      middleware: (getDefault) =>
+        getDefault({ serializableCheck: false }).prepend(
+          createTrackingQualityListenerMiddleware({
+            matrixHistorySize: 10,
+            warmupMinObservations: 2,
+            warmupMinCoverage: 0,
+            degradedHoldoff: holdoff,
+            degradedThreshold: 0.5,
+            gpsAccuracyWindowSize: 2,
+          })
+        ),
+    });
+  }
+
+  // Dispatches `count` GPS observations starting at `startIdx`. The first
+  // observation always uses a tiny matrix offset so the ring buffer gets a
+  // second unique snapshot (needed for convergence ≥ 0). Subsequent
+  // observations reuse IDENTITY. The path forms an L-shape for coverage.
+  function dispatchGps(
+    store: ReturnType<typeof makeHysteresisStore>,
+    count: number,
+    gpsAcc: number,
+    startIdx = 0
+  ) {
+    for (let i = startIdx; i < startIdx + count; i++) {
+      const n = i < 10 ? i * 2 : 20;
+      const e = i < 10 ? 0 : (i - 10) * 2;
+      const allOdom: Vector3[] = [];
+      const allGps: GpsPoint[] = [];
+      for (let j = 0; j <= i; j++) {
+        const jn = j < 10 ? j * 2 : 20;
+        const je = j < 10 ? 0 : (j - 10) * 2;
+        allOdom.push([jn, 0, je]);
+        allGps.push(gps(j, jn, je, j >= startIdx ? gpsAcc : 2));
+      }
+      const matrix: Matrix4 = i === 0 ? shifted(0.001, 0, 0) : IDENTITY;
+      store.dispatch({
+        type: 'gpsData/recordGpsEvent',
+        payload: {
+          gpsEvents: {
+            alignmentMatrix: matrix,
+            gpsPositions: allGps,
+            odometryPositions: allOdom,
+            odometryRotations: [],
+          },
+          zero: ZERO_REF,
+          referencePoints: [],
+        },
+      });
+    }
+  }
+
+  // Why this test matters: 1–2 sub-threshold observations should NOT flip
+  // the user-visible state to 'degraded' — the holdoff absorbs transient
+  // GPS blips while keeping the raw confidence honest.
+  it('1–2 sub-threshold observations stay ok when holdoff is 3', () => {
+    const store = makeHysteresisStore(3);
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+
+    dispatchGps(store, 15, 2);
+    let report = selectTrackingQuality(store.getState());
+    expect(report?.state).toBe('ok');
+
+    dispatchGps(store, 2, 40, 15);
+    report = selectTrackingQuality(store.getState());
+    expect(report?.state).toBe('ok');
+  });
+
+  // Why this test matters: after degradedHoldoff consecutive sub-threshold
+  // observations, the transition must fire — the holdoff is a grace period,
+  // not a permanent override.
+  it('transitions to degraded after holdoff consecutive observations', () => {
+    const store = makeHysteresisStore(3);
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+
+    dispatchGps(store, 15, 2);
+    expect(selectTrackingQuality(store.getState())?.state).toBe('ok');
+
+    dispatchGps(store, 5, 40, 15);
+    expect(selectTrackingQuality(store.getState())?.state).toBe('degraded');
+  });
+
+  // Why this test matters: recovery from degraded to ok must be immediate
+  // per §4.8 — the user should see improvement as soon as it happens.
+  it('recovery from degraded to ok is immediate', () => {
+    const store = makeHysteresisStore(3);
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+
+    dispatchGps(store, 15, 2);
+    dispatchGps(store, 5, 40, 15);
+    expect(selectTrackingQuality(store.getState())?.state).toBe('degraded');
+
+    dispatchGps(store, 2, 2, 20);
+    expect(selectTrackingQuality(store.getState())?.state).toBe('ok');
+  });
+
+  // Why this test matters: ar-lost is catastrophic and must bypass the
+  // holdoff entirely — the user needs to know immediately.
+  it('ar-lost bypasses holdoff entirely', () => {
+    const store = makeHysteresisStore(3);
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+
+    dispatchGps(store, 15, 2);
+    expect(selectTrackingQuality(store.getState())?.state).toBe('ok');
+
+    store.dispatch(poseLost());
+    expect(selectTrackingQuality(store.getState())?.state).toBe('ar-lost');
+  });
+
+  // Why this test matters: degradedConsecutiveCount must reset to 0 when
+  // a new session starts, so stale holdoff state from a previous session
+  // doesn't bleed into the next.
+  it('degradedConsecutiveCount resets on session start', () => {
+    const store = makeHysteresisStore(3);
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+    dispatchGps(store, 15, 2);
+    dispatchGps(store, 2, 40, 15);
+    const tq = (store.getState() as { trackingQuality: { degradedConsecutiveCount: number } })
+      .trackingQuality;
+    expect(tq.degradedConsecutiveCount).toBeGreaterThan(0);
+
+    store.dispatch({ type: 'recording/startSession' });
+    const tqAfter = (store.getState() as { trackingQuality: { degradedConsecutiveCount: number } })
+      .trackingQuality;
+    expect(tqAfter.degradedConsecutiveCount).toBe(0);
+  });
+});
+
 // Reference unused imports so future maintainers don't accidentally drop them
 // (matrixDelta, DEFAULT_TRACKING_QUALITY_OPTIONS are exported for the
 // Investigation harness — keep them part of the public surface).
@@ -868,5 +1283,6 @@ describe('exports', () => {
     expect(typeof DEFAULT_TRACKING_QUALITY_OPTIONS).toBe('object');
     expect(typeof matrixDelta).toBe('function');
     expect(typeof poseLost).toBe('function');
+    expect(typeof degradedCountUpdated).toBe('function');
   });
 });

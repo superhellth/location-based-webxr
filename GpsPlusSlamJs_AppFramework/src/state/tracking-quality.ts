@@ -112,14 +112,18 @@ export interface TrackingQualityOptions {
   residualConfidenceTargetM?: number;
   /** §4.4 GPS-accuracy floor used to normalise residuals (m). */
   gpsAccuracyFloorM?: number;
+  /** §4.3 consecutive compass-agreeing observations for first agreement. */
+  firstAgreementMinStreak?: number;
+  /** §4.8 consecutive sub-threshold observations before ok → degraded. */
+  degradedHoldoff?: number;
 }
 
 export const DEFAULT_TRACKING_QUALITY_OPTIONS: Required<TrackingQualityOptions> =
   {
-    matrixHistorySize: 10, // §4.1 seed (corpus sweep: 5–20)
-    residualWindowSize: 8, // §4.2 seed (corpus sweep: 4–16)
+    matrixHistorySize: 5, // §4.1 — corpus-derived (§11 (c): N=5 best mean+worst ρ)
+    residualWindowSize: 16, // §4.2 — outlier robustness (§11 (c): K independent of ρ)
     degradedThreshold: 0.5,
-    gpsAccuracyWindowSize: 8,
+    gpsAccuracyWindowSize: 30, // §4.4 — most volatile signal, absorbs ~15 s spikes
     coverageWalkedDistanceM: 15,
     coverageDirectionSpreadDeg: 90,
     compassWarnDeg: 15,
@@ -128,6 +132,8 @@ export const DEFAULT_TRACKING_QUALITY_OPTIONS: Required<TrackingQualityOptions> 
     warmupMinCoverage: 0.5,
     residualConfidenceTargetM: 3,
     gpsAccuracyFloorM: 1,
+    firstAgreementMinStreak: 3,
+    degradedHoldoff: 3,
   };
 
 // ---------------------------------------------------------------------------
@@ -148,12 +154,15 @@ export interface TrackingQualitySliceState {
   recentAlignments: AlignmentSnapshot[];
   firstAgreementObservationIndex: number | null;
   report: TrackingQualityReport | null;
+  /** §4.8 — consecutive observations with raw confidence < degradedThreshold. */
+  degradedConsecutiveCount: number;
 }
 
 const initialState: TrackingQualitySliceState = {
   recentAlignments: [],
   firstAgreementObservationIndex: null,
   report: null,
+  degradedConsecutiveCount: 0,
 };
 
 // ===========================================================================
@@ -736,6 +745,10 @@ const trackingQualitySlice = createSlice({
     firstAgreementReached(state, action: PayloadAction<number>) {
       state.firstAgreementObservationIndex = action.payload;
     },
+    /** §4.8 — update the hysteresis counter for ok → degraded holdoff. */
+    degradedCountUpdated(state, action: PayloadAction<number>) {
+      state.degradedConsecutiveCount = action.payload;
+    },
     /** Full reset — used on new session start / tracking reset. */
     resetTrackingQuality() {
       return initialState;
@@ -748,6 +761,7 @@ export const {
   snapshotsTrimmed,
   reportUpdated,
   firstAgreementReached,
+  degradedCountUpdated,
   resetTrackingQuality,
 } = trackingQualitySlice.actions;
 
@@ -820,6 +834,7 @@ export function computeTrackingQualityReport(
     rootState as Parameters<typeof selectLastValidPose>[0]
   );
   const snapshots = selectRecentAlignments(rootState);
+  const firstAgreementIdx = selectFirstAgreementObservationIndex(rootState);
 
   const coverage = computeCoverage(odometryPositions, {
     walkedDistanceM: opts.coverageWalkedDistanceM,
@@ -899,7 +914,10 @@ export function computeTrackingQualityReport(
       walkedDistanceM: coverage.walkedDistanceM,
       directionSpreadDeg: coverage.directionSpreadDeg,
       headingDeltaDeg: compass.headingDeltaDeg,
-      compassDriftDetected: false, // first-agreement detector lives in the listener
+      compassDriftDetected:
+        firstAgreementIdx !== null &&
+        compass.headingDeltaDeg !== null &&
+        compass.headingDeltaDeg > opts.compassWarnDeg,
       observationsSeen,
       gpsVsFusedMaxDivergenceM,
     },
@@ -1017,6 +1035,9 @@ export function createTrackingQualityListenerMiddleware(
     ...options,
   };
 
+  // §4.3 first-agreement streak counter (transient — resets on session reset).
+  let compassStreak = 0;
+
   // Use `isAnyOf` matcher equivalent via predicate.
   const listenerMiddleware = createListenerMiddleware();
   listenerMiddleware.startListening({
@@ -1028,13 +1049,15 @@ export function createTrackingQualityListenerMiddleware(
         action.type === TRACKING_QUALITY_INPUT_ACTIONS.startSession ||
         action.type === TRACKING_QUALITY_INPUT_ACTIONS.resetTracking
       ) {
+        compassStreak = 0;
         const tq = (state as unknown as RootWithTrackingQuality)
           .trackingQuality;
         if (
           tq &&
           (tq.recentAlignments.length > 0 ||
             tq.firstAgreementObservationIndex !== null ||
-            tq.report !== null)
+            tq.report !== null ||
+            tq.degradedConsecutiveCount > 0)
         ) {
           api.dispatch(resetTrackingQuality());
         }
@@ -1066,12 +1089,69 @@ export function createTrackingQualityListenerMiddleware(
         }
       }
 
+      // §4.3 first-agreement detector — track compass streak and dispatch
+      // firstAgreementReached once convergence is high and compass agrees
+      // for opts.firstAgreementMinStreak consecutive observations.
+      const midState = api.getState() as CombinedRootState;
+      const midTq = (midState as unknown as RootWithTrackingQuality)
+        .trackingQuality;
+      if (midTq && midTq.firstAgreementObservationIndex === null) {
+        const snapshots = selectRecentAlignments(midState);
+        if (snapshots.length >= 2) {
+          const conv = computeConvergence(snapshots);
+          const sensorOr = selectLastSensorOrientation(
+            midState as Parameters<typeof selectLastSensorOrientation>[0]
+          );
+          const pose = selectLastValidPose(
+            midState as Parameters<typeof selectLastValidPose>[0]
+          );
+          const alignment = selectAlignmentMatrix(midState);
+          const compass = computeCompassAgreement(
+            alignment,
+            sensorOr,
+            pose
+          );
+          if (
+            conv.score >= 0.7 &&
+            compass.headingDeltaDeg !== null &&
+            compass.headingDeltaDeg <= opts.compassWarnDeg
+          ) {
+            compassStreak += 1;
+            if (compassStreak >= opts.firstAgreementMinStreak) {
+              const obsCount = selectGpsPositions(midState).length;
+              api.dispatch(firstAgreementReached(obsCount));
+            }
+          } else {
+            compassStreak = 0;
+          }
+        }
+      }
+
       // Recompute the report using the post-dispatch state.
       const next = api.getState() as CombinedRootState;
       const report = computeTrackingQualityReport(next, opts);
       const prev =
         (next as unknown as RootWithTrackingQuality).trackingQuality?.report ??
         null;
+      const tqNext = (next as unknown as RootWithTrackingQuality)
+        .trackingQuality;
+
+      // §4.8 hysteresis: fast-rise / slow-fall on ok ↔ degraded.
+      // Only suppress ok→degraded; degraded→ok is immediate, ar-lost
+      // bypasses holdoff entirely.
+      let dcc = tqNext?.degradedConsecutiveCount ?? 0;
+      if (report.state === 'degraded') {
+        dcc += 1;
+        if (prev?.state === 'ok' && dcc < opts.degradedHoldoff) {
+          report.state = 'ok';
+        }
+      } else {
+        dcc = 0;
+      }
+      if (dcc !== (tqNext?.degradedConsecutiveCount ?? 0)) {
+        api.dispatch(degradedCountUpdated(dcc));
+      }
+
       if (!reportsEqual(prev, report)) {
         api.dispatch(reportUpdated(report));
       }

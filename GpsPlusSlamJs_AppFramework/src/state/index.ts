@@ -172,6 +172,7 @@ export {
   reportUpdated,
   resetTrackingQuality,
   firstAgreementReached,
+  degradedCountUpdated,
   selectTrackingQuality,
   selectRecentAlignments,
   selectFirstAgreementObservationIndex,

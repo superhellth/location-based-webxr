@@ -42,13 +42,13 @@ state machine collapses the score to `'warming-up' | 'ar-lost' | 'degraded' |
   - `trackingQualityReducer`.
   - `snapshotPushed(AlignmentSnapshot)`, `snapshotsTrimmed({size})`,
     `reportUpdated(report | null)`, `firstAgreementReached(observationIndex)`,
-    `resetTrackingQuality()`.
+    `degradedCountUpdated(count)`, `resetTrackingQuality()`.
 - **Selectors**
   - `selectTrackingQuality(state)`, `selectRecentAlignments(state)`,
     `selectFirstAgreementObservationIndex(state)`.
 - **Constants / types**
-  - `DEFAULT_TRACKING_QUALITY_OPTIONS` (seed values from the plan; will be
-    tuned on the TestDataJs corpus in Phase B).
+  - `DEFAULT_TRACKING_QUALITY_OPTIONS` (corpus-derived values from the §6.1
+    parameter sweep — see plan §11 (c)/(d); locked by a regression test).
   - `TrackingQualityState`, `TrackingQualityReport`, `TrackingQualityOptions`,
     `AlignmentSnapshot`, `TrackingQualitySliceState`,
     `ConvergenceResult`, `ResidualConsensusResult`, `GpsAccuracyResult`,
@@ -72,10 +72,17 @@ receive — copies are taken before sorting or sliding-window operations.
   only dispatched when the freshly-computed report differs from the previously
   cached one (using `reportsEqual`).
 - Reset triggers (`recording/startSession`, `tracking/resetTracking`) clear
-  both the matrix buffer and the cached report.
+  both the matrix buffer, the cached report, and the `degradedConsecutiveCount`.
 - Compass score returns `null` (and is excluded from `min`) when the device
   doesn't report an absolute heading. This is by design — magnetometers on
   iOS report `absolute === false` until a calibration succeeds.
+- `compassDriftDetected` only fires after the first-agreement detector has
+  established that compass and alignment once agreed (convergence high +
+  heading ≤ warn threshold for `firstAgreementMinStreak` consecutive
+  observations). Before first agreement, it is always `false`.
+- §4.8 hysteresis: the `ok → degraded` transition is held off for
+  `degradedHoldoff` (default 3) consecutive sub-threshold observations.
+  `degraded → ok` is immediate. `ar-lost` bypasses holdoff entirely.
 - All sub-scores are clamped to `[0, 1]`; never `NaN` for empty input.
 
 ## Defensive measures
@@ -121,11 +128,14 @@ store.subscribe(() => {
 ## Tests
 
 - Co-located unit tests: [tracking-quality.test.ts](tracking-quality.test.ts) —
-  38 tests covering pure helpers, slice reducers, the aggregator
-  state-machine, anti-validation cases from plan §6, and the listener
-  middleware contract.
-- Investigation sweep (Phase B): `GpsPlusSlamJs_Investigation/src/tracking-quality.test.ts`
-  (to be added) will exercise the report against the `TestDataJs/` corpus.
+  53 tests covering pure helpers, slice reducers, the aggregator
+  state-machine, anti-validation cases from plan §6, the listener
+  middleware contract, corpus-derived defaults regression (§11 (d)),
+  compassDriftDetected / first-agreement detector (§11 (e)), and
+  §4.8 hysteresis (§11 (f)).
+- Investigation sweep (Phase A (c)): `GpsPlusSlamJs_Investigation/src/investigations/tracking-quality.test.ts`
+  — 5 tests replaying the full `TestDataJs/` corpus (§6.1 sweep,
+  compass perturbation, anti-validation).
 
 ## Related docs
 
