@@ -297,16 +297,26 @@ export function computeConvergence(
   snapshots: readonly AlignmentSnapshot[],
   options: { rotationWarnDeg?: number; translationWarnM?: number } = {}
 ): ConvergenceResult {
-  // Defaults sized for sum across the default matrixHistorySize = 5 (so
-  // up to 4 pairs). Warn ≈ average 1.5°/pair or 0.25 m/pair — i.e. a
-  // sustained mild drift across the window starts the score ramp-down.
-  // Fail at 4× warn (consistent with the previous max-based scaling)
-  // gives a 24°/1 m cliff. These are conservative initial values; the
-  // §3 integration test work should empirically re-tune them — see
-  // 2026-05-23 doc, Finding 6 "cut-off constants re-tuned during the
-  // integration test".
+  // Defaults calibrated 2026-05-23 against the two field recordings
+  // (TestDataJs/2026-05-19_15-43-55utc.zip outdoor walking,
+  //  TestDataJs-Other/2026-05-23_03-01-11utc-indoor-without-moving.zip).
+  // See 2026-05-23 feedback doc §5 item 1 and §11 of the spec.
+  //
+  //  Outdoor steady state (gpsObs ≥ 75): ΣΔrot 0.27–2°, ΣΔpos 0.27–1.05 m.
+  //  Outdoor warm-up transitions: ΣΔrot up to ~195°, ΣΔpos up to ~12 m.
+  //  Indoor (broken alignment, stationary): ΣΔrot 7.7–132°, ΣΔpos ≤ 2 m.
+  //
+  //  rotationWarnDeg=6° keeps the acceptance bar (smoothed conv ≥ 0.8
+  //  from gpsObs=60 onward outdoor) met without false-passing the
+  //  indoor stationary spike at ΣΔrot=9.5° (raw score 0.542, smoothed
+  //  drops further). rotationFailDeg=24° caps the ramp at 4× warn.
+  //
+  //  translationWarnM=2 m (was 1 m) — outdoor steady walking pushes
+  //  ΣΔpos right up to 1 m which used to chip away at the score during
+  //  normal use; 2 m puts steady walking firmly at score=1.0.
+  //  translationFailM=8 m still catches the 12 m warm-up transition.
   const rotWarn = options.rotationWarnDeg ?? 6;
-  const transWarn = options.translationWarnM ?? 1;
+  const transWarn = options.translationWarnM ?? 2;
   const rotFail = rotWarn * 4;
   const transFail = transWarn * 4;
 

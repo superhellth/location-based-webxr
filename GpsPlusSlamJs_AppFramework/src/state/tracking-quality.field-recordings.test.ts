@@ -110,7 +110,7 @@ interface ReplayResult {
   readonly finalReport: TrackingQualityReport | null;
 }
 
-const SAMPLE_GPS_INDICES = [1, 10, 30, 60, 120, 240];
+const SAMPLE_GPS_INDICES = [1, 10, 30, 60, 75, 120, 240];
 
 function replay(
   store: SlamAppStore,
@@ -268,6 +268,57 @@ describe.runIf(fixturesAvailable)(
         const s = outdoorResult.snapshots.find((s) => s.atGpsObs === 120);
         expect(s).toBeDefined();
         expect(s!.report.confidence).toBeGreaterThan(0);
+      });
+    });
+
+    describe('F6 — sum-based convergence calibration (2026-05-23 re-tune)', () => {
+      it('outdoor: smoothed convergence ≥ 0.8 from gpsObs=60 onward', () => {
+        // Why: the F6 acceptance bar (§3.4 of the feedback doc).
+        // Calibrated against this exact recording on 2026-05-23 — see
+        // computeConvergence() comment in tracking-quality.ts. Failure
+        // here means either the thresholds drifted or the outdoor
+        // recording started behaving differently (in which case
+        // re-run the diagnostic dump in the F6 §5 item 1 doc).
+        const samples = outdoorResult.snapshots.filter(
+          (s) => s.atGpsObs >= 60
+        );
+        expect(samples.length).toBeGreaterThanOrEqual(3);
+        for (const s of samples) {
+          expect(
+            s.report.subScores.convergence,
+            `outdoor gpsObs=${s.atGpsObs} conv=${s.report.subScores.convergence}`
+          ).toBeGreaterThanOrEqual(0.8);
+        }
+      });
+
+      it('outdoor: steady-state translation sum stays ≤ translationFailM', () => {
+        // Why: pins the empirical fact that outdoor steady walking
+        // keeps ΣΔpos comfortably under the fail threshold (8 m).
+        // If this fires, normal walking is being misclassified as a
+        // failure — i.e. the threshold is too tight, not too loose.
+        const lateSamples = outdoorResult.snapshots.filter(
+          (s) => s.atGpsObs >= 120
+        );
+        for (const s of lateSamples) {
+          expect(
+            s.report.diagnostics.recentSumTranslationDeltaM
+          ).toBeLessThan(8);
+        }
+      });
+
+      it('indoor: rotation sum captures broken alignment', () => {
+        // Why: confirms rotation is the load-bearing axis on indoor
+        // stationary recordings (translation stays mute because the
+        // user isn't walking). The 2026-05-23 indoor recording final
+        // ΣΔrot was 132.9° — well into fail. Loosen the gate to 50°
+        // so this doesn't false-fail on slightly less-broken indoor
+        // recordings, but tight enough to catch the F4 pathology.
+        expect(
+          indoorResult.finalReport!.diagnostics.recentSumRotationDeltaDeg
+        ).toBeGreaterThan(50);
+        expect(
+          indoorResult.finalReport!.subScores.convergence
+        ).toBeLessThan(0.2);
       });
     });
 
