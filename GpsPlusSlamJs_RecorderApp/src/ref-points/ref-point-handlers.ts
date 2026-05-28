@@ -34,12 +34,14 @@ import {
   incrementRefPointUsage,
   clearSessionRefPointUsage as clearSessionRefPointUsageAction,
   resetRefPointsState,
-  selectCachedKnownRefPoints,
   type GpsPoint,
   type RawGpsPoint,
   type MarkReferencePointPayload,
 } from '../state/recorder-store';
-import { addRefPointEntry } from '../state/ref-points-v2-slice';
+import {
+  addRefPointEntry,
+  selectKnownAnchorsByCell,
+} from '../state/ref-points-v2-slice';
 import { fusedGpsFromOdom } from 'gps-plus-slam-app-framework/utils/fused-path';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
 import {
@@ -292,9 +294,11 @@ export function createRefPointHandlers(
       const currentH3 = gpsToH3(lastGpsPoint.latitude, lastGpsPoint.longitude);
       const scenarioHandle = getCurrentScenarioHandle();
 
-      // Read cached known ref points from Redux (memoized selector)
-      const cachedKnownRefPoints = selectCachedKnownRefPoints(
-        deps.getStore().getState().refPoints
+      // Read cached known ref points from Redux (memoized selector).
+      // Step 5.4: source is the flat `refPointsV2` slice; grouping by H3
+      // cell happens in `selectKnownAnchorsByCell`.
+      const cachedKnownRefPoints = selectKnownAnchorsByCell(
+        deps.getStore().getState().refPointsV2
       );
 
       // Check if we're near a known ref point (re-observation).
@@ -447,8 +451,9 @@ export function createRefPointHandlers(
       lat: number,
       lng: number
     ): NearbyRefPointInfo | undefined {
-      const cachedKnown = selectCachedKnownRefPoints(
-        deps.getStore().getState().refPoints
+      // Step 5.4: matcher reads from the flat `refPointsV2` slice.
+      const cachedKnown = selectKnownAnchorsByCell(
+        deps.getStore().getState().refPointsV2
       );
       const match = findNearbyGeoAnchor(lat, lng, cachedKnown);
       if (!match) return undefined;

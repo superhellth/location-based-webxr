@@ -153,14 +153,38 @@ import {
   type RefPointHandlersDeps,
 } from './ref-point-handlers';
 import { refPointsReducer } from '../state/ref-points-slice';
+import {
+  refPointsV2Reducer,
+  addRefPointEntry,
+  setImportedRefPointEntries,
+  resetRefPoints as resetRefPointsV2,
+  type RefPointEntry,
+} from '../state/ref-points-v2-slice';
+import { gpsToH3 } from 'gps-plus-slam-app-framework/geo/h3-proximity';
 
 // ── Helpers ────────────────────────────────────────────────────────────
+
+function importedToEntry(rp: ImportedRefPoint, ts: number): RefPointEntry {
+  return {
+    id: gpsToH3(rp.lat, rp.lon),
+    timestamp: ts,
+    name: rp.name,
+    rawGpsPoint: {
+      id: `gps-${rp.id}`,
+      latitude: rp.lat,
+      longitude: rp.lon,
+      altitude: rp.alt,
+      timestamp: ts,
+    },
+  };
+}
 
 function createMockStore(
   gpsPositions: GpsPoint[] = [],
   options?: { alignmentMatrix?: number[] }
 ): RecorderStore {
   let refPointsState = refPointsReducer(undefined, { type: '@@INIT' });
+  let refPointsV2State = refPointsV2Reducer(undefined, { type: '@@INIT' });
 
   const store = {
     getState: vi.fn().mockImplementation(() => ({
@@ -172,11 +196,32 @@ function createMockStore(
         },
       },
       refPoints: refPointsState,
+      refPointsV2: refPointsV2State,
     })),
     subscribe: vi.fn().mockReturnValue(() => {}),
-    dispatch: vi.fn().mockImplementation((action: { type: string }) => {
+    dispatch: vi.fn().mockImplementation((action: { type: string; payload?: unknown }) => {
       if (action.type.startsWith('refPoints/')) {
         refPointsState = refPointsReducer(refPointsState, action);
+        // Test-only bridge: mirror legacy `setImportedRefPoints` into
+        // refPointsV2 so existing tests that exercise the proximity matcher
+        // via `handlers.setImportedRefPoints` keep working after the Step
+        // 5.4 matcher swap. Production wiring instead lands in Step 5.5
+        // (OPFS reader will dispatch `setImportedRefPointEntries` directly).
+        if (action.type === 'refPoints/setImportedRefPoints') {
+          const imported = action.payload as ImportedRefPoint[];
+          const entries = imported.map((rp) => importedToEntry(rp, Date.now()));
+          refPointsV2State = refPointsV2Reducer(
+            refPointsV2State,
+            setImportedRefPointEntries(entries)
+          );
+        } else if (action.type === 'refPoints/resetRefPointsState') {
+          refPointsV2State = refPointsV2Reducer(
+            refPointsV2State,
+            resetRefPointsV2()
+          );
+        }
+      } else if (action.type.startsWith('refPointsV2/')) {
+        refPointsV2State = refPointsV2Reducer(refPointsV2State, action);
       }
       return action;
     }),
@@ -185,6 +230,37 @@ function createMockStore(
     writeSessionMetadata: vi.fn(),
   } as unknown as RecorderStore;
   return store;
+}
+
+/**
+ * Step 5.4 test helper: seed a known geo anchor directly in `refPointsV2`
+ * so the H3 proximity matcher (`selectKnownAnchorsByCell`) can find it
+ * without routing through the legacy `importedRefPoints` field.
+ */
+function populateKnownAnchor(
+  store: RecorderStore,
+  anchor: {
+    name?: string;
+    lat: number;
+    lon: number;
+    timestamp?: number;
+  }
+): void {
+  const ts = anchor.timestamp ?? Date.now();
+  const id = gpsToH3(anchor.lat, anchor.lon);
+  store.dispatch(
+    addRefPointEntry({
+      id,
+      timestamp: ts,
+      name: anchor.name,
+      rawGpsPoint: {
+        id: `gps-${id}`,
+        latitude: anchor.lat,
+        longitude: anchor.lon,
+        timestamp: ts,
+      },
+    })
+  );
 }
 
 /**
@@ -634,6 +710,81 @@ describe('handleMarkRefPoint — picker integration', () => {
     expect(mockShowRefPointPicker).toHaveBeenCalled();
     const passedIds = mockShowRefPointPicker.mock.calls[0][0];
     expect(passedIds).toEqual([]);
+  });
+});
+
+// ============================================================================
+// handleMarkRefPoint — Step 5.4: matcher reads refPointsV2
+// ============================================================================
+
+describe('handleMarkRefPoint — Step 5.4 matcher source', () => {
+  /**
+   * Why this test matters:
+   * Step 5.4 of the 2026-05-27 slice-collapse plan switches the H3
+   * proximity matcher from `selectCachedKnownRefPoints(state.refPoints)`
+   * to `selectKnownAnchorsByCell(state.refPointsV2)`. After the swap, a
+   * known anchor stored only in `refPointsV2` (i.e. no entry in the
+   * legacy `importedRefPoints` field) must still trigger the
+   * re-observation path and propagate its human-readable name through
+   * to the persisted observation.
+   *
+   * Before the handler change this test fails (matcher sees an empty
+   * legacy list → no nearby match → picker is shown). After the change
+   * it passes.
+   */
+  it('re-observes via refPointsV2 anchor when legacy importedRefPoints is empty', async () => {
+    vi.clearAllMocks();
+    mockIsRefPointPickerVisible.mockReturnValue(false);
+    const mockArPose = createMockArPose();
+    const mockGpsPoint = createMockGpsPoint();
+    mockGetCurrentArPose.mockReturnValue(mockArPose);
+    const store = createMockStore([mockGpsPoint]);
+    const handle = createMockScenarioHandle();
+    mockGetCurrentScenarioHandle.mockReturnValue(handle);
+    mockExtractOdomPosition.mockReturnValue([1, 2, 3] as Vector3);
+    mockExtractOdomRotation.mockReturnValue([0, 0, 0, 1] as Quaternion);
+
+    const handlers = createRefPointHandlers(
+      createDefaultDeps({ getStore: () => store })
+    );
+
+    // Seed refPointsV2 only — legacy importedRefPoints stays empty.
+    populateKnownAnchor(store, {
+      name: 'Bench Corner',
+      lat: 49.0,
+      lon: 8.0,
+    });
+
+    await handlers.handleMarkRefPoint();
+
+    // Re-observation path: picker must NOT be shown.
+    expect(mockShowRefPointPicker).not.toHaveBeenCalled();
+    // The persisted display name must come from the refPointsV2 anchor.
+    expect(mockSaveRefPointObservation).toHaveBeenCalled();
+    const persistedName = mockSaveRefPointObservation.mock.calls[0][2];
+    expect(persistedName).toBe('Bench Corner');
+  });
+
+  /**
+   * Why this test matters:
+   * `checkNearbyRefPoint` is the capture-button label feeder and must
+   * also use the new matcher source. The asymmetry of having the mark
+   * path read from refPointsV2 while the label path still reads from
+   * the legacy slice would surface as a stale or empty button label.
+   */
+  it('checkNearbyRefPoint resolves displayName via refPointsV2', () => {
+    const store = createMockStore();
+    const handlers = createRefPointHandlers(
+      createDefaultDeps({ getStore: () => store })
+    );
+
+    populateKnownAnchor(store, {
+      name: 'Bank',
+      lat: 49.0,
+      lon: 8.0,
+    });
+
+    expect(handlers.checkNearbyRefPoint(49.0, 8.0)?.displayName).toBe('Bank');
   });
 });
 

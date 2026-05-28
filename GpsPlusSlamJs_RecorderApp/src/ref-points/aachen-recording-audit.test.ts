@@ -34,9 +34,10 @@ import {
   type RecordedAction,
 } from 'gps-plus-slam-app-framework/storage/zip-reader';
 import {
-  selectCachedKnownRefPoints,
-  type RefPointsState,
-} from '../state/ref-points-slice';
+  selectKnownAnchorsByCell,
+  type RefPointsV2State,
+  type RefPointEntry,
+} from '../state/ref-points-v2-slice';
 import type { ImportedRefPoint } from '../storage/ref-point-importer';
 import {
   gpsToH3,
@@ -331,16 +332,14 @@ describe('Aachen 2026-04-09 Recording Audit', () => {
   // Section 4: BUG — displayName shows H3 hex instead of human-readable name
   // =========================================================================
 
-  describe('FIXED: selectCachedKnownRefPoints uses name for displayName', () => {
+  describe('FIXED: selectKnownAnchorsByCell uses name for displayName', () => {
     /**
      * Why: Prior to the fix, when prior ref points were loaded for the evening
      * session, the button label showed "📍 Capture '8b1fa0a3168efff'" because
-     * `selectCachedKnownRefPoints` used `rp.id` (H3 index) as `displayName`.
+     * the H3 selector used `rp.id` (H3 index) as `displayName`.
      *
-     * The fix chains through three layers:
-     * 1. `ImportedRefPoint` now has a `name` field.
-     * 2. `loadAndDisplayRefPoints` preserves `averaged.name` in the import.
-     * 3. `selectCachedKnownRefPoints` uses `rp.name || rp.id` for displayName.
+     * Post-Step 5.4 the matcher reads from the flat `refPointsV2` slice via
+     * `selectKnownAnchorsByCell`. Same first-non-null-`name` per cell rule.
      */
     it('displayName should be human-readable, not an H3 index', () => {
       // Simulate the real data flow:
@@ -373,12 +372,22 @@ describe('Aachen 2026-04-09 Recording Audit', () => {
         sourceZipName: '',
       }));
 
-      // 4. selectCachedKnownRefPoints derives KnownGeoAnchor[] for proximity
-      const refPointsState: RefPointsState = {
-        importedRefPoints,
-        sessionRefPointUsage: {},
-      };
-      const knownRefPoints = selectCachedKnownRefPoints(refPointsState);
+      // 4. selectKnownAnchorsByCell derives KnownGeoAnchor[] for proximity
+      //    from the flat `refPointsV2` entries.
+      const entries: RefPointEntry[] = importedRefPoints.map((rp) => ({
+        id: rp.id,
+        timestamp: 0,
+        name: rp.name,
+        rawGpsPoint: {
+          id: `gps-${rp.id}`,
+          latitude: rp.lat,
+          longitude: rp.lon,
+          altitude: rp.alt,
+          timestamp: 0,
+        },
+      }));
+      const refPointsV2State: RefPointsV2State = { entries };
+      const knownRefPoints = selectKnownAnchorsByCell(refPointsV2State);
 
       // FIXED: displayName is now the human-readable name, not the H3 hex
       for (const kp of knownRefPoints) {

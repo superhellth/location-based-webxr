@@ -115,6 +115,7 @@ const {
           importedRefPoints: [],
           sessionRefPointUsage: {},
         };
+        mockState.refPointsV2 = { entries: [] };
       } else if (action?.type === 'refPoints/clearSessionRefPointUsage') {
         if (mockState.refPoints) {
           mockState.refPoints = {
@@ -1716,6 +1717,28 @@ describe('Imported Reference Points in Picker (Task 1e)', () => {
         sourceZipName: 'session1.zip',
       },
     ]);
+
+    // Step 5.4: matcher reads from refPointsV2. Seed the slice with the
+    // same anchor (using a real H3-resolution-11 cell id at (49.0, 8.0)).
+    const { gpsToH3 } = await import(
+      'gps-plus-slam-app-framework/geo/h3-proximity'
+    );
+    const bankH3 = gpsToH3(49.0, 8.0);
+    mockState.refPointsV2 = {
+      entries: [
+        {
+          id: bankH3,
+          timestamp: Date.now(),
+          name: 'Bank',
+          rawGpsPoint: {
+            id: `gps-${bankH3}`,
+            latitude: 49.0,
+            longitude: 8.0,
+            timestamp: Date.now(),
+          },
+        },
+      ],
+    };
 
     // Call handleMarkRefPoint
     await handleMarkRefPointForTesting();
