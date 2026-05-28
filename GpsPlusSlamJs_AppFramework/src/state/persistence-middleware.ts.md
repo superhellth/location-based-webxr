@@ -14,9 +14,9 @@ Redux middleware factory that persists qualifying actions to a `StorageBackend` 
 ## Persistence Rules
 
 1. **Recording gate:** Persists when `state.recorder.isRecording` is `true` after the reducer runs. Also persists `endSession` when the pre-reducer state was recording (captures `wasRecording` before `next(action)`).
-2. **Prefix whitelist:** `gpsData/*` and `recorder/*` actions are persisted.
+2. **Prefix whitelist:** `gpsData/*`, `refPointsV2/*`, and `recorder/*` actions are persisted.
 3. **Exclusion:** `recorder/recordWriteFailure` is excluded to prevent recursive persistence.
-4. **Non-persisted prefixes:** `routing/*`, `refPoints/*`, `gpsElements/*`, `arElements/*`, and any other action types are not persisted.
+4. **Non-persisted prefixes:** `routing/*`, `gpsElements/*`, `arElements/*`, and any other action types are not persisted. (Legacy `refPoints/*` actions are also non-persisted; the recorder canonical mark log is `refPointsV2/*`.)
 5. **Stop semantics:** `endSession` itself IS persisted (detected via `wasRecording` check). After `endSession`, `isRecording` is `false`, so no further actions are persisted.
 
 ## Invariants & Assumptions
@@ -52,7 +52,7 @@ configureStore({
 - `persistence-middleware.test.ts` — 16 tests covering:
   - No persistence when not recording
   - `startSession` persistence (recording gate checked after reduce)
-  - `gpsData/*` and `recorder/*` persistence
+  - `gpsData/*`, `refPointsV2/*`, and `recorder/*` persistence
   - `recordWriteFailure` exclusion
   - `routing/*` exclusion
   - Stop-after-endSession semantics

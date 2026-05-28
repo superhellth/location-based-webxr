@@ -120,6 +120,48 @@ describe('Persistence Middleware', () => {
     );
   });
 
+  // Why: refPointsV2/ actions are the canonical mark log after the
+  // 2026-05-27 slice-collapse plan (Step 5.7-prep). The persistence layer
+  // must include them so live recordings replay marks correctly.
+  it('should persist refPointsV2/ actions during recording', () => {
+    const refPointsV2Slice = createSlice({
+      name: 'refPointsV2',
+      initialState: { entries: [] as unknown[] },
+      reducers: {
+        addRefPointEntry(state, action: PayloadAction<unknown>) {
+          state.entries.push(action.payload);
+        },
+      },
+    });
+
+    const store = configureStore({
+      reducer: {
+        recording: testRecorderSlice.reducer,
+        gpsData: testGpsDataSlice.reducer,
+        refPointsV2: refPointsV2Slice.reducer,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+          serializableCheck: false,
+          immutableCheck: false,
+        }).concat(createPersistenceMiddleware({ storageBackend: mockBackend })),
+    });
+
+    store.dispatch(testRecorderSlice.actions.startSession());
+    mockBackend.writeAction.mockClear();
+
+    store.dispatch(
+      refPointsV2Slice.actions.addRefPointEntry({
+        id: 'cell-1',
+        timestamp: 123,
+      })
+    );
+    expect(mockBackend.writeAction).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'refPointsV2/addRefPointEntry' }),
+      2
+    );
+  });
+
   // Why: recorder/ actions (except recordWriteFailure) are session metadata.
   it('should persist recorder/ actions during recording', () => {
     const store = createTestStore({ storageBackend: mockBackend });

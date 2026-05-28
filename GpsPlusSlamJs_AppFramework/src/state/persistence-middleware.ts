@@ -76,9 +76,9 @@ export interface PersistenceMiddlewareOptions {
  * Persistence rules:
  * - Only persists when `state.recording.isRecording` is true (checked AFTER
  *   the action is reduced, so `startSession` itself is included).
- * - Persists `gpsData/*` and `recording/*` actions.
+ * - Persists `gpsData/*`, `refPointsV2/*`, and `recording/*` actions.
  * - Excludes `recording/recordWriteFailure` to prevent recursive persistence.
- * - Excludes `routing/*`, `refPoints/*`, and any other non-recording actions.
+ * - Excludes `routing/*` and any other non-recording actions.
  * - Uses 1-based indexing for action files (000001.json, 000002.json, …).
  * - Each middleware instance maintains its own action index (Bug 10 fix).
  */
@@ -132,9 +132,11 @@ export function createPersistenceMiddleware(
       return result;
     }
 
-    // Only persist gpsData/ and recording/ actions (excluding recordWriteFailure)
+    // Only persist gpsData/, refPointsV2/, and recording/ actions
+    // (excluding recordWriteFailure)
     const shouldPersistAction =
       actionType.startsWith('gpsData/') ||
+      actionType.startsWith('refPointsV2/') ||
       (actionType.startsWith('recording/') &&
         actionType !== 'recording/recordWriteFailure');
 
