@@ -36,6 +36,7 @@
 import type { Action, PayloadAction, Middleware } from '@reduxjs/toolkit';
 import { createSlice, createListenerMiddleware } from '@reduxjs/toolkit';
 import { mat4, quat, vec3 } from 'gl-matrix';
+import type { ReadonlyMat4 } from 'gl-matrix';
 import type { GpsPoint, LatLong, Matrix4, Vector3 } from 'gps-plus-slam-js';
 import { calcGpsCoords, distanceInMeters } from 'gps-plus-slam-js';
 import type { CombinedRootState } from './combined-root-state';
@@ -375,12 +376,14 @@ export function matrixDelta(
   if (prev.length !== 16 || curr.length !== 16) {
     return { rotationDeltaDeg: 0, translationDeltaM: 0 };
   }
-  const prevMat = mat4.fromValues(
-    ...(prev as unknown as Parameters<typeof mat4.fromValues>)
-  );
-  const currMat = mat4.fromValues(
-    ...(curr as unknown as Parameters<typeof mat4.fromValues>)
-  );
+  // `prev`/`curr` are length-16 (guarded above) and only read from, so we
+  // pass them straight to gl-matrix as ReadonlyMat4 (an indexed collection).
+  // This avoids the spread + Float32Array(16) allocation that
+  // `mat4.fromValues` would create on every call — `matrixDelta` runs in
+  // the convergence loop on every GPS/pose event. Bonus: keeps float64
+  // precision instead of truncating to float32.
+  const prevMat = prev as unknown as ReadonlyMat4;
+  const currMat = curr as unknown as ReadonlyMat4;
   const prevQuat = quat.create();
   const currQuat = quat.create();
   mat4.getRotation(prevQuat, prevMat);
