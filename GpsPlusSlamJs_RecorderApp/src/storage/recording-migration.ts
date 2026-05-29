@@ -40,6 +40,9 @@
  */
 
 import type { RecordedAction } from 'gps-plus-slam-app-framework/storage/zip-reader';
+import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
+
+const log = createLogger('RecordingMigration');
 
 /** The current odom coordinate convention version written into new session.json files. */
 export const ODOM_COORD_VERSION = 5 as const;
@@ -152,6 +155,26 @@ function injectRefPointsActions(actions: RecordedAction[]): RecordedAction[] {
       !rawGpsPoint ||
       typeof rawGpsPoint !== 'object'
     ) {
+      log.warn(
+        'Dropping malformed gpsData/markReferencePoint: missing string id or rawGpsPoint object',
+        { id, hasRawGpsPoint: Boolean(rawGpsPoint) }
+      );
+      continue;
+    }
+    // Step 8: the loader is the single validation boundary. An object that
+    // is merely *present* is not enough — without finite lat/lon the entry
+    // would feed NaN into the H3 matcher and selectKnownAnchorsByCell.
+    if (
+      !Number.isFinite(rawGpsPoint['latitude']) ||
+      !Number.isFinite(rawGpsPoint['longitude'])
+    ) {
+      log.warn(
+        `Dropping markReferencePoint ${id}: rawGpsPoint lacks finite latitude/longitude`,
+        {
+          latitude: rawGpsPoint['latitude'],
+          longitude: rawGpsPoint['longitude'],
+        }
+      );
       continue;
     }
     const timestamp =

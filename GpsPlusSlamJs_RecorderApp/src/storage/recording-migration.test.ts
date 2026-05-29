@@ -21,7 +21,7 @@
  * Related docs: docs/2026-04-09-raw-storage-convert-on-read.md
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   migrateActionsIfNeeded,
   ODOM_COORD_VERSION,
@@ -1127,6 +1127,168 @@ describe('recording-migration', () => {
         // derived fields were stripped by era-1 migration before injection
         expect(raw['coordinates']).toBeUndefined();
         expect(raw['weight']).toBeUndefined();
+      });
+    });
+
+    // =======================================================================
+    // Step 8: tighten payload validation at the action-loader boundary
+    // (§G.8). The loader is the single normalization point — malformed
+    // `markReferencePoint` payloads must not silently synthesise a broken
+    // `refPoints/addRefPointEntry` whose GPS the H3 matcher and selectors
+    // would later read as `undefined`. Drop + warn instead of dropping
+    // silently (the old listener middleware behaviour the review flagged).
+    // =======================================================================
+
+    describe('refPoints injection payload validation (Step 8)', () => {
+      /**
+       * Why this test matters:
+       * Before Step 8, any `rawGpsPoint` *object* passed the gate — even one
+       * with no coordinates. The synthesised entry then carried a GPS point
+       * whose `latitude`/`longitude` were `undefined`, which the H3 matcher
+       * and `selectKnownAnchorsByCell` read straight into NaN math. Validate
+       * the coordinates at the loader boundary so a malformed mark produces
+       * no entry at all.
+       */
+      it('drops a markReferencePoint whose rawGpsPoint lacks numeric coordinates', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const actions: RecordedAction[] = [
+            {
+              type: 'gpsData/markReferencePoint',
+              payload: {
+                id: 'broken',
+                position: [1, 2, 3],
+                rotation: [0, 0, 0, 1],
+                rawGpsPoint: { id: 'g', timestamp: 1000 }, // no lat/lon
+                timestamp: 1000,
+              },
+            },
+          ];
+
+          const result = migrateActionsIfNeeded(actions, {
+            odomCoordVersion: 5,
+          });
+
+          // Original mark preserved, but no synthesised entry for it.
+          expect(result).toHaveLength(1);
+          expect(result[0].type).toBe('gpsData/markReferencePoint');
+          expect(
+            result.some((a) => a.type === 'refPoints/addRefPointEntry')
+          ).toBe(false);
+          // Not silent — the boundary warns about the dropped mark.
+          expect(warn).toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      /**
+       * Why this test matters:
+       * A non-finite coordinate (NaN/Infinity) is just as poisonous as a
+       * missing one — it must not pass the gate either.
+       */
+      it('drops a markReferencePoint whose coordinates are non-finite', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const actions: RecordedAction[] = [
+            {
+              type: 'gpsData/markReferencePoint',
+              payload: {
+                id: 'nan',
+                position: [0, 0, 0],
+                rotation: [0, 0, 0, 1],
+                rawGpsPoint: {
+                  id: 'g',
+                  latitude: Number.NaN,
+                  longitude: 8,
+                  timestamp: 0,
+                },
+                timestamp: 0,
+              },
+            },
+          ];
+
+          const result = migrateActionsIfNeeded(actions, {
+            odomCoordVersion: 5,
+          });
+
+          expect(
+            result.some((a) => a.type === 'refPoints/addRefPointEntry')
+          ).toBe(false);
+          expect(warn).toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      /**
+       * Why this test matters:
+       * Validation must remain a *filter*, not an all-or-nothing gate: a
+       * single bad mark in a stream must not suppress entries for the valid
+       * marks around it.
+       */
+      it('keeps valid marks while dropping the malformed one in the same stream', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const actions: RecordedAction[] = [
+            {
+              type: 'gpsData/markReferencePoint',
+              payload: {
+                id: 'good-1',
+                position: [1, 2, 3],
+                rotation: [0, 0, 0, 1],
+                rawGpsPoint: {
+                  id: 'g1',
+                  latitude: 49,
+                  longitude: 8,
+                  timestamp: 1000,
+                },
+                timestamp: 1000,
+              },
+            },
+            {
+              type: 'gpsData/markReferencePoint',
+              payload: {
+                id: 'bad',
+                position: [4, 5, 6],
+                rotation: [0, 0, 0, 1],
+                rawGpsPoint: { id: 'g2' }, // no lat/lon
+                timestamp: 2000,
+              },
+            },
+            {
+              type: 'gpsData/markReferencePoint',
+              payload: {
+                id: 'good-2',
+                position: [7, 8, 9],
+                rotation: [0, 0, 0, 1],
+                rawGpsPoint: {
+                  id: 'g3',
+                  latitude: 50,
+                  longitude: 9,
+                  timestamp: 3000,
+                },
+                timestamp: 3000,
+              },
+            },
+          ];
+
+          const result = migrateActionsIfNeeded(actions, {
+            odomCoordVersion: 5,
+          });
+
+          const injected = result.filter(
+            (a) => a.type === 'refPoints/addRefPointEntry'
+          );
+          expect(injected).toHaveLength(2);
+          const ids = injected.map(
+            (a) => (a.payload as Record<string, unknown>)['id']
+          );
+          expect(ids).toEqual(['good-1', 'good-2']);
+          expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+          warn.mockRestore();
+        }
       });
     });
   });
