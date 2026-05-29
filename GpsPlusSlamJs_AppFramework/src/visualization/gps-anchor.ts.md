@@ -66,6 +66,13 @@ object as an `@internal` testing seam in lieu of pumping the global
   the _sample count_ (default 7), not the window length — together
   with 1 Hz sampling this is also the window length in the default
   case.
+- **`secondsToAccumulateGpsPose` must be >= 1**: the constructor throws
+  for any sub-1 value (e.g. `0`). A `0` would otherwise commit the
+  median after the first received sample, silently degrading the
+  accumulation phase into a misconfiguration. To intentionally skip
+  accumulation, pass `skipBootstrap: true` (the supported bypass).
+  The throw cleans up the `WeakSet` registration so a later valid
+  anchor on the same object3D is still allowed.
 - **`getCurrentGpsPoint` returning null is a non-error**: the tick is
   silently skipped (no sample pushed, `lastSampleAtElapsed` not
   updated, so the next tick will retry). Mirrors "no fix yet".
@@ -108,6 +115,8 @@ See [gps-anchor.test.ts](gps-anchor.test.ts). Coverage:
   - `markMovedExternally` resets the buffer and re-bootstraps.
   - `dispose` unregisters from the frame loop.
   - Nested-anchor detection throws.
+  - Sub-1 `secondsToAccumulateGpsPose` (`0`, `-1`) throws, and the
+    failed construction does not leave the object3D registered.
 - Steady state — `'snap-every-tick'` (sub-step 3):
   - NUE target committed on the first tick after bootstrap.
   - No position writes while still in the bootstrap phase.

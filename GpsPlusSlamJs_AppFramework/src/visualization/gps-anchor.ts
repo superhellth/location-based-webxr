@@ -113,6 +113,18 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
   anchoredObjects.add(options.object3D);
 
   const sampleCount = options.secondsToAccumulateGpsPose ?? 7;
+  if (sampleCount < 1) {
+    // A sub-1 sample count would commit the bootstrap median after the
+    // first received sample (best case) or never make sense at all;
+    // `0` in particular implies "median of zero samples". Fail fast and
+    // point the caller at the supported bypass instead of silently
+    // degrading the accumulation phase.
+    anchoredObjects.delete(options.object3D);
+    throw new Error(
+      'createGpsAnchor: secondsToAccumulateGpsPose must be >= 1 — ' +
+        'use skipBootstrap:true to bypass the accumulation phase.'
+    );
+  }
   const settlingSeconds = options.settlingSeconds ?? 0;
   const distanceThreshold = options.distanceThreshold ?? 2;
   // Reserved for sub-step 4 (rotation-delta gate). Kept here so the

@@ -65,6 +65,39 @@ describe('createGpsAnchor — bootstrap', () => {
     anchor.dispose();
   });
 
+  it.each([0, -1])(
+    'throws when secondsToAccumulateGpsPose is %s (sub-1 sample count is invalid; skipBootstrap is the bypass)',
+    (badCount) => {
+      const env = makeAnchorEnv();
+      // Why this test matters: a sub-1 sample count (especially `0`)
+      // would otherwise commit the bootstrap median after the first
+      // received sample, silently turning a misconfiguration into
+      // surprising behaviour. We fail fast at the boundary and steer
+      // callers to `skipBootstrap:true`.
+      expect(() =>
+        createGpsAnchor({
+          ...env,
+          gpsPoint: { lat: 48.0, lon: 11.0 },
+          secondsToAccumulateGpsPose: badCount,
+          getAlignmentMatrix: () => null,
+          getGpsZeroRef: () => ({ lat: 48.0, lon: 11.0 }),
+          getCurrentGpsPoint: () => ({ lat: 48.0, lon: 11.0 }),
+        })
+      ).toThrow(/secondsToAccumulateGpsPose must be >= 1/);
+      // The failed constructor must not leave the object registered, so
+      // a subsequent valid anchor on the same object3D is allowed.
+      const anchor = createGpsAnchor({
+        ...env,
+        gpsPoint: { lat: 48.0, lon: 11.0 },
+        getAlignmentMatrix: () => null,
+        getGpsZeroRef: () => ({ lat: 48.0, lon: 11.0 }),
+        getCurrentGpsPoint: () => ({ lat: 48.0, lon: 11.0 }),
+      });
+      expect(anchor.phase).toBe('bootstrap');
+      anchor.dispose();
+    }
+  );
+
   it('collects samples at 1 Hz and commits the median after `secondsToAccumulateGpsPose` samples', () => {
     const env = makeAnchorEnv();
     let currentSample: GpsAnchorSamplePoint = { lat: 48.0, lon: 11.0 };
