@@ -14,8 +14,10 @@
  * - log.warn() reports a standalone Sentry Issue (captureMessage)
  * - log.error() reports a standalone Sentry Issue: captureException for Error
  *   arguments, or a captureMessage fallback for string-only errors
- * - warn/error Issues use a stable ['log', level, tag] fingerprint so dynamic
- *   message content collapses into one Issue per (level, tag)
+ * - warn/error Issues are grouped by a normalized message template
+ *   (['log', level, tag, template]) so dynamic values (frame indices, sizes,
+ *   filenames) collapse into one Issue per message kind without merging
+ *   genuinely different messages that share a tag
  */
 
 import * as Sentry from '@sentry/browser';
@@ -276,22 +278,66 @@ function addSentryBreadcrumb(
 }
 
 /**
+ * Normalize a log message body into a stable "template" for Sentry grouping.
+ *
+ * Replaces the dynamic tokens that typically vary between otherwise-identical
+ * log lines (numbers, UUIDs, quoted strings) with placeholders. This makes the
+ * fingerprint depend on the *kind* of message rather than its concrete values,
+ * so that:
+ * - the same message with different dynamic values collapses into one Issue
+ *   (e.g. `frame 12` / `frame 87` -> `frame {n}`), and
+ * - two genuinely different messages under the same tag stay as separate
+ *   Issues (because their templates differ).
+ *
+ * Order matters: UUIDs are replaced before bare numbers, otherwise the number
+ * rule would shred the digit groups inside a UUID first.
+ */
+function toFingerprintTemplate(body: string): string {
+  return (
+    body
+      // UUIDs (e.g. 3f2504e0-4f89-11d3-9a0c-0305e82c3301)
+      .replace(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+        '{uuid}'
+      )
+      // Numbers: optional sign, decimals, exponent (e.g. -3.5, 1e9, 100)
+      .replace(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi, '{n}')
+      // Quoted strings (filenames, ids) — keep the quotes, blank the contents
+      .replace(/"[^"]*"/g, '"{str}"')
+      .replace(/'[^']*'/g, "'{str}'")
+  );
+}
+
+/**
+ * Capture a log line as a standalone Sentry Issue (message event).
+ *
+ * Shared by `reportWarningToSentry` and the string-only branch of
+ * `reportErrorsToSentry`. The fingerprint is
+ * `['log', level, tag, <normalized template>]` so that dynamic values in the
+ * message do not fragment one logical problem into many Issues, while distinct
+ * messages from the same tag remain distinct Issues (see
+ * {@link toFingerprintTemplate}).
+ */
+function captureLogMessage(
+  level: 'warning' | 'error',
+  tag: string,
+  args: unknown[]
+): void {
+  const body = args.map((arg) => serializeArg(arg)).join(' ');
+  const message = `[${tag}] ${body}`;
+  Sentry.captureMessage(message, {
+    level,
+    fingerprint: ['log', level, tag, toFingerprintTemplate(body)],
+  });
+}
+
+/**
  * Report a warning to Sentry as a standalone message.
  * Called for log.warn() so warnings are independently visible in the
  * Sentry dashboard, not only as breadcrumbs attached to later exceptions.
- *
- * A stable fingerprint of `['log', 'warning', tag]` is set so that warnings
- * from the same logger collapse into a single Sentry Issue even when the
- * message embeds dynamic values (frame indices, sizes, filenames). Without
- * this, each distinct message text would fingerprint to its own Issue and
- * flood the dashboard.
  */
 function reportWarningToSentry(tag: string, args: unknown[]): void {
-  const message = `[${tag}] ${args.map((arg) => serializeArg(arg)).join(' ')}`;
-  Sentry.captureMessage(message, {
-    level: 'warning',
-    fingerprint: ['log', 'warning', tag],
-  });
+  captureLogMessage('warning', tag, args);
 }
 
 /**
@@ -300,13 +346,12 @@ function reportWarningToSentry(tag: string, args: unknown[]): void {
  * - For every argument that is an `Error`, calls `captureException` so the
  *   Issue carries a full stack trace.
  * - If NO argument is an `Error` (a string-only `log.error(...)`), falls back
- *   to `captureMessage(message, 'error')` so the error still surfaces as an
- *   Issue instead of only a breadcrumb/Log.
+ *   to a message event so the error still surfaces as an Issue instead of only
+ *   a breadcrumb/Log.
  *
- * The fallback uses a stable fingerprint of `['log', 'error', tag]` for the
- * same grouping reason as warnings (see `reportWarningToSentry`). The fallback
- * is mutually exclusive with `captureException` to avoid duplicate Issues when
- * an Error is present.
+ * The fallback is mutually exclusive with `captureException` to avoid duplicate
+ * Issues when an Error is present, and groups via the same normalized template
+ * fingerprint as warnings (see {@link captureLogMessage}).
  */
 function reportErrorsToSentry(tag: string, args: unknown[]): void {
   let capturedError = false;
@@ -317,11 +362,7 @@ function reportErrorsToSentry(tag: string, args: unknown[]): void {
     }
   }
   if (!capturedError) {
-    const message = `[${tag}] ${args.map((arg) => serializeArg(arg)).join(' ')}`;
-    Sentry.captureMessage(message, {
-      level: 'error',
-      fingerprint: ['log', 'error', tag],
-    });
+    captureLogMessage('error', tag, args);
   }
 }
 

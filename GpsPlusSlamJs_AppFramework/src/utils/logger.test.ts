@@ -645,13 +645,13 @@ describe('Logger', () => {
       expect(mockCaptureException).not.toHaveBeenCalled();
     });
 
-    it('should call captureMessage with warning level and stable fingerprint for log.warn()', () => {
+    it('should call captureMessage with warning level and a normalized-template fingerprint for log.warn()', () => {
       // Why: warnings must appear as standalone issues in Sentry so the team
       // can monitor unexpected conditions (e.g., malformed zip filenames)
       // without waiting for a subsequent error to surface them as breadcrumbs.
-      // The fingerprint must be stable per (level, tag) so that dynamic values
-      // embedded in the message (frame indices, sizes, filenames) collapse into
-      // a single Sentry Issue instead of fragmenting into hundreds.
+      // The fingerprint is derived from a NORMALIZED message template (dynamic
+      // tokens replaced by placeholders) so dynamic values collapse into one
+      // Issue while distinct messages stay distinct.
       const logger = createLogger('ZipReader');
 
       logger.warn('Unexpected filename: "actions/my-notes.json"');
@@ -659,12 +659,15 @@ describe('Logger', () => {
       expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
       expect(mockCaptureMessage).toHaveBeenCalledWith(
         '[ZipReader] Unexpected filename: "actions/my-notes.json"',
-        { level: 'warning', fingerprint: ['log', 'warning', 'ZipReader'] }
+        {
+          level: 'warning',
+          fingerprint: ['log', 'warning', 'ZipReader', 'Unexpected filename: "{str}"'],
+        }
       );
     });
 
-    it('should group warnings from the same tag under one fingerprint despite dynamic message content', () => {
-      // Why: two warnings from the same logger with different dynamic payloads
+    it('should group warnings with the same template despite dynamic message content', () => {
+      // Why: two warnings of the same KIND but with different dynamic payloads
       // must share a fingerprint so they group into one Issue.
       const logger = createLogger('Capture');
 
@@ -675,14 +678,49 @@ describe('Logger', () => {
       const fingerprints = mockCaptureMessage.mock.calls.map(
         (call) => (call[1] as { fingerprint: string[] }).fingerprint
       );
-      expect(fingerprints[0]).toEqual(['log', 'warning', 'Capture']);
-      expect(fingerprints[1]).toEqual(['log', 'warning', 'Capture']);
+      const expected = [
+        'log',
+        'warning',
+        'Capture',
+        'Suspicious image at frame {n}: size {n} bytes',
+      ];
+      expect(fingerprints[0]).toEqual(expected);
+      expect(fingerprints[1]).toEqual(expected);
     });
 
-    it('should call captureMessage with error level and stable fingerprint for string-only log.error()', () => {
+    it('should NOT collapse genuinely different warnings that share a tag', () => {
+      // Why: the tag identifies the source module, not the kind of message.
+      // Two unrelated warnings from the same logger (e.g. quota vs. not-found)
+      // must produce DIFFERENT fingerprints so they remain separate Issues —
+      // otherwise the per-tag grouping would hide distinct problems.
+      const logger = createLogger('Storage');
+
+      logger.warn('Quota exceeded while writing frame');
+      logger.warn('Requested file was not found');
+
+      expect(mockCaptureMessage).toHaveBeenCalledTimes(2);
+      const [first, second] = mockCaptureMessage.mock.calls.map(
+        (call) => (call[1] as { fingerprint: string[] }).fingerprint
+      );
+      expect(first).not.toEqual(second);
+      expect(first).toEqual([
+        'log',
+        'warning',
+        'Storage',
+        'Quota exceeded while writing frame',
+      ]);
+      expect(second).toEqual([
+        'log',
+        'warning',
+        'Storage',
+        'Requested file was not found',
+      ]);
+    });
+
+    it('should call captureMessage with error level and a normalized-template fingerprint for string-only log.error()', () => {
       // Why (option B): a plain-string log.error must still surface as a Sentry
-      // Issue, not only a breadcrumb/Log. The stable (level, tag) fingerprint
-      // collapses dynamic error messages into one Issue.
+      // Issue, not only a breadcrumb/Log. The normalized-template fingerprint
+      // collapses dynamic error messages of the same kind into one Issue.
       const logger = createLogger('Capture');
 
       logger.error('Suspicious image detected at frame 42: size 0 bytes');
@@ -691,8 +729,36 @@ describe('Logger', () => {
       expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
       expect(mockCaptureMessage).toHaveBeenCalledWith(
         '[Capture] Suspicious image detected at frame 42: size 0 bytes',
-        { level: 'error', fingerprint: ['log', 'error', 'Capture'] }
+        {
+          level: 'error',
+          fingerprint: [
+            'log',
+            'error',
+            'Capture',
+            'Suspicious image detected at frame {n}: size {n} bytes',
+          ],
+        }
       );
+    });
+
+    it('should give a string-only error and a UUID-bearing error the same template when only the id differs', () => {
+      // Why: UUIDs are dynamic; two errors that differ only by a UUID are the
+      // same kind of problem and must group together.
+      const logger = createLogger('Sync');
+
+      logger.error('Session 3f2504e0-4f89-11d3-9a0c-0305e82c3301 failed');
+      logger.error('Session 7c9e6679-7425-40de-944b-e07fc1f90ae7 failed');
+
+      const fingerprints = mockCaptureMessage.mock.calls.map(
+        (call) => (call[1] as { fingerprint: string[] }).fingerprint
+      );
+      expect(fingerprints[0]).toEqual([
+        'log',
+        'error',
+        'Sync',
+        'Session {uuid} failed',
+      ]);
+      expect(fingerprints[1]).toEqual(fingerprints[0]);
     });
 
     it('should NOT call captureMessage when log.error receives an Error object', () => {

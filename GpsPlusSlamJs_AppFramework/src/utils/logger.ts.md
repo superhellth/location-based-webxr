@@ -90,10 +90,10 @@ unsubscribe();
 5. **Thread safety:** Not applicable (single-threaded JS), but care is taken to avoid mutation of returned buffer copies.
 
 6. **Sentry integration:** All log levels add Sentry breadcrumbs for debugging context. When an exception is later captured, Sentry will show the trail of log messages leading up to it. Additionally, both `warn` and `error` produce standalone Sentry **Issues** (so the Issues dashboard is the single place to watch anything logged at warn/error level):
-   - `log.warn()` calls `Sentry.captureMessage(message, { level: 'warning', fingerprint: ['log', 'warning', tag] })`.
+   - `log.warn()` calls `Sentry.captureMessage(message, { level: 'warning', fingerprint: [...] })`.
    - `log.error()` with one or more `Error` arguments calls `Sentry.captureException()` for each `Error` (full stack trace).
-   - `log.error()` with **no** `Error` argument (string-only) falls back to `Sentry.captureMessage(message, { level: 'error', fingerprint: ['log', 'error', tag] })`. The fallback is mutually exclusive with `captureException`, so an error carrying an `Error` never also produces a message Issue.
-   - **Stable fingerprint grouping:** warn/error Issues use a `['log', level, tag]` fingerprint so that dynamic message content (frame indices, byte sizes, filenames) collapses into a single Issue per `(level, tag)` instead of fragmenting into one Issue per distinct message text. `debug`/`info` remain breadcrumb-only.
+   - `log.error()` with **no** `Error` argument (string-only) falls back to `Sentry.captureMessage(message, { level: 'error', fingerprint: [...] })`. The fallback is mutually exclusive with `captureException`, so an error carrying an `Error` never also produces a message Issue.
+   - **Template-based fingerprint grouping:** the fingerprint is `['log', level, tag, template]`, where `template` is the message with its dynamic tokens normalized (numbers → `{n}`, UUIDs → `{uuid}`, quoted strings → `"{str}"`). This means dynamic values (frame indices, byte sizes, filenames, session ids) collapse into a single Issue **per message kind**, while two genuinely different messages that happen to share a `tag` stay as separate Issues. The `tag` identifies the source module, not the kind of message, so it is intentionally *not* the sole grouping key. `debug`/`info` remain breadcrumb-only.
 
 ## Examples
 
@@ -133,11 +133,13 @@ Unit tests in [logger.test.ts](logger.test.ts) cover:
 - Graceful handling of null, undefined, BigInt, Symbol, and functions
 - **Sentry integration:**
   - Breadcrumbs added for all log levels (debug, info, warn, error)
-  - `captureMessage` called with `'warning'` level and `['log', 'warning', tag]` fingerprint for `log.warn()`
-  - Warnings from the same tag share a fingerprint despite dynamic message content (grouping into one Issue)
+  - `captureMessage` called with `'warning'` level and a `['log', 'warning', tag, template]` fingerprint for `log.warn()`
+  - Warnings of the same kind (same normalized template) share a fingerprint despite dynamic message content (grouped into one Issue)
+  - Genuinely different warnings that share a tag get different fingerprints (kept as separate Issues)
   - `captureException` called for Error objects in `log.error()`
   - Multiple Error objects in single `log.error()` call all reported
-  - String-only `log.error()` falls back to `captureMessage` with `'error'` level and `['log', 'error', tag]` fingerprint
+  - String-only `log.error()` falls back to `captureMessage` with `'error'` level and a `['log', 'error', tag, template]` fingerprint
+  - Numbers and UUIDs in messages are normalized so otherwise-identical lines group together
   - `captureMessage` is NOT called when an `Error` is present in `log.error()` (no duplicate Issue)
   - `captureMessage` NOT called for debug/info logs
   - Non-Error arguments don't trigger `captureException`
