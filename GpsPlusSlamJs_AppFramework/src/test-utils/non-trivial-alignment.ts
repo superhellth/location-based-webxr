@@ -49,11 +49,7 @@ export function makeNonTrivialAlignment(seed = 1): readonly number[] {
   const rnd = mulberry32((seed >>> 0) ^ 0x9e3779b9);
   // Tilted, non-axis-aligned rotation axis. Fall back to a fixed non-axis
   // direction in the (astronomically unlikely) event of a zero vector.
-  const axis = new THREE.Vector3(
-    rnd() * 2 - 1,
-    rnd() * 2 - 1,
-    rnd() * 2 - 1
-  );
+  const axis = new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1);
   if (axis.lengthSq() < 1e-6) axis.set(1, 2, 3);
   axis.normalize();
   // Substantial rotation (20°..80°) so the transform is visibly non-identity.

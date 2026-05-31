@@ -45,7 +45,12 @@ vi.mock('three', async (importOriginal) => {
   };
 });
 
-import { initAR, resetWebXRState, getScene, endARSession } from './webxr-session.js';
+import {
+  initAR,
+  resetWebXRState,
+  getScene,
+  endARSession,
+} from './webxr-session.js';
 
 // Isolation options that avoid the CSS3D renderer / DOM overlay paths so the
 // guard test exercises the minimal renderer+session setup.
