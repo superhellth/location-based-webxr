@@ -1,5 +1,8 @@
 # GPS-Plus-SLAM — Persistent Anchor Starter
 
+> **Live:** deployed at **<https://gps.csutil.com/starter/>** (the "Demo" linked
+> from the landing page).
+
 A **meaningful minimal** example for the
 [`gps-plus-slam-app-framework`](../GpsPlusSlamJs_AppFramework/README.md): the
 smallest readable app that demonstrates the framework's actual value

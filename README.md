@@ -60,6 +60,11 @@ A free **community license key** is bundled with the framework for evaluation an
 
 ## Quick Start: Try the Recorder
 
+> **Live demo:** the apps are deployed at **<https://gps.csutil.com>** — a
+> landing page links to the **Demo** (persistent-anchor starter, `/starter/`)
+> and the **Example app to evaluate the tracking accuracy** (the recorder,
+> `/recorder/`). Open it on a WebXR-capable phone.
+
 ### Prerequisites
 
 - Node.js ≥ 20
@@ -121,7 +126,9 @@ startGpsWatch(
 | ----------------------------------------------------------- | ------------------------------------------------------------- |
 | [`GpsPlusSlamJs_AppFramework/`](GpsPlusSlamJs_AppFramework/) | The reusable framework (npm package).                         |
 | [`GpsPlusSlamJs_RecorderApp/`](GpsPlusSlamJs_RecorderApp/)   | The reference recorder app (Vite + Playwright).               |
+| [`GpsPlusSlamJs_AnchorStarter/`](GpsPlusSlamJs_AnchorStarter/) | Persistent-anchor starter example (the public "Demo").       |
 | [`GpsPlusSlamJs_MinimalExample/`](GpsPlusSlamJs_MinimalExample/) | Smallest possible framework consumer.                     |
+| [`GpsPlusSlamJs_Landing/`](GpsPlusSlamJs_Landing/)          | Static landing page served at the deployment root.            |
 | `signatures/`                                               | License-key public signatures for the closed-source core.     |
 | `tests/`                                                    | Repo-config integration tests (workspace cohesion checks).    |
 
@@ -130,6 +137,25 @@ startGpsWatch(
 ```bash
 pnpm --filter gps-plus-slam-app-framework build
 ```
+
+## Deployment (gps.csutil.com)
+
+All public surfaces share one origin and are built into a single `dist-site/`
+directory served by Cloudflare static assets:
+
+```bash
+pnpm run build:site   # framework + recorder (/recorder/) + starter (/starter/) + landing (/)
+```
+
+- `/` → landing page ([`GpsPlusSlamJs_Landing/`](GpsPlusSlamJs_Landing/))
+- `/recorder/` → recorder app, built with `base=/recorder/`
+- `/starter/` → anchor starter, built with `base=/starter/`
+
+The Cloudflare Git integration runs `pnpm run build:site` and serves `./dist-site`
+(see [`wrangler.toml`](wrangler.toml)). The orchestration script
+([`scripts/build-site.mjs`](scripts/build-site.mjs)) asserts every built URL
+resolves under its app's base so a misrouted asset fails the deploy instead of
+404-ing in production.
 
 ## Run Tests
 
