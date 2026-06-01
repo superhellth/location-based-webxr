@@ -7,7 +7,9 @@
     "scripts": {
         "build:framework": "pnpm run --filter gps-plus-slam-app-framework... build",
         "build:recorder": "pnpm run --filter gps-plus-slam-recorder... build",
+        "build:starter": "pnpm run --filter gps-plus-slam-anchor-starter... build",
         "build:example": "pnpm run --filter gps-plus-slam-minimal-example... build",
+        "build:site": "node scripts/build-site.mjs",
         "check:deadcode": "knip",
         "test:repo-config": "vitest run --config vitest.config.js",
         "test:framework": "pnpm --filter gps-plus-slam-app-framework test",
