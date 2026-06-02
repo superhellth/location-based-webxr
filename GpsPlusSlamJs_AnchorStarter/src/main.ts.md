@@ -14,11 +14,15 @@
     `setTrackingStore` → `initAR` → `startSession` (so the GPS coordinator
     feeds alignment) → `createGpsPositionHandler` + `startGpsWatch` →
     `requestDeviceOrientationPermission` + `startOrientationWatch` →
-    wire `placeButton` click → `placeAnchor` →
-    `loadAnchor()` → `dispatchSetup(BOOTED)`.
+    wire `placeButton` + `copyLinkButton` clicks →
+    `readCachedAnchor()` → `dispatchSetup(BOOTED)`.
   - `placeAnchor()` (cache-miss): `PLACE_REQUESTED` (saving) →
-    `spawnAnchor(gps, false)` + `saveAnchor(gps)` → `PLACE_SUCCEEDED`, or
-    `PLACE_FAILED` on error (revert + error line).
+    `spawnAnchor(gps, false)` + `writeShowParam([anchorSpecFromGps(gps)])`
+    (encodes the anchor into the `?show=` URL via `history.replaceState`) →
+    `PLACE_SUCCEEDED`, or `PLACE_FAILED` on error (revert + error line).
+    Note: this path is **synchronous** — `saving` → `saved` happen in one
+    call stack, so the transient `Saving…` state is a view-model concern, not
+    an observable painted frame.
   - `spawnAnchor()` builds `createGpsAnchor` with `getAlignmentMatrix` /
     `getGpsZeroRef` / `getCurrentGpsPoint` bound to the live store + last GPS.
 - **Invariants & assumptions:**
@@ -32,6 +36,6 @@
 - **Tests:** glue is verified manually via `pnpm dev` on an AR device. The
   decision logic it composes is unit-tested in the sibling modules
   ([setup-state-machine](setup-state-machine.ts.md),
-  [anchor-storage](anchor-storage.ts.md),
+  [url-anchor-state](url-anchor-state.ts.md),
   [guidance-view](guidance-view.ts.md), [placement-view](placement-view.ts.md),
   [capability](capability.ts.md), [marker](marker.ts.md)).
