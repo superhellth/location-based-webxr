@@ -74,10 +74,10 @@ interface SummaryMapInstance {
 1. **Leaflet CSS must be loaded** - The component assumes `leaflet.css` is included in the page head
 2. **Container must have dimensions** - The container needs explicit width/height or the map won't render properly
 3. **Coordinates in WGS84** - Lat/lng values are standard GPS coordinates
-4. **Auto-fit bounds** - Map automatically zooms to show all path points with 20px padding
+4. **Center on final position** - Map centers on the FINAL user position of the recording (last raw GPS reading, falling back to the last fused position) at `INITIAL_ZOOM`. It deliberately does NOT fit bounds over all elements: scattered far-away prior reference points used to zoom the recording down to a useless dot. Ref-point markers are drawn but never extend the view.
 5. **Safe cleanup** - `destroy()` is idempotent (safe to call multiple times)
 6. **XSS-safe popups** - Reference point name popups use DOM `textContent` (not innerHTML), so names containing HTML-like characters are safely escaped. Ref markers are NOT drawn by the shared framework overlay module (which is ref-point-agnostic) but by the recorder-owned [draw-ref-point-markers.ts](draw-ref-point-markers.ts) helper, shared with the live/replay overlay so both maps render ref points identically.
-7. **Fullscreen toggle** - `expand()`/`collapse()` are idempotent and safe after `destroy()`. Fullscreen uses `fixed inset-0 z-[60]` CSS. Leaflet `invalidateSize()` + `fitBounds()` called after each transition (300ms delay for CSS reflow). Buttons (`data-testid="btn-map-expand"` / `data-testid="btn-map-collapse"`) are created dynamically inside the container and cleaned up on `destroy()`.
+7. **Fullscreen toggle** - `expand()`/`collapse()` are idempotent and safe after `destroy()`. Fullscreen uses `fixed inset-0 z-[60]` CSS. Leaflet `invalidateSize()` + re-center on the final position (`setView` preserving the current zoom) called after each transition (300ms delay for CSS reflow). Buttons (`data-testid="btn-map-expand"` / `data-testid="btn-map-collapse"`) are created dynamically inside the container and cleaned up on `destroy()`.
 
 ## Examples
 
@@ -132,7 +132,7 @@ Unit tests in `summary-map.test.ts` cover:
 - Cyan polyline for fused path
 - Reference point marker creation
 - XSS safety of reference point name popups
-- Auto-fit bounds behavior
+- Final-position centering behavior
 - Safe destroy/cleanup
 - Fullscreen expand/collapse (CSS class toggling, invalidateSize, idempotency)
 - Fullscreen button visibility toggling
