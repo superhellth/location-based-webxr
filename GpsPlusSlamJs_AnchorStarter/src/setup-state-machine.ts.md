@@ -32,7 +32,12 @@ state machine for the first-user-experience, replacing inline `if`/flag glue.
   in-progress state and resolves to either `saved` (final) or a placeable
   phase carrying `errorMessage` (revert). A fresh `PLACE_REQUESTED` clears a
   previous `errorMessage`.
-- `BOOTED` is idempotent — only the initial `booting` phase reacts to it.
+- `BOOTED` is idempotent — only the initial `booting` phase reacts to it. It
+  also honours a `trackingReady` that arrived **before** boot (the store
+  subscription is live before the branch is chosen): a cache-hit boot with
+  tracking already good goes straight to `anchor-shown`, and a cache-miss boot
+  to `ready-to-place`, instead of lingering in a stale `relocalising` /
+  `awaiting-tracking` phase no further (unchanged) readiness event would clear.
 - The reducer never throws; it is exhaustively typed over `SetupEvent`.
 
 ## Examples

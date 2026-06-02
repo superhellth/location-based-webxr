@@ -36,6 +36,36 @@ describe("setupReducer — boot branch selection", () => {
   it("cache-hit boot enters the relocalising branch", () => {
     expect(boot(true).phase).toBe("relocalising");
   });
+
+  // Regression: the store subscription is live before BOOTED is dispatched, so
+  // TRACKING_READY_CHANGED(true) can arrive while still `booting`. BOOTED must
+  // honour that pre-boot readiness instead of routing into a stale waiting
+  // phase that no further (unchanged) readiness event would ever advance.
+  it("cache-hit boot with pre-boot trackingReady goes straight to anchor-shown", () => {
+    const ready = setupReducer(initialSetupState, {
+      type: "TRACKING_READY_CHANGED",
+      ready: true,
+    });
+    expect(ready.phase).toBe("booting");
+    expect(ready.trackingReady).toBe(true);
+    const booted = setupReducer(ready, {
+      type: "BOOTED",
+      hasCachedAnchor: true,
+    });
+    expect(booted.phase).toBe("anchor-shown");
+  });
+
+  it("cache-miss boot with pre-boot trackingReady goes straight to ready-to-place", () => {
+    const ready = setupReducer(initialSetupState, {
+      type: "TRACKING_READY_CHANGED",
+      ready: true,
+    });
+    const booted = setupReducer(ready, {
+      type: "BOOTED",
+      hasCachedAnchor: false,
+    });
+    expect(booted.phase).toBe("ready-to-place");
+  });
 });
 
 describe("setupReducer — cache-miss placement branch", () => {

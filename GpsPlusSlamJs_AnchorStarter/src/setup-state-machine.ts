@@ -68,10 +68,21 @@ export function setupReducer(state: SetupState, event: SetupEvent): SetupState {
     case "BOOTED": {
       // Idempotent guard: only the initial booting phase reacts to BOOTED.
       if (state.phase !== "booting") return state;
-      return {
-        ...state,
-        phase: event.hasCachedAnchor ? "relocalising" : "awaiting-tracking",
-      };
+      // Respect a `trackingReady` that arrived *before* BOOTED. The store
+      // subscription (and thus TRACKING_READY_CHANGED) is live before the
+      // branch is chosen, so tracking can already be good at boot. Pick the
+      // phase the machine would have reached had readiness been applied after
+      // the split — otherwise we linger in a stale waiting phase (relocalising
+      // / awaiting-tracking) that no further (unchanged) readiness event would
+      // ever advance.
+      const phase: SetupPhase = event.hasCachedAnchor
+        ? state.trackingReady
+          ? "anchor-shown"
+          : "relocalising"
+        : state.trackingReady
+          ? "ready-to-place"
+          : "awaiting-tracking";
+      return { ...state, phase };
     }
 
     case "TRACKING_READY_CHANGED": {
