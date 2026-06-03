@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>GPS+SLAM — Location-Based WebXR Framework</title>
+    <meta
+      name="description"
+      content="Build location-based AR experiences on the web. An Apache-2.0 framework plus a reference recorder app, fusing GPS with WebXR odometry for sub-meter, install-free AR in the mobile browser."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%23ef4444'/%3E%3Ccircle cx='50' cy='50' r='15' fill='%23fff'/%3E%3C/svg%3E"
+      type="image/svg+xml"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0b0b0d;
+        color: #e7e7ea;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        line-height: 1.55;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 48px 20px 64px;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 36px;
+      }
+      h1 {
+        font-size: clamp(1.9rem, 5vw, 2.6rem);
+        margin: 0 0 12px;
+        letter-spacing: -0.02em;
+      }
+      .tagline {
+        font-size: 1.1rem;
+        color: #b6b6bd;
+        margin: 0 auto;
+        max-width: 620px;
+      }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin: 36px 0;
+      }
+      .btn {
+        display: block;
+        text-decoration: none;
+        text-align: center;
+        padding: 16px 20px;
+        border-radius: 12px;
+        font-size: 1.05rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+      .btn-primary {
+        background: #ef4444;
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: #dc2626;
+      }
+      .btn-secondary {
+        background: #1b1b20;
+        color: #e7e7ea;
+        border-color: #34343c;
+      }
+      .btn-secondary:hover {
+        background: #24242b;
+        border-color: #44444e;
+      }
+      .btn small {
+        display: block;
+        font-weight: 400;
+        font-size: 0.85rem;
+        color: #cfcfd6;
+        margin-top: 4px;
+      }
+      .btn-secondary small {
+        color: #9a9aa3;
+      }
+      section {
+        margin-top: 32px;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 0 0 10px;
+        color: #f2f2f5;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.2em;
+      }
+      li {
+        margin: 6px 0;
+        color: #c4c4cc;
+      }
+      .links {
+        margin-top: 40px;
+        padding-top: 24px;
+        border-top: 1px solid #26262c;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        justify-content: center;
+        font-size: 0.95rem;
+      }
+      .links a {
+        color: #9db8ff;
+        text-decoration: none;
+      }
+      .links a:hover {
+        text-decoration: underline;
+      }
+      footer {
+        margin-top: 40px;
+        text-align: center;
+        font-size: 0.82rem;
+        color: #7a7a83;
+      }
+      code {
+        background: #1b1b20;
+        padding: 1px 6px;
+        border-radius: 5px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>GPS+SLAM — Location-Based WebXR</h1>
+        <p class="tagline">
+          Build location-based Augmented Reality experiences that run in the
+          mobile browser — no app install. An Apache-2.0 framework fuses GPS
+          with WebXR odometry so content can sit on a specific spot on a path,
+          a wall, or the ground, with accuracy beyond raw GPS.
+        </p>
+      </header>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="/starter/">
+          Open Demo
+          <small
+            >Place a GPS anchor, reload, and watch it re-localise at the exact
+            physical spot.</small
+          >
+        </a>
+        <a class="btn btn-secondary" href="/recorder/">
+          Open Example app to evaluate the tracking accuracy
+          <small
+            >The full recorder: capture AR + GPS sessions on a phone, replay
+            and inspect alignment on a desktop.</small
+          >
+        </a>
+      </div>
+
+      <section>
+        <h2>Why GPS+SLAM?</h2>
+        <ul>
+          <li>
+            <strong>Accuracy beyond raw GPS:</strong> fuses GPS with the
+            device's AR odometry, so alignment gets more stable as the user
+            walks — visible drift drops well below raw GPS.
+          </li>
+          <li>
+            <strong>Just a URL, no app install:</strong> the whole experience
+            runs in the mobile browser through WebXR.
+          </li>
+          <li>
+            <strong>Fully offline alignment:</strong> localises from the
+            device's own GPS, camera tracking, and motion sensors — no VPS
+            provider or network scan of the place required.
+          </li>
+          <li>
+            <strong>Anchors for shareable content:</strong> tie objects to a
+            GPS coordinate for replay, persistence, and sharing.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>What you can build</h2>
+        <ul>
+          <li>Outdoor AR navigation with GPS-anchored arrows and waypoints.</li>
+          <li>Persistent 3D content dropped at lat/lon that stays put.</li>
+          <li>AR tour guides, museum trails, and location-based games.</li>
+          <li>Field-data capture tools for GPS, AR poses, frames, and depth.</li>
+        </ul>
+      </section>
+
+      <div class="links">
+        <a href="https://github.com/cs-util-com/location-based-webxr"
+          >GitHub repository</a
+        >
+        <a href="https://github.com/cs-util-com/location-based-webxr#readme"
+          >Documentation</a
+        >
+        <a href="https://www.npmjs.com/package/gps-plus-slam-app-framework"
+          >npm: gps-plus-slam-app-framework</a
+        >
+      </div>
+
+      <footer>
+        Open-source framework under Apache-2.0. The
+        <code>gps-plus-slam-js</code> alignment core is closed-source with a
+        free community license for evaluation and non-commercial use.
+      </footer>
+    </main>
+  </body>
+</html>

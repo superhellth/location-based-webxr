@@ -51,6 +51,20 @@ describe('recording-options', () => {
     vi.clearAllMocks();
   });
 
+  describe('origin-isolation invariant', () => {
+    // Why this test matters: the multi-app subpath deployment serves the
+    // recorder (/recorder/) and the anchor starter (/starter/) from one
+    // origin (gps.csutil.com). Browser storage is keyed by origin, not path,
+    // so the apps would silently share localStorage if their keys collided.
+    // The starter uses `gps-plus-slam-anchor-starter:*`; the recorder MUST
+    // keep its own `gps-plus-slam-recorder` prefix so the namespaces stay
+    // disjoint. See docs: 2026-06-01-multi-app-subpath-deployment-plan.md
+    // (Step 6).
+    it('namespaces its localStorage key under the app-specific prefix', () => {
+      expect(STORAGE_KEY).toMatch(/^gps-plus-slam-recorder/);
+    });
+  });
+
   describe('validateDepthOptions', () => {
     it('returns defaults when given empty object', () => {
       const result = validateDepthOptions({});

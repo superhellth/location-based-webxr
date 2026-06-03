@@ -25,11 +25,7 @@ import {
   drawRefPointMarkers,
   type RefPointMarkerInput,
 } from './draw-ref-point-markers';
-import {
-  addOsmTileLayer,
-  INITIAL_ZOOM,
-  FIT_BOUNDS_PADDING,
-} from './map-osm-base';
+import { addOsmTileLayer, INITIAL_ZOOM } from './map-osm-base';
 
 const log = createLogger('SummaryMap');
 
@@ -125,10 +121,15 @@ export function createSummaryMap(
   }
 
   try {
-    // Determine initial center from first GPS point
-    const firstPoint = data.rawGpsPath[0] ?? data.fusedPath[0]!;
+    // Center on the FINAL user position of the recording (last raw GPS
+    // reading, falling back to the last fused position). Earlier this fit the
+    // map to the bounds of *all* elements — including reference points — but
+    // when prior ref points sit far away from each other that bounds-fit zooms
+    // the recording down to a useless dot. Centering on where the recording
+    // ended keeps the actual walked area in view. (User feedback 2026-06-02.)
+    const centerPoint = data.rawGpsPath.at(-1) ?? data.fusedPath.at(-1)!;
     const map = L.map(mapContainer).setView(
-      [firstPoint.lat, firstPoint.lng],
+      [centerPoint.lat, centerPoint.lng],
       INITIAL_ZOOM
     );
 
@@ -144,7 +145,7 @@ export function createSummaryMap(
     // of the map-system review; fixes Findings 1 & 4 of the
     // unified-trajectory-map user feedback). Reference-point markers are a
     // RECORDER concept and are drawn separately via the recorder-owned helper.
-    const { layers: dataLayers, bounds } = drawMapData(map, {
+    const { layers: dataLayers } = drawMapData(map, {
       userPosition: null,
       rawGpsPath: data.rawGpsPath,
       fusedPath: data.fusedPath,
@@ -152,22 +153,16 @@ export function createSummaryMap(
     });
     layers.push(...dataLayers);
 
-    // Draw reference-point markers (prior vs. current by timestamp) and extend
-    // the fitted bounds so they stay in view.
+    // Draw reference-point markers (prior vs. current by timestamp). They are
+    // intentionally NOT used to extend the map view: far-away prior ref points
+    // must not drag the camera away from the recording (see centering note
+    // above).
     const refLayers = drawRefPointMarkers(
       map,
       data.referencePoints,
       data.startTime ?? 0
     );
     layers.push(...refLayers);
-    for (const refPoint of data.referencePoints) {
-      bounds.extend([refPoint.lat, refPoint.lng]);
-    }
-
-    // Fit bounds if we have valid bounds
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING });
-    }
 
     // Force a resize in case container wasn't visible initially
     const resizeTimeoutId = setTimeout(() => map.invalidateSize(), 100);
@@ -211,9 +206,10 @@ export function createSummaryMap(
     // --- Expand / collapse helpers ---
 
     /**
-     * Schedule an `invalidateSize` + `fitBounds` after the CSS transition has
+     * Schedule an `invalidateSize` + re-center after the CSS transition has
      * settled. Shared by `doExpand` / `doCollapse` so the resize logic and the
-     * timeout-cancellation guard live in exactly one place.
+     * timeout-cancellation guard live in exactly one place. Re-centers on the
+     * final user position while preserving the current zoom level.
      */
     function scheduleResizeRefit(): void {
       if (expandResizeTimeoutId !== null) {
@@ -221,7 +217,7 @@ export function createSummaryMap(
       }
       expandResizeTimeoutId = setTimeout(() => {
         map.invalidateSize();
-        map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING });
+        map.setView([centerPoint.lat, centerPoint.lng], map.getZoom());
       }, RESIZE_DELAY_MS);
     }
 

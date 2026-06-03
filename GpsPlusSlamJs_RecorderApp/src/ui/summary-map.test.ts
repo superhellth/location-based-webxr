@@ -22,6 +22,7 @@ let lastMapInstance: {
   remove: ReturnType<typeof vi.fn>;
   fitBounds: ReturnType<typeof vi.fn>;
   setView: ReturnType<typeof vi.fn>;
+  getZoom: ReturnType<typeof vi.fn>;
   invalidateSize: ReturnType<typeof vi.fn>;
 };
 let polylineCalls: Array<{ latLngs: unknown; options: unknown }> = [];
@@ -39,6 +40,7 @@ vi.mock('leaflet', () => {
           remove: vi.fn(),
           fitBounds: vi.fn(),
           setView: vi.fn().mockReturnThis(),
+          getZoom: vi.fn().mockReturnValue(17),
           invalidateSize: vi.fn(),
         };
         return lastMapInstance;
@@ -533,21 +535,41 @@ describe('SummaryMap', () => {
     });
   });
 
-  describe('auto-fit bounds', () => {
-    it('should call fitBounds to show full path', () => {
+  describe('centering', () => {
+    // Why this test matters: with prior reference points scattered far apart,
+    // fitting bounds over *all* elements zoomed the recording down to a useless
+    // dot. The map must instead center on the FINAL user position of the
+    // recording (last raw GPS reading) so the walked area stays in view.
+    // (User feedback 2026-06-02.)
+    it('should center on the final raw GPS position, not fit all elements', () => {
       const data = createValidMapData();
       createSummaryMap(container, data);
 
-      expect(lastMapInstance.fitBounds).toHaveBeenCalled();
+      const lastRaw = data.rawGpsPath.at(-1)!;
+      expect(lastMapInstance.setView).toHaveBeenCalledWith(
+        [lastRaw.lat, lastRaw.lng],
+        expect.any(Number)
+      );
+      // It must NOT fit bounds over all elements (the previous behavior that
+      // dragged the view toward far-away ref points).
+      expect(lastMapInstance.fitBounds).not.toHaveBeenCalled();
     });
 
-    it('should pass padding to fitBounds', () => {
-      const data = createValidMapData();
+    it('should fall back to the final fused position when no raw GPS exists', () => {
+      const data: SummaryMapData = {
+        rawGpsPath: [],
+        fusedPath: [
+          { lat: 50.0001, lng: 8.0001 },
+          { lat: 50.0011, lng: 8.0011 },
+        ],
+        referencePoints: [],
+      };
       createSummaryMap(container, data);
 
-      expect(lastMapInstance.fitBounds).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ padding: expect.any(Array) })
+      const lastFused = data.fusedPath.at(-1)!;
+      expect(lastMapInstance.setView).toHaveBeenCalledWith(
+        [lastFused.lat, lastFused.lng],
+        expect.any(Number)
       );
     });
   });

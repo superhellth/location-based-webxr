@@ -7,15 +7,18 @@
     "scripts": {
         "build:framework": "pnpm run --filter gps-plus-slam-app-framework... build",
         "build:recorder": "pnpm run --filter gps-plus-slam-recorder... build",
+        "build:starter": "pnpm run --filter gps-plus-slam-anchor-starter... build",
         "build:example": "pnpm run --filter gps-plus-slam-minimal-example... build",
+        "build:site": "node scripts/build-site.mjs",
         "check:deadcode": "knip",
         "test:repo-config": "vitest run --config vitest.config.js",
         "test:framework": "pnpm --filter gps-plus-slam-app-framework test",
         "test:recorder": "pnpm --filter gps-plus-slam-recorder test",
         "test:recorder:unit": "pnpm --filter gps-plus-slam-recorder run test:unit",
         "test:recorder:e2e": "pnpm --filter gps-plus-slam-recorder run test:e2e",
+        "test:starter": "pnpm --filter gps-plus-slam-anchor-starter test",
         "test:example": "pnpm --filter gps-plus-slam-minimal-example test",
-        "test": "pnpm run test:repo-config && pnpm run test:framework && pnpm run test:recorder && pnpm run test:example"
+        "test": "pnpm run test:repo-config && pnpm run test:framework && pnpm run test:recorder && pnpm run test:starter && pnpm run test:example"
     },
     "engines": {
         "node": ">=20.0.0"

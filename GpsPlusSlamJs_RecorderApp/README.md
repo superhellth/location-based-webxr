@@ -1,5 +1,15 @@
 # GpsPlusSlamJs Recorder App (WebXR/Three.js)
 
+> **Live:** deployed at **<https://gps.csutil.com/recorder/>** (the "Example app
+> to evaluate the tracking accuracy" linked from the landing page).
+
+> **New to the framework?** This recorder is the **full** rung of the example
+> ladder (trivial → starter → full). Start smaller with the
+> [`GpsPlusSlamJs_MinimalExample`](../GpsPlusSlamJs_MinimalExample/)
+> (resolve-and-run) and the
+> [`GpsPlusSlamJs_AnchorStarter`](../GpsPlusSlamJs_AnchorStarter/) (a readable
+> persistent-GPS-anchor demo) before reading this app.
+
 ## Background on the used GpsPlusSlamJs library
 
 **GpsPlusSlamJs** is a TypeScript library designed to fuse AR (Augmented Reality) odometry data with GPS coordinates.

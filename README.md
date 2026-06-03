@@ -15,6 +15,16 @@ Build location-based Augmented Reality experiences on the web — an Apache-2.0 
 - **Location-based games** — geocaching, scavenger hunts, multi-player AR experiences tied to physical places.
 - **Field-data capture tools** — record GPS, AR poses, camera frames, and depth for later analysis or ML training.
 
+## How It Works: Sensor Fusion & Outdoor Stability
+
+A common assumption is that markerless WebXR will drift badly or make content "jump" in large, visually uniform outdoor spaces (open parks, grass fields), because classic visual SLAM leans on camera feature points that are sparse there. It's worth being precise about which layer does what, so you can judge whether this fits your use case:
+
+- **Visual-inertial tracking is handled by the WebXR runtime (ARCore/ARKit), not by this library.** The device's own AR stack already fuses the camera with the IMU to produce local 6-DoF odometry, which stays usable through short stretches of sparse visual features. This framework **consumes** that odometry rather than re-implementing it.
+- **What this framework adds is GPS↔AR alignment.** `gps-plus-slam-js` continuously aligns the local AR odometry with GPS, refining the fit **live as the user moves** rather than re-snapping, so placed content does not teleport on every GPS update. Placement helpers (`createGpsAnchor`) can even defer small corrections until an object is off-screen, while still correcting if alignment drifts far enough that content would otherwise be left in a stale spot.
+- **Accuracy is sub-meter, not centimeter — and it improves with motion.** After roughly 15 seconds of walking in representative outdoor conditions, visible drift typically drops well below raw GPS and the fusion is what keeps locally-placed content sitting on its spot as the user walks around it.
+
+This makes the framework well-suited to large-scale outdoor AR — a walking trail with arrows pointing the way, treasure-hunt markers hidden around a field, or info labels pinned to statues and buildings — provided you treat global placement as GPS-accurate and local stability as motion-dependent rather than guaranteed. For the full rationale, caveats, and the VPS-free positioning model, see the [framework's "Why use GPS+SLAM?" section](GpsPlusSlamJs_AppFramework/README.md). The fastest way to evaluate it is to open an example URL on your phone, step outside, drop an object, and walk around it.
+
 ## Architecture
 
 ```
@@ -59,6 +69,11 @@ The core alignment library ([`gps-plus-slam-js`](https://www.npmjs.com/package/g
 A free **community license key** is bundled with the framework for evaluation and non-commercial use. See the [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for commercial licensing.
 
 ## Quick Start: Try the Recorder
+
+> **Live demo:** the apps are deployed at **<https://gps.csutil.com>** — a
+> landing page links to the **Demo** (persistent-anchor starter, `/starter/`)
+> and the **Example app to evaluate the tracking accuracy** (the recorder,
+> `/recorder/`). Open it on a WebXR-capable phone.
 
 ### Prerequisites
 
@@ -121,7 +136,9 @@ startGpsWatch(
 | ----------------------------------------------------------- | ------------------------------------------------------------- |
 | [`GpsPlusSlamJs_AppFramework/`](GpsPlusSlamJs_AppFramework/) | The reusable framework (npm package).                         |
 | [`GpsPlusSlamJs_RecorderApp/`](GpsPlusSlamJs_RecorderApp/)   | The reference recorder app (Vite + Playwright).               |
+| [`GpsPlusSlamJs_AnchorStarter/`](GpsPlusSlamJs_AnchorStarter/) | Persistent-anchor starter example (the public "Demo").       |
 | [`GpsPlusSlamJs_MinimalExample/`](GpsPlusSlamJs_MinimalExample/) | Smallest possible framework consumer.                     |
+| [`GpsPlusSlamJs_Landing/`](GpsPlusSlamJs_Landing/)          | Static landing page served at the deployment root.            |
 | `signatures/`                                               | License-key public signatures for the closed-source core.     |
 | `tests/`                                                    | Repo-config integration tests (workspace cohesion checks).    |
 
@@ -130,6 +147,25 @@ startGpsWatch(
 ```bash
 pnpm --filter gps-plus-slam-app-framework build
 ```
+
+## Deployment (gps.csutil.com)
+
+All public surfaces share one origin and are built into a single `dist-site/`
+directory served by Cloudflare static assets:
+
+```bash
+pnpm run build:site   # framework + recorder (/recorder/) + starter (/starter/) + landing (/)
+```
+
+- `/` → landing page ([`GpsPlusSlamJs_Landing/`](GpsPlusSlamJs_Landing/))
+- `/recorder/` → recorder app, built with `base=/recorder/`
+- `/starter/` → anchor starter, built with `base=/starter/`
+
+The Cloudflare Git integration runs `pnpm run build:site` and serves `./dist-site`
+(see [`wrangler.toml`](wrangler.toml)). The orchestration script
+([`scripts/build-site.mjs`](scripts/build-site.mjs)) asserts every built URL
+resolves under its app's base so a misrouted asset fails the deploy instead of
+404-ing in production.
 
 ## Run Tests
 
