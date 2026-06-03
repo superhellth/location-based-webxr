@@ -1389,7 +1389,7 @@ The project includes several static analysis tools matching the library's qualit
 
 This app is licensed under **Apache 2.0** — see [LICENSE](LICENSE).
 
-> **Note:** This app depends on `gps-plus-slam-js`, which is a **closed-source, proprietary** library distributed via [npm](https://www.npmjs.com/package/gps-plus-slam-js) under a separate license. A community license key is included for frictionless development. See the core library's EULA for usage terms.
+> **Note:** This app depends on `gps-plus-slam-js`, which is a **closed-source, proprietary** library distributed via [npm](https://www.npmjs.com/package/gps-plus-slam-js) under a separate license. A free community license key is included so you can start building right away — no signup or API key required. See the core library's EULA for the full terms.
 
 ## Related Projects
 

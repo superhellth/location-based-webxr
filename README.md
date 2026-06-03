@@ -66,7 +66,7 @@ The core alignment library ([`gps-plus-slam-js`](https://www.npmjs.com/package/g
 - **Framework-agnostic** — pure TypeScript with a Redux-based state store.
 - **Incremental alignment** — the alignment matrix updates live as new observations arrive.
 
-A free **community license key** is bundled with the framework for evaluation and non-commercial use. See the [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for commercial licensing.
+A free **community license key** is bundled with the framework, so you can start building right away — no signup or API key required. See the [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for the full terms.
 
 ## Quick Start: Try the Recorder
 
