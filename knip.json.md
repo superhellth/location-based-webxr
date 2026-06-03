@@ -61,9 +61,11 @@ entirely after confirming they were only transitively pulled in.
   even though `main.ts` only imports from
   `gps-plus-slam-app-framework`. Ignored to keep that dependency
   declaration honest.
-- **GpsPlusSlamJs_AnchorStarter** — `src/main.ts` and the stylelint
-  config are entries. The stylelint tooling packages
-  (`stylelint-config-standard`, `postcss-html`,
+- **GpsPlusSlamJs_AnchorStarter** — `src/main.ts` is the runtime root,
+  auto-detected from `index.html` by knip's Vite plugin (listing it as an
+  explicit `entry` is redundant and knip warns about it). Only the
+  stylelint config is listed as an explicit entry. The stylelint tooling
+  packages (`stylelint-config-standard`, `postcss-html`,
   `@carlosjeurissen/stylelint-csstree-validator`) are ignored because
   knip cannot trace them through the stylelint config, mirroring the
   RecorderApp treatment.
