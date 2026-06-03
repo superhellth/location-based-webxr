@@ -54,6 +54,9 @@ with an explanatory label.
   hit-test source + reticle loop (verified manually on-device).
 - [src/reticle.ts](src/reticle.ts) — pure reticle view-model (unit-tested in
   [src/reticle.test.ts](src/reticle.test.ts)).
+- [src/placement.ts](src/placement.ts) — pure tap-to-place view-model: the GPS
+  gate + the deliberate scene-root floater (unit-tested in
+  [src/placement.test.ts](src/placement.test.ts)).
 - [src/status.ts](src/status.ts) — pure formatter for the status text
   (unit-tested in [src/status.test.ts](src/status.test.ts)).
 - [src/boot.test.ts](src/boot.test.ts) — headless smoke test that the framework

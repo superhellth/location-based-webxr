@@ -23,6 +23,7 @@
 import {
   createEnableGpsArController,
   getArWorldGroup,
+  getScene,
   registerXrFrameUpdate,
   type EnableGpsArState,
 } from 'gps-plus-slam-app-framework/ar';
@@ -32,8 +33,10 @@ import {
 } from 'gps-plus-slam-app-framework/state';
 import { NullStorageBackend } from 'gps-plus-slam-app-framework/storage';
 import type { GpsPosition } from 'gps-plus-slam-app-framework/sensors';
+import { Vector3 } from 'three';
 
 import { createReticleMesh, updateReticle } from './reticle.js';
+import { decideTapPlacement, placeRootCube } from './placement.js';
 import { formatStatus } from './status.js';
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -78,12 +81,18 @@ async function requestHitTestSource(
 }
 
 /**
- * Install the hit-test reticle once AR is running. Ordinary three.js example
- * code apart from parenting the reticle under `arWorldGroup` (delta #2 above).
+ * Install the hit-test reticle and tap-to-place once AR is running. Ordinary
+ * three.js example code apart from two framework deltas: the reticle is parented
+ * under `arWorldGroup` (AR-local), while the placed cube goes under `scene`
+ * (GPS-aligned root) — the deliberate floater of the contrast demo.
  */
-function startReticle(): void {
+function startArInteraction(deps: {
+  hasGpsFix: () => boolean;
+  onWaitingForGps: () => void;
+}): void {
   const arWorldGroup = getArWorldGroup();
-  if (!arWorldGroup) {
+  const scene = getScene();
+  if (!arWorldGroup || !scene) {
     return;
   }
   const reticle = createReticleMesh();
@@ -91,8 +100,32 @@ function startReticle(): void {
 
   let hitTestSource: XRHitTestSource | null = null;
   let hitTestSourceRequested = false;
+  let selectWired = false;
 
   registerXrFrameUpdate(({ frame, referenceSpace, session }) => {
+    if (!selectWired) {
+      selectWired = true;
+      // A `select` is the AR "tap". The GPS gate (decideTapPlacement) ignores
+      // taps until the first fix so both objects share a start pose (Step 4).
+      session.addEventListener('select', () => {
+        const decision = decideTapPlacement({
+          hasGpsFix: deps.hasGpsFix(),
+          reticleVisible: reticle.visible,
+        });
+        if (decision.kind === 'waiting-for-gps') {
+          deps.onWaitingForGps();
+          return;
+        }
+        if (decision.kind === 'no-surface') {
+          return;
+        }
+        // The reticle's world transform is current from the last rendered frame;
+        // place the cube under the GPS-aligned root at that world position.
+        const worldPosition = reticle.getWorldPosition(new Vector3());
+        placeRootCube(scene, worldPosition);
+      });
+    }
+
     if (!hitTestSourceRequested) {
       hitTestSourceRequested = true;
       requestHitTestSource(session)
@@ -139,13 +172,29 @@ function main(): void {
     });
   }
 
+  // Flash a transient hint when the user taps before the first GPS fix, then
+  // restore the normal status panel (honours the async/feedback UX rule).
+  let hintTimer: ReturnType<typeof setTimeout> | undefined;
+  function showHint(message: string): void {
+    statusEl.textContent = message;
+    if (hintTimer !== undefined) {
+      clearTimeout(hintTimer);
+    }
+    hintTimer = setTimeout(refreshStatus, 1500);
+  }
+
   const controller = createEnableGpsArController();
   controller.subscribe((state) => {
     const view = buttonView(state);
     button.textContent = view.label;
     button.disabled = view.disabled;
     if (state.status === 'running') {
-      startReticle();
+      startArInteraction({
+        hasGpsFix: () => gpsFixCount > 0,
+        onWaitingForGps: () => {
+          showHint('waiting for GPS…');
+        },
+      });
     }
   });
 

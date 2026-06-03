@@ -25,6 +25,10 @@ integration over `createEnableGpsArController` + `registerXrFrameUpdate`.
   hit-test source once, then each XR frame reads
   `frame.getHitTestResults(source)` and drives the reticle via
   [reticle.ts](reticle.ts).
+- Wires the AR `select` (tap) through the GPS gate in [placement.ts](placement.ts):
+  before the first GPS fix a tap flashes a transient "waiting for GPS…" hint;
+  after a fix it places the root cube under the GPS-aligned scene root at the
+  reticle's world position (the _intentional_ floater).
 
 ## Invariants & assumptions
 
