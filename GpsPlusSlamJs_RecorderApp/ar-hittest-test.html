@@ -159,8 +159,21 @@
         <span>
           Delete <code>XRWebGLBinding.prototype.createProjectionLayer</code>
           and <code>XRRenderState.prototype.layers</code> at script init
-          (forces three.js to <code>XRWebGLLayer</code>).
+          (forces three.js to <code>XRWebGLLayer</code>). Worked on Chrome
+          147–148, but stopped having any effect after Chrome
+          <code>148.0.7778.12</code>.
           <span id="workaround-status" style="color: #fcd34d"></span>
+        </span>
+      </label>
+      <label>
+        <input type="checkbox" id="opt-baselayer-persistence-workaround" />
+        <span>
+          Additionally patch <code>XRSession.prototype.updateRenderState</code>
+          to persist the <code>baseLayer</code> reference (Chrome
+          <code>148.0.7778.12</code>+ stop-gap until M149). Enable
+          <em>together with</em> the projection-layer workaround above for the
+          full fix. May break Quest / projection-layer devices — opt-in only.
+          <span id="baselayer-status" style="color: #fcd34d"></span>
         </span>
       </label>
     </fieldset>
@@ -186,7 +199,11 @@
       // enabled. Must run before three.js touches any WebXR API. Reading
       // sessionStorage and deleting the prototype members is synchronous,
       // so doing it before the dynamic imports below is sufficient.
-      let workaroundApplied = { createProjectionLayer: false, layers: false };
+      let workaroundApplied = {
+        createProjectionLayer: false,
+        layers: false,
+        baseLayerPersistence: false,
+      };
       try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
         const state = raw ? JSON.parse(raw) : null;
@@ -210,6 +227,30 @@
             workaroundApplied
           );
         }
+        // Chrome 148.0.7778.12+ defeated the plain projection-layer workaround
+        // above. Additionally persist the baseLayer reference across
+        // updateRenderState calls so three.js's later depthNear/depthFar update
+        // does not drop the active glBaseLayer (which triggers the crash on the
+        // camera-texture access). Stop-gap until Chrome M149 ships the real fix.
+        // See three.js#33404 (m0nzderr, 2026-05) and crbug.com/507508099.
+        if (state?.baseLayerPersistence && typeof XRSession !== 'undefined') {
+          const originalUpdateRenderState =
+            XRSession.prototype.updateRenderState;
+          let lastBaseLayer;
+          XRSession.prototype.updateRenderState = function (options = {}) {
+            if (options.baseLayer !== undefined) {
+              lastBaseLayer = options.baseLayer;
+            }
+            return originalUpdateRenderState.call(this, {
+              baseLayer: lastBaseLayer,
+              ...options,
+            });
+          };
+          workaroundApplied.baseLayerPersistence = true;
+          console.log(
+            `${LOG_PREFIX} applied baseLayer-persistence workaround`
+          );
+        }
       } catch {
         /* ignore — workaround is best-effort */
       }
@@ -231,7 +272,11 @@
       const optWorkaround = document.getElementById(
         'opt-projection-layer-workaround'
       );
+      const optBaseLayer = document.getElementById(
+        'opt-baselayer-persistence-workaround'
+      );
       const workaroundStatus = document.getElementById('workaround-status');
+      const baseLayerStatus = document.getElementById('baselayer-status');
 
       function log(msg, cls) {
         const stamp = new Date().toISOString().slice(11, 23);
@@ -294,6 +339,7 @@
           domOverlay: optDomOverlay.checked,
           depthSensing: optDepthSensing.checked,
           workaround: optWorkaround.checked,
+          baseLayerPersistence: optBaseLayer.checked,
         };
         try {
           sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -314,6 +360,7 @@
           optDomOverlay.checked = !!state.domOverlay;
           optDepthSensing.checked = !!state.depthSensing;
           optWorkaround.checked = !!state.workaround;
+          optBaseLayer.checked = !!state.baseLayerPersistence;
         } catch {
           /* ignore */
         }
@@ -340,6 +387,12 @@
         setTimeout(() => location.reload(), 50);
       });
 
+      optBaseLayer.addEventListener('change', () => {
+        saveState();
+        baseLayerStatus.textContent = ' — reloading…';
+        setTimeout(() => location.reload(), 50);
+      });
+
       loadState();
       updatePayloadPreview();
       if (optWorkaround.checked) {
@@ -348,6 +401,11 @@
           workaroundApplied.layers
             ? ' — applied this load'
             : ' — enabled but globals absent on this device';
+      }
+      if (optBaseLayer.checked) {
+        baseLayerStatus.textContent = workaroundApplied.baseLayerPersistence
+          ? ' — applied this load'
+          : ' — enabled but XRSession absent on this device';
       }
 
       // Three.js scene setup — intentionally identical in shape to the upstream
