@@ -21,7 +21,11 @@ export {
 // --- chromium-camera-access-workaround ---
 export {
   type ChromiumProjectionLayerWorkaroundResult,
+  type ChromeVersion,
+  PATCHED_CHROME_MIN,
   applyChromiumProjectionLayerWorkaround,
+  parseChromeVersion,
+  isPatchedChromeForCameraAccess,
 } from './chromium-camera-access-workaround.js';
 
 // --- capture-failure-tracker ---
