@@ -35,6 +35,15 @@ const UA_PATCHED_150 =
 const UA_NON_CHROMIUM =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 
+// The exact builds the maintainer tested on-device (2026-06-04). Locking them
+// in guarantees the version window keeps matching the real devices:
+//   - 148.0.7778.215 (stable) → needs BOTH deletes + baseLayer patch
+//   - 150.0.7871.3   (beta)   → needs deletes ONLY (above the window)
+const UA_DEVICE_STABLE_148 =
+  'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.215 Mobile Safari/537.36';
+const UA_DEVICE_BETA_150 =
+  'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.3 Mobile Safari/537.36';
+
 afterEach(() => {
   delete g.XRWebGLBinding;
   delete g.XRRenderState;
@@ -117,6 +126,20 @@ describe('needsBaseLayerPersistence', () => {
     expect(needsBaseLayerPersistence(UA_AFFECTED_148)).toBe(true);
   });
 
+  it('returns true for an EARLY Chrome 148 build (regression: whole 148 line needs both)', () => {
+    // Why this matters: a device on an early 148.0.7778.x build broke when the
+    // app applied deletes-only. The window must cover the entire 148 line, not
+    // just builds at/after the tracker's 148.0.7778.12 figure.
+    expect(
+      needsBaseLayerPersistence(
+        'Mozilla/5.0 (Linux; Android 14) Chrome/148.0.7778.5 Mobile Safari/537.36'
+      )
+    ).toBe(true);
+    expect(
+      needsBaseLayerPersistence('Chrome/148.0.0.0 Mobile Safari/537.36')
+    ).toBe(true);
+  });
+
   it('returns false for Chrome 150 (above the window — deletes only)', () => {
     expect(needsBaseLayerPersistence(UA_PATCHED_150)).toBe(false);
   });
@@ -130,11 +153,12 @@ describe('needsBaseLayerPersistence', () => {
     expect(needsBaseLayerPersistence(min)).toBe(true);
   });
 
-  it('excludes one patch below the lower bound', () => {
-    const [a, b, c, d] = BASELAYER_WINDOW_MIN;
-    expect(needsBaseLayerPersistence(`Chrome/${a}.${b}.${c}.${d - 1}`)).toBe(
-      false
-    );
+  it('excludes the highest Chrome 147 build (just below the window)', () => {
+    // 147.x is delete-only per the documented timeline; even a very high 147
+    // patch must stay below BASELAYER_WINDOW_MIN = 148.0.0.0.
+    expect(
+      needsBaseLayerPersistence('Chrome/147.0.9999.999 Mobile Safari/537.36')
+    ).toBe(false);
   });
 
   it('includes the inclusive upper bound of the window', () => {
@@ -151,6 +175,14 @@ describe('needsBaseLayerPersistence', () => {
 
   it('returns false for non-Chromium user agents', () => {
     expect(needsBaseLayerPersistence(UA_NON_CHROMIUM)).toBe(false);
+  });
+
+  it('matches the on-device matrix for the exact tested builds', () => {
+    // Why this matters: these are the real devices. 148.0.7778.215 broke with
+    // deletes-only and needs the baseLayer patch too; 150.0.7871.3 works with
+    // deletes only. Keep these locked to the window bounds.
+    expect(needsBaseLayerPersistence(UA_DEVICE_STABLE_148)).toBe(true);
+    expect(needsBaseLayerPersistence(UA_DEVICE_BETA_150)).toBe(false);
   });
 });
 

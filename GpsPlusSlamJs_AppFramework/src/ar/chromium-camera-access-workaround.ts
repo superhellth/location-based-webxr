@@ -18,14 +18,15 @@
  * below only helped on a subset of versions. The empirically-verified
  * (on-device) timeline is:
  *
- *   - 147 .. 148.0.7778.early : deleting `createProjectionLayer` / `layers`
- *       forces three.js onto `XRWebGLLayer` and sidesteps the crash.
- *   - 148.0.7778.12 .. 149.0.7821 : the delete-only trick stopped being
- *       sufficient on its own. An ADDITIONAL patch is needed: persist the
- *       `baseLayer` reference across `XRSession.prototype.updateRenderState`
- *       so three.js's later `depthNear`/`depthFar` update does not drop the
- *       active `glBaseLayer`. (Confirmed on Chrome 148: BOTH the delete and
- *       the baseLayer patch are required for the page not to crash.)
+ *   - 147 : deleting `createProjectionLayer` / `layers` forces three.js onto
+ *       `XRWebGLLayer` and sidesteps the crash (deletes-only is sufficient).
+ *   - 148.x .. 149.0.7821 : the delete-only trick is NOT sufficient on its
+ *       own. An ADDITIONAL patch is needed: persist the `baseLayer` reference
+ *       across `XRSession.prototype.updateRenderState` so three.js's later
+ *       `depthNear`/`depthFar` update does not drop the active `glBaseLayer`.
+ *       (Confirmed on-device across the whole Chrome 148 line: BOTH the
+ *       deletes and the baseLayer patch are required for the page not to
+ *       crash, regardless of the exact 148 patch level.)
  *   - > 149.0.7821 (incl. Chrome 150) : the delete-only path is STILL required
  *       (confirmed on-device: Chrome 150 only stops crashing when the deletes
  *       are applied), but the extra baseLayer-persistence patch is NOT needed.
@@ -49,6 +50,10 @@
  * - Idempotent: safe to call repeatedly. Safe on environments where the
  *   prototypes do not exist (e.g. desktop browsers, jsdom).
  */
+
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('chromium-camera-access');
 
 interface XRWebGLBindingLike {
   prototype: { createProjectionLayer?: unknown };
@@ -74,10 +79,17 @@ export type ChromeVersion = [number, number, number, number];
 
 /**
  * Inclusive lower bound of the Chrome window that additionally needs the
- * `baseLayer`-persistence patch (on top of the deletes). Below this build the
- * delete-only workaround was sufficient.
+ * `baseLayer`-persistence patch (on top of the deletes).
+ *
+ * Set to the very first Chrome 148 build because on-device testing showed the
+ * whole Chrome 148 line needs BOTH the projection-layer deletes AND the
+ * baseLayer patch. (The issue tracker's `148.0.7778.12` figure — "delete-only
+ * stopped working after this build" — implied earlier 148 builds were fine
+ * with deletes alone, but real-device data overrode that: a 148 device broke
+ * with deletes-only regardless of the exact patch level.) Chrome 147 and
+ * earlier stay below this bound (deletes-only) per the documented timeline.
  */
-export const BASELAYER_WINDOW_MIN: ChromeVersion = [148, 0, 7778, 12];
+export const BASELAYER_WINDOW_MIN: ChromeVersion = [148, 0, 0, 0];
 
 /**
  * Inclusive upper bound of the Chrome window that additionally needs the
@@ -270,6 +282,12 @@ export function applyChromiumProjectionLayerWorkaround(options?: {
     result.patchedUpdateRenderState =
       patchUpdateRenderStateForBaseLayerPersistence();
   }
+
+  // One-line bootstrap log so the actual applied combination is visible at
+  // runtime (console + in-app log panel). Critical for on-device diagnosis:
+  // it tells you whether fresh framework code ran and which combination was
+  // applied for the detected Chrome build.
+  log.info('applied workaround', result);
 
   return result;
 }

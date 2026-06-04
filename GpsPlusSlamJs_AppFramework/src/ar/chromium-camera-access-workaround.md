@@ -22,20 +22,26 @@ bootstrap, before any `requestSession()`.
   baseLayer window (inclusive bounds). False for non-Chromium UAs.
 - `parseChromeVersion(userAgent: string): ChromeVersion | null` — parses
   `Chrome/` or `CriOS/` four-part versions.
-- `BASELAYER_WINDOW_MIN = [148, 0, 7778, 12]`,
+- `BASELAYER_WINDOW_MIN = [148, 0, 0, 0]`,
   `BASELAYER_WINDOW_MAX = [149, 0, 7821, 0]` — inclusive bounds of the window
-  that additionally needs the baseLayer patch.
+  that additionally needs the baseLayer patch. The lower bound covers the
+  entire Chrome 148 line (on-device, the whole 148 line needs both
+  workarounds; e.g. `148.0.7778.215`).
 - Types: `ChromeVersion`, `ChromiumProjectionLayerWorkaroundResult`
   (`deletedCreateProjectionLayer`, `deletedRenderStateLayers`,
   `patchedUpdateRenderState`, `detectedChromeVersion`).
 
 ## Invariants & assumptions
 
-- **Empirical on-device matrix (authoritative):** Chrome 148 needs BOTH the
-  deletes and the baseLayer patch; Chrome 150 needs the deletes ONLY (it still
-  crashes without them — the platform "Fixed" status did not remove that
-  need). Hence the deletes are unconditional and the baseLayer patch is
-  window-gated.
+- **Empirical on-device matrix (authoritative):** Chrome 148 (e.g.
+  `148.0.7778.215`) needs BOTH the deletes and the baseLayer patch; Chrome 150
+  (e.g. `150.0.7871.3`) needs the deletes ONLY (it still crashes without them —
+  the platform "Fixed" status did not remove that need). Hence the deletes are
+  unconditional and the baseLayer patch is window-gated.
+- On every call the helper logs the applied combination via
+  `createLogger('chromium-camera-access').info('applied workaround', result)`,
+  so the runtime console / in-app log panel shows the detected Chrome version
+  and which patches ran (key for confirming fresh framework code on-device).
 - Idempotent — safe to call repeatedly. The `updateRenderState` wrap is marked
   with `__gpsBaseLayerPersistencePatch` so it is applied at most once.
 - Safe where the prototypes don't exist (desktop, jsdom): the corresponding

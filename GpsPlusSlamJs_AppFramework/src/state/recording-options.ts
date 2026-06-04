@@ -42,7 +42,7 @@ export interface ArCrashIsolationOptions {
    * every affected Chrome build observed on-device, including Chrome 150 — and
    * additionally persists the `baseLayer` across
    * `XRSession.prototype.updateRenderState` only for Chrome builds inside the
-   * affected window (148.0.7778.12 .. 149.0.7821).
+   * affected window (all of Chrome 148 up to 149.0.7821).
    *
    * Default `true`. Opt-out is offered because forcing `XRWebGLLayer` may break
    * WebXR on unaffected (e.g. Quest) devices.
