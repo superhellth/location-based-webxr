@@ -20,7 +20,11 @@
   - `main()` probes `checkWebXRSupport` + `checkGeolocationPermission`; if not
     fully supported, shows `capabilityMessage` (E1) and disables Start.
   - `startAr()` (user gesture): `createSlamAppStore({ NullStorageBackend })` →
-    `setTrackingStore` → `initAR` → `startSession` (so the GPS coordinator
+    `setTrackingStore` → `initAR` (with the camera/depth crash-surface flags
+    `enableCameraAccess` / `enableDepthSensingFeature` /
+    `enableCameraTextureAcquisition` set to `false`, since this example only
+    places 3D anchors under a reticle; `dom-overlay` / CSS3D stay on for the
+    overlay UI) → `startSession` (so the GPS coordinator
     feeds alignment) → `createGpsPositionHandler` + `startGpsWatch` →
     `requestDeviceOrientationPermission` + `startOrientationWatch` →
     wire `placeButton` + `copyLinkButton` clicks →
@@ -37,7 +41,7 @@
     an observable painted frame.
   - `spawnAnchor()` builds `createGpsAnchor` with `getAlignmentMatrix` /
     `getGpsZeroRef` / `getCurrentGpsPoint` bound to the live store + last GPS.
-    It adds the marker to the AR world group *before* `createGpsAnchor`; if
+    It adds the marker to the AR world group _before_ `createGpsAnchor`; if
     creation throws it removes the marker again, and it wraps the returned
     `dispose()` so disposing the anchor also detaches its marker (the
     framework `dispose()` only unregisters the frame-loop tick — see

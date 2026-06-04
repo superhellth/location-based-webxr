@@ -284,6 +284,16 @@ function main(): void {
     void controller.enable({
       container: arRoot,
       requestHitTest: true,
+      // This example only places content under a hit-test reticle — it never
+      // reads the camera image or depth. Disable the camera/depth crash-surface
+      // features (which default to `true`) so the session doesn't request
+      // `camera-access` / `depth-sensing` or acquire the camera texture each
+      // frame. `dom-overlay` / CSS3D stay on for the status hint UI.
+      isolationOptions: {
+        enableCameraAccess: false,
+        enableDepthSensingFeature: false,
+        enableCameraTextureAcquisition: false,
+      },
       onGpsPosition: (position: GpsPosition) => {
         gpsFixCount += 1;
         lastGps = toGpsSeed(position);

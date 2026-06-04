@@ -117,7 +117,9 @@ export async function installAnchorStarterFakes(page, options = {}) {
       startOrientationWatch: () => {},
       requestDeviceOrientationPermission: () =>
         cfg.failOrientationPermission
-          ? Promise.reject(new Error("forced orientation-permission failure (e2e)"))
+          ? Promise.reject(
+              new Error("forced orientation-permission failure (e2e)"),
+            )
           : Promise.resolve(),
       createGpsAnchor: () => {
         if (control.failCreateAnchor) {

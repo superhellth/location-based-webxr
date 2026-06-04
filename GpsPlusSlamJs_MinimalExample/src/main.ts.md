@@ -20,7 +20,12 @@ integration over `createEnableGpsArController` + `registerXrFrameUpdate`.
   over its observable state via the pure `buttonView()` mapping
   (checking → unsupported/ready → starting → running/error).
 - On click, calls `controller.enable({ container, requestHitTest: true,
-  onGpsPosition })` inside the user gesture so permission prompts are allowed.
+  isolationOptions, onGpsPosition })` inside the user gesture so permission
+  prompts are allowed. `isolationOptions` disables the camera/depth
+  crash-surface flags (`enableCameraAccess`, `enableDepthSensingFeature`,
+  `enableCameraTextureAcquisition` → `false`) since this example only places
+  content under a hit-test reticle; `dom-overlay` / CSS3D stay on for the
+  status-hint UI.
 - Once `running`, installs the hit-test reticle: requests a `viewer`-space
   hit-test source once, then each XR frame reads
   `frame.getHitTestResults(source)` and drives the reticle via

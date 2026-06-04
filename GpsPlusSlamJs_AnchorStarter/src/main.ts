@@ -363,7 +363,16 @@ async function startAr(): Promise<void> {
 
   const appContainer = el("app");
   try {
-    await getSeams().initAR(appContainer);
+    // This example only places 3D anchors under a reticle — it never reads the
+    // camera image or depth. Turn off the camera/depth crash-surface features
+    // (which default to `true`) so the session doesn't request `camera-access`
+    // or `depth-sensing` or acquire the camera texture each frame. `dom-overlay`
+    // and the CSS3D renderer stay on so the overlay UI still composites in AR.
+    await getSeams().initAR(appContainer, {
+      enableCameraAccess: false,
+      enableDepthSensingFeature: false,
+      enableCameraTextureAcquisition: false,
+    });
   } catch (err) {
     failStart(err, "Failed to start the AR session.");
     return;
