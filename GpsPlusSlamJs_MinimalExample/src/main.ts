@@ -8,8 +8,8 @@
  * GpsPlusSlamJs_Docs/docs/2026-06-03-threejs-arbutton-minimal-ar-example-user-feedback.md.
  *
  * What is testable vs. glue:
- * - The reticle view-model (./reticle.ts) and status formatter (./status.ts)
- *   are pure and unit-tested.
+ * - The reticle view-model (the framework's `hit-test-reticle.ts`) and status
+ *   formatter (./status.ts) are pure and unit-tested.
  * - Everything in this file is WebXR glue: it needs a real device with an
  *   immersive-ar session and is verified manually via `pnpm dev` on an
  *   AR-capable phone. It is deliberately kept small and copy-pasteable.
@@ -47,14 +47,15 @@ import type {
 } from 'gps-plus-slam-app-framework/sensors';
 import {
   createGpsAnchor,
+  createReticleMesh,
   enableArWorldGroupAlignment,
+  updateReticle,
   worldNueToGps,
 } from 'gps-plus-slam-app-framework/visualization';
 import type { LatLong, LatLongAlt } from 'gps-plus-slam-app-framework/core';
 import { Vector3 } from 'three';
 
 import { ANCHOR_MODE, coSpawnAtWorldPose } from './co-spawn.js';
-import { createReticleMesh, updateReticle } from './reticle.js';
 import { decideTapPlacement } from './placement.js';
 import { formatStatus } from './status.js';
 

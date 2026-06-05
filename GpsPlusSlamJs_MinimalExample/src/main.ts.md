@@ -28,8 +28,8 @@ integration over `createEnableGpsArController` + `registerXrFrameUpdate`.
   status-hint UI.
 - Once `running`, installs the hit-test reticle: requests a `viewer`-space
   hit-test source once, then each XR frame reads
-  `frame.getHitTestResults(source)` and drives the reticle via
-  [reticle.ts](reticle.ts).
+  `frame.getHitTestResults(source)` and drives the reticle via the framework's
+  `hit-test-reticle.ts` (`createReticleMesh` / `updateReticle`).
 - Wires the AR `select` (tap) through the GPS gate in [placement.ts](placement.ts):
   before the first GPS fix a tap flashes a transient "waiting for GPS…" hint;
   after a fix it co-spawns the contrast pair (see below).

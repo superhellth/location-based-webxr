@@ -74,8 +74,9 @@ with an explanatory label.
   (`#ar-root`) and the "Enable GPS AR" button.
 - [src/main.ts](src/main.ts) — WebXR glue: button wiring over the controller,
   hit-test source + reticle loop (verified manually on-device).
-- [src/reticle.ts](src/reticle.ts) — pure reticle view-model (unit-tested in
-  [src/reticle.test.ts](src/reticle.test.ts)).
+- Reticle view-model: the framework's `hit-test-reticle.ts`
+  (`createReticleMesh` / `updateReticle`, imported from
+  `gps-plus-slam-app-framework/visualization`).
 - [src/placement.ts](src/placement.ts) — pure tap-to-place view-model: the GPS
   gate + the deliberate scene-root floater (unit-tested in
   [src/placement.test.ts](src/placement.test.ts)).

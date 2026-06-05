@@ -46,6 +46,13 @@ export {
 // --- frame-conversions ---
 export { nueToArLocal, worldNueToGps } from './frame-conversions.js';
 
+// --- hit-test-reticle ---
+export {
+  type HitMatrix,
+  createReticleMesh,
+  updateReticle,
+} from './hit-test-reticle.js';
+
 // --- gps-anchor ---
 export {
   type GpsAnchor,

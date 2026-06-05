@@ -1,28 +1,24 @@
 /**
- * Hit-test reticle for the minimal GPS+AR example.
+ * Hit-test reticle — the small, deterministic "reticle view-model" shared by
+ * the framework's example/starter apps.
  *
- * This is a faithful port of the reticle from the stock three.js
- * `webxr_ar_hittest` example: a flat ring laid on whatever real-world surface
- * the WebXR `hit-test` API reports under the screen centre. The only framework
- * delta is *where* the mesh is parented — see the example's `main.ts`, which
- * adds it under `getArWorldGroup()` (AR-local space) rather than the GPS-aligned
- * scene root (Finding 2 in the plan doc).
+ * A faithful port of the reticle from the stock three.js `webxr_ar_hittest`
+ * example: a flat ring laid on whatever real-world surface the WebXR
+ * `hit-test` API reports under the screen centre. The framework delta is
+ * *where* the mesh is parented — apps add it under `getArWorldGroup()`
+ * (AR-local space) rather than the GPS-aligned scene root, so the reticle and
+ * any placed content ride the same lerped `arWorldGroup` alignment.
  *
  * The per-frame XR plumbing (requesting the hit-test source, reading
- * `frame.getHitTestResults(...)`) lives in `main.ts` and is verified manually
- * on-device. The two functions here are the small, deterministic
- * "reticle view-model": given the latest hit pose (a column-major 4x4 transform
- * matrix) or `null`, drive the mesh's visibility + transform. They are unit
- * tested in `reticle.test.ts` because that is the logic a porting developer is
- * most likely to get subtly wrong (e.g. forgetting to hide the reticle when no
- * surface is found, or letting Three.js overwrite the matrix).
+ * `frame.getHitTestResults(...)`) stays in each app's WebXR glue and is
+ * verified manually on-device. The two functions here are the unit-tested core:
+ * given the latest hit pose (a column-major 4x4 transform matrix) or `null`,
+ * drive the mesh's visibility + transform. They are unit tested because that is
+ * the logic a porting developer is most likely to get subtly wrong (e.g.
+ * forgetting to hide the reticle when no surface is found, or letting Three.js
+ * overwrite the matrix).
  */
-import {
-  Mesh,
-  MeshBasicMaterial,
-  type Object3D,
-  RingGeometry,
-} from 'three';
+import { Mesh, MeshBasicMaterial, type Object3D, RingGeometry } from 'three';
 
 /** A column-major 4x4 transform, as produced by `XRPose.transform.matrix`. */
 export type HitMatrix = Float32Array | number[];
@@ -58,7 +54,10 @@ export function createReticleMesh(): Mesh {
  * Works on any `Object3D` (not just the mesh from `createReticleMesh`) so it can
  * be unit tested without a WebGL context.
  */
-export function updateReticle(reticle: Object3D, matrix: HitMatrix | null): void {
+export function updateReticle(
+  reticle: Object3D,
+  matrix: HitMatrix | null
+): void {
   if (matrix === null) {
     reticle.visible = false;
     return;
