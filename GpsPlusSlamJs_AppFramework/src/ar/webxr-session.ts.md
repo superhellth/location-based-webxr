@@ -36,6 +36,13 @@ scene (GPS world frame — NUE: X=North, Y=Up, Z=East)
 
 - `arWorldGroup` local space is **NUE** — objects added here use `[1,0,0]`=North, `[0,0,1]`=East.
   `applyAlignmentMatrix(m)` writes `m` directly to `arWorldGroup.matrix` (no WEBXR_TO_NUE composition).
+  **`arWorldGroup.matrix` carries the alignment (GPS→AR), and that is what GPS-registers the view:**
+  the camera (a descendant) and every GPS anchor parented under `arWorldGroup` ride the alignment
+  together. Apps apply it via `enableArWorldGroupAlignment({ store, arWorldGroup })`
+  (smoothly lerped); the recorder drives its own lerper into `applyAlignmentMatrix`. GPS anchors
+  (`createGpsAnchor`) MUST live under `arWorldGroup` (the factory throws otherwise) so they re-register
+  to their reference GPS off-screen with only a small residual; GPS-world "truth" markers that should
+  NOT ride the alignment go on the **scene root** instead.
 - `basisChangeNode` is a static child of arWorldGroup holding the constant WEBXR_TO_NUE basis-change
   matrix. It is set once at scene creation and never modified. This ensures the full camera chain is:
   `camera_world = alignment × WEBXR_TO_NUE × arpose × camera_local` — mathematically identical to the

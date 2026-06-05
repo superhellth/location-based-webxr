@@ -37,17 +37,21 @@ point (across the `scene`↔`arWorldGroup` frame change) and the floater cube at
 
 ## Invariants & assumptions
 
-- The anchor object must land **exactly** on the tapped world point: it is
-  handed to `createGpsAnchor` with the tapped GPS seed, so any offset would make
-  it snap on its first steady-state commit. `arWorldGroup` typically carries a
-  non-trivial alignment transform, so the world→local conversion is required.
+- The anchor object must land **exactly** on the tapped world point: `main.ts`
+  bootstraps it by medianing the **object's own world pose** (via
+  `worldNueToGps`), so it pins to where it was actually placed — not the phone's
+  GPS — and its first steady-state commit is a small residual, not a jump toward
+  the device. `arWorldGroup` carries the (lerped) alignment
+  (`enableArWorldGroupAlignment`), so the world→local conversion is required and
+  the object's world position is GPS-world NUE.
 - The cube and anchor must be far enough apart at spawn to be individually
   visible (centres separated by more than `CUBE_HALF_EXTENT + ANCHOR_SPHERE_RADIUS`)
   — the original coincident pair read as one object in the field.
 - The cube is parented to `scene`, the anchor object to `arWorldGroup`. Do not
   swap these — the whole demo depends on the contrast.
 - `createGpsAnchor` must use the **default bootstrap** (no `skipBootstrap`): the
-  marker holds its tapped pose while sampling GPS, then makes one lazy
+  marker holds its tapped pose while sampling its own world pose, then makes one
+  lazy
   `snap-when-offscreen` correction. The bootstrap "no movement" and snap
   behaviours are owned and tested by the framework
   ([gps-anchor.ts](../../GpsPlusSlamJs_AppFramework/src/visualization/gps-anchor.ts)),

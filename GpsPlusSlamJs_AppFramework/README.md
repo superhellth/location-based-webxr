@@ -196,13 +196,24 @@ scene                             ← GPS-aligned (NUE) space, the scene root
                                     (waypoints, POIs, navigation arrows, …)
 ```
 
-When the alignment solver produces a new matrix, the framework writes it to `arWorldGroup.matrix`. The camera moves with `arWorldGroup`; objects parented directly to `scene` do not.
+When the alignment solver produces a new matrix, the framework writes it to `arWorldGroup.matrix` (smoothly lerped — see `enableArWorldGroupAlignment` below). The camera moves with `arWorldGroup`; objects parented directly to `scene` do not.
+
+> **Apply alignment to `arWorldGroup` — the framework default.** Call
+> [`enableArWorldGroupAlignment({ store, arWorldGroup })`](src/visualization/ar-world-group-alignment.ts.md)
+> once after AR starts. It subscribes to the store's alignment matrix, lerps it
+> onto `arWorldGroup.matrix` each frame, and thereby **GPS-registers the view**:
+> the camera and every object parented under `arWorldGroup` (including GPS
+> anchors) shift together as alignment refines, so anchors stay stable in the AR
+> overlay and only ever correct a small residual. The recorder wires its own
+> lerper; the simpler apps use this helper. Forgetting it leaves the camera
+> pure-VIO and forces each anchor to absorb the full alignment delta on every
+> re-registration.
 
 **Three options for placing your own `Object3D`:**
 
 1. **Add it to `scene`** (with NUE-meter coordinates from `calcRelativeCoordsInMeters(zeroRef, …)`). The object's world pose stays at the correct latitude/longitude/altitude forever, but every time the alignment matrix is corrected the camera shifts inside `arWorldGroup`, so from the user's AR view the object visually "floats". Cheap and correct, but ugly during corrections — fine for small markers (e.g. ref-point spheres), not great for richer GPS-anchored content.
 2. **Add it to `arWorldGroup`** with a fixed local transform. The object is frozen relative to AR-tracked content and stays visually fixed at the same 3D position for this session. This is a good fit for user-created local content such as a walked path, a temporary marker, a hit-test reticle, or an object the user placed by hand. The tradeoff is that its world / GPS pose drifts every time alignment is corrected, so this mode is not enough when the object must be replayed or shared by GPS coordinate.
-3. **Use `createGpsAnchor` for objects that should stay visually stable at a GPS target.** The anchor owns a single `Object3D` inside `arWorldGroup`, bootstraps from median GPS samples unless `skipBootstrap` is set, and re-derives the object's local pose from the current GPS target and alignment state. In the default `snap-when-offscreen` mode, small corrections are committed while the object is outside the camera frustum, making small alignment corrections hard to notice; larger alignment jumps bypass that gate so the object does not stay in a stale location. Use `snap-every-tick` when correctness is more important than hiding visible position changes. Accepted corrections are **eased** toward their target (lerp) by default for a smooth, recorder-like feel — the first commit out of bootstrap is instant, and `lerpCorrections: false` restores the legacy hard snap (see `lerpCorrections` / `correctionLerpRate` options). This is how the MinimalExample and AnchorStarter inherit the smooth alignment behaviour: neither applies the alignment matrix to `arWorldGroup` (it stays at identity) — they place content solely via `createGpsAnchor`, so the smoothing lives in the anchor commit, not in `applyAlignmentMatrix`.
+3. **Use `createGpsAnchor` for objects that should stay visually stable at a GPS target.** The anchor owns a single `Object3D` **inside `arWorldGroup`** (the factory throws if `object3D` is not a descendant of the `arWorldGroup` you pass — placing an anchor under the scene root defeats AR stability), bootstraps from median samples unless `skipBootstrap` is set, and re-derives the object's local pose from the current GPS target and alignment state each tick. Because the object rides the (lerped) `arWorldGroup` alignment, its motion relative to the camera between re-registrations is small. In the default `snap-when-offscreen` mode an accepted correction is committed **instantly** while the object is outside the camera frustum, making the (now small, residual) correction hard to notice; larger alignment jumps bypass that gate so the object does not stay in a stale location. Use `snap-every-tick` when correctness is more important than hiding visible position changes. Smoothing is **not** per-anchor: it lives once in the lerped `arWorldGroup.matrix` (`enableArWorldGroupAlignment`), so the whole AR world eases together. This is how the MinimalExample and AnchorStarter get the smooth alignment feel.
 
 A pure-function `syncGpsAnchoredMeshes` reconciler (option 1, bulk markers) is shipped by the RecorderApp. Use `createGpsAnchor` when a single visible object, route cue, or POI needs the more careful bootstrap and correction policy.
 

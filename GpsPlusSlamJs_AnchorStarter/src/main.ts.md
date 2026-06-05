@@ -9,7 +9,8 @@
   marked `--- your content here ---` banner.
 - **Test seam:** every framework call site (`initAR`, `getArWorldGroup`,
   `getCamera`, `startGpsWatch`, `startOrientationWatch`,
-  `requestDeviceOrientationPermission`, `createGpsAnchor`, `selectTrackingQuality`,
+  `requestDeviceOrientationPermission`, `createGpsAnchor`,
+  `enableArWorldGroupAlignment`, `selectTrackingQuality`,
   `checkWebXRSupport`, `checkGeolocationPermission`, `createAnchorMarker`) is
   resolved through `getSeams()` from [seams.ts](seams.ts.md) instead of being
   called directly. In production `getSeams()` returns the real imports; the
@@ -25,7 +26,10 @@
     `enableCameraTextureAcquisition` set to `false`, since this example only
     places 3D anchors under a reticle; `dom-overlay` / CSS3D stay on for the
     overlay UI) → `startSession` (so the GPS coordinator
-    feeds alignment) → `createGpsPositionHandler` + `startGpsWatch` →
+    feeds alignment) → `enableArWorldGroupAlignment({ store, arWorldGroup })`
+    (lerps the alignment onto `arWorldGroup` so the camera + anchor ride it
+    together — GPS-registers the view, without which the camera is pure-VIO) →
+    `createGpsPositionHandler` + `startGpsWatch` →
     `requestDeviceOrientationPermission` + `startOrientationWatch` →
     wire `placeButton` + `copyLinkButton` clicks →
     `readCachedAnchor()` → `dispatchSetup(BOOTED)`.
@@ -47,7 +51,12 @@
     framework `dispose()` only unregisters the frame-loop tick — see
     [gps-anchor](../../GpsPlusSlamJs_AppFramework/src/visualization/gps-anchor.ts.md)).
     This makes `anchor.dispose()` a complete teardown for every caller
-    (placement retry, `failStart` boot rollback, `beforeunload`).
+    (placement retry, `failStart` boot rollback, `beforeunload`). Its optional
+    `{ hideUntilAligned }` flag (used by the `?show=` cache-hit) keeps the marker
+    hidden until the first non-null alignment arrives, then reveals it at its
+    computed pose — so a `skipBootstrap` reload never flashes the marker at the
+    AR origin before it jumps to its real spot (Q4). The reveal subscription is
+    torn down on first reveal and on `dispose()`.
 - **Invariants & assumptions:**
   - Selectors are run via the `sel()` helper which casts the store state per
     selector (only the read slices exist at runtime — same pattern as the
@@ -56,6 +65,13 @@
     the AR render loop automatically.
   - `lastGps` always carries a finite altitude (defaults to `0`) so the anchor
     seed is a well-formed `LatLongAlt`.
+  - **Bootstrap source is the phone GPS (`getCurrentGpsPoint: () => lastGps`),
+    deliberately NOT the object's world pose.** Unlike the MinimalExample (whose
+    anchor sits at a reticle offset and medians its own world pose), this app's
+    marker sits at the AR origin and the `?show=` URL persists `lastGps`; pinning
+    the anchor to the phone fix keeps the committed reference consistent with the
+    shared/reloaded URL. Sampling the origin's world pose instead would anchor at
+    the session start point and diverge from the persisted value.
 - **Tests:** glue is verified manually via `pnpm dev` on an AR device. The
   decision logic it composes is unit-tested in the sibling modules
   ([setup-state-machine](setup-state-machine.ts.md),
