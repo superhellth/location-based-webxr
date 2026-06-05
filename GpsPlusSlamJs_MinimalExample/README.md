@@ -25,18 +25,23 @@ framework. The full design rationale lives in the plan doc
 
 The example is a teaching ladder that ends in a deliberate side-by-side
 comparison. Once AR is running and the first GPS fix has arrived, **tap** to
-place two markers at the same real-world spot:
+place two markers near the real-world spot you tapped:
 
 - an **orange cube** parented to the GPS-aligned `scene` root with **no drift
-  compensation** — the _intentional floater_. As SLAM tracking and GPS disagree
-  over time it visibly slides away from where you placed it.
-- a **green sphere** anchored with `createGpsAnchor` under `arWorldGroup`. It
-  holds the tapped pose while it samples GPS (default bootstrap), then makes a
-  single lazy correction to the GPS median **while off-screen**
-  (`snap-when-offscreen`) — so it stays put from the user's point of view.
+  compensation** — the _intentional floater_. It spawns a short fixed distance
+  to the side of the tap (so it doesn't occlude the sphere) and, as SLAM
+  tracking and GPS disagree over time, it visibly slides further away from where
+  you placed it.
+- a **green sphere** anchored with `createGpsAnchor` under `arWorldGroup`,
+  placed exactly on the tapped point. It holds the tapped pose while it samples
+  GPS (default bootstrap), then makes a single lazy correction to the GPS median
+  **while off-screen** (`snap-when-offscreen`) — so it stays put from the user's
+  point of view. Later corrections ease in smoothly rather than teleporting.
 
-Taps before the first GPS fix are ignored with a brief "waiting for GPS…" hint,
-so both markers always start from the same known global pose.
+The two markers spawn a short fixed distance apart so they are individually
+visible from the start (an early field test reported the coincident pair looking
+like a single object). Taps before the first GPS fix are ignored with a brief
+"waiting for GPS…" hint.
 
 ## Why this exists
 
