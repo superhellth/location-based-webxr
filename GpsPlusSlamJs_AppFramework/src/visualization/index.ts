@@ -8,6 +8,13 @@ export {
   createAlignmentLerper,
 } from './alignment-lerper.js';
 
+// --- ar-world-group-alignment ---
+export {
+  type ArWorldGroupAlignmentOptions,
+  type ArWorldGroupAlignmentHandle,
+  enableArWorldGroupAlignment,
+} from './ar-world-group-alignment.js';
+
 // --- camera-follower ---
 export {
   type CameraFollower,
