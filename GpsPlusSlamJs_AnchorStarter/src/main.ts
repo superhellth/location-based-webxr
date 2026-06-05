@@ -40,8 +40,12 @@ import {
   stopOrientationWatch,
   type GpsPosition,
 } from "gps-plus-slam-app-framework/sensors";
-import { type GpsAnchor } from "gps-plus-slam-app-framework/visualization";
+import {
+  type GpsAnchor,
+  worldNueToGps,
+} from "gps-plus-slam-app-framework/visualization";
 import type { LatLong, LatLongAlt } from "gps-plus-slam-app-framework/core";
+import { Vector3 } from "three";
 
 import {
   initialSetupState,
@@ -206,7 +210,17 @@ function spawnAnchor(
   gpsPoint: LatLong | LatLongAlt,
   skipBootstrap: boolean,
   markerOptions: MarkerOptions = {},
-  options: { hideUntilAligned?: boolean } = {},
+  options: {
+    hideUntilAligned?: boolean;
+    /**
+     * World pose to place the marker at (the reticle hit point, cache-miss).
+     * When omitted the marker stays at the `arWorldGroup` origin (cache-hit;
+     * the skipBootstrap anchor snaps itself into place via steady-state).
+     */
+    worldPosition?: Vector3;
+    /** Forwarded to `createGpsAnchor` (cache-miss persists `?show=` from it). */
+    onBootstrapComplete?: (gpsPoint: LatLong | LatLongAlt) => void;
+  } = {},
 ): GpsAnchor {
   const seams = getSeams();
   const arWorldGroup = seams.getArWorldGroup();
@@ -216,6 +230,30 @@ function spawnAnchor(
   }
   const marker = seams.createAnchorMarker(markerOptions);
   arWorldGroup.add(marker);
+  // Place the marker at the reticle world pose (cache-miss). Refresh the world
+  // matrix first so the world→local conversion uses the current arWorldGroup
+  // transform, then express the world point in arWorldGroup-local coords (the
+  // marker is a child of arWorldGroup).
+  if (options.worldPosition) {
+    arWorldGroup.updateWorldMatrix(true, false);
+    marker.position.copy(
+      arWorldGroup.worldToLocal(options.worldPosition.clone()),
+    );
+  }
+
+  // Bootstrap source: the marker's own GPS-world (NUE) world pose, converted
+  // via `worldNueToGps` — NOT the phone's GPS fix. This pins the anchor to the
+  // reticle point the user aimed at, not the device, and only works because
+  // `enableArWorldGroupAlignment` makes the marker's world position GPS-world
+  // NUE. Skipped entirely for the cache-hit `skipBootstrap` path (no sampling).
+  const sampleScratch = new Vector3();
+  const sampleWorldPoseAsGps = (): LatLongAlt | null => {
+    const zero = sel(selectZeroReference);
+    const alignment = sel(getSeams().selectAlignmentMatrix);
+    // No GPS-world frame yet — skip this bootstrap tick (mirrors "no fix").
+    if (zero === null || alignment === null) return null;
+    return worldNueToGps(marker.getWorldPosition(sampleScratch), zero);
+  };
 
   let gpsAnchor: GpsAnchor;
   try {
@@ -227,7 +265,10 @@ function spawnAnchor(
       skipBootstrap,
       getAlignmentMatrix: () => sel(getSeams().selectAlignmentMatrix),
       getGpsZeroRef: (): LatLong | null => sel(selectZeroReference),
-      getCurrentGpsPoint: () => lastGps,
+      getCurrentGpsPoint: sampleWorldPoseAsGps,
+      ...(options.onBootstrapComplete
+        ? { onBootstrapComplete: options.onBootstrapComplete }
+        : {}),
     });
   } catch (err) {
     // createGpsAnchor failed *after* the marker was added to the scene — undo
@@ -279,12 +320,13 @@ function spawnAnchor(
 // so reloading restores it and the link can be shared to another device.
 // ---------------------------------------------------------------------------
 
-/** Build the minimal default-styled anchor spec from a live GPS fix. */
-function anchorSpecFromGps(gps: LatLongAlt): AnchorSpec {
+/** Build the minimal default-styled anchor spec from a committed GPS point. */
+function anchorSpecFromGps(gps: LatLong | LatLongAlt): AnchorSpec {
   return {
     lat: gps.lat,
     lon: gps.lon,
-    alt: gps.altitude ?? 0,
+    alt:
+      "altitude" in gps && typeof gps.altitude === "number" ? gps.altitude : 0,
     ui: 1,
     scale: 1,
     rotationDeg: 0,
@@ -331,10 +373,13 @@ async function copyShareLink(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Placement action (cache-miss branch) — synchronous (URL `?show=` write via
-// history.replaceState), but still routed through the setup FSM's
-// saving → saved / revert + error transitions so the placement view-model
-// renders the in-progress → final states consistently.
+// Placement action (cache-miss branch) — the press positions the marker at the
+// reticle pose and starts the bootstrap; the durable `?show=` write + the
+// `saving → saved` transition happen later, when the bootstrap median is
+// committed (`onBootstrapComplete`). A press that cannot place yet (no surface
+// / no alignment) surfaces a hint via `PLACE_BLOCKED` without entering `saving`.
+// All paths route through the setup FSM so the placement view-model renders the
+// in-progress → final states consistently.
 // ---------------------------------------------------------------------------
 
 function placeAnchor(): void {
@@ -353,17 +398,32 @@ function placeAnchor(): void {
   }
   dispatchSetup({ type: "PLACE_REQUESTED" });
   try {
+    if (!reticleHandle)
+      throw new Error("Reticle not ready — point at the ground, then retry");
     const gps = lastGps;
     if (!gps)
       throw new Error("No GPS fix yet — wait for a location, then retry");
-    anchor = spawnAnchor(gps, false);
-    writeShowParam([anchorSpecFromGps(gps)]);
-    dispatchSetup({ type: "PLACE_SUCCEEDED" });
-    // The placement is committed; the reticle has done its job. Remove it so the
-    // ring does not linger over the saved anchor (idempotent — safe to call
-    // again on beforeunload).
-    reticleHandle?.dispose();
-    reticleHandle = null;
+    // Place the marker at the reticle world pose and bootstrap from that pose.
+    // `?show=` is NOT written here: it is persisted from the committed bootstrap
+    // median via `onBootstrapComplete`, so the shared link equals the anchor's
+    // committed reference by construction (and the "Saving…" state stays until
+    // the median lands, then resolves to "Saved ✓"). The reticle pose only
+    // *positions* the marker; the persisted GPS comes from the median.
+    const worldPosition = reticleHandle.getWorldPosition(new Vector3());
+    anchor = spawnAnchor(
+      gps,
+      false,
+      {},
+      {
+        worldPosition,
+        onBootstrapComplete: (median) => {
+          writeShowParam([anchorSpecFromGps(median)]);
+          reticleHandle?.dispose();
+          reticleHandle = null;
+          dispatchSetup({ type: "PLACE_SUCCEEDED" });
+        },
+      },
+    );
   } catch (err) {
     // Fully tear down a partially created anchor so a retry cannot accumulate
     // overlapping markers / leaked frame-loop registrations. This covers the

@@ -126,6 +126,10 @@ export async function installAnchorStarterFakes(page, options = {}) {
           const index = control.worldGroupChildren.indexOf(child);
           if (index !== -1) control.worldGroupChildren.splice(index, 1);
         },
+        // Stubs for the cache-miss marker positioning (world→local). The fake
+        // marker is duck-typed, so an identity worldToLocal is enough.
+        updateWorldMatrix() {},
+        worldToLocal: (v) => v,
       }),
       getCamera: () => ({}),
       startGpsWatch: (onPosition) => {
@@ -138,9 +142,20 @@ export async function installAnchorStarterFakes(page, options = {}) {
               new Error("forced orientation-permission failure (e2e)"),
             )
           : Promise.resolve(),
-      createGpsAnchor: () => {
+      createGpsAnchor: (opts) => {
         if (control.failCreateAnchor) {
           throw new Error("forced anchor failure (e2e)");
+        }
+        // Mirror the framework: a cache-miss anchor (no skipBootstrap) commits
+        // its bootstrap median and fires onBootstrapComplete. The fake has no
+        // real median, so it reports the seed gpsPoint as the committed
+        // reference — which is what AnchorStarter persists into `?show=`.
+        if (
+          opts &&
+          !opts.skipBootstrap &&
+          typeof opts.onBootstrapComplete === "function"
+        ) {
+          opts.onBootstrapComplete(opts.gpsPoint);
         }
         return { dispose() {} };
       },
@@ -162,7 +177,14 @@ export async function installAnchorStarterFakes(page, options = {}) {
       }),
       createAnchorMarker: (markerOptions) => {
         control.markerCalls.push(markerOptions ?? {});
-        return {};
+        // Duck-typed marker: just enough for the cache-miss positioning
+        // (`marker.position.copy(...)`) and the deferred reveal
+        // (`marker.visible`).
+        return {
+          visible: true,
+          position: { copy() {} },
+          getWorldPosition: (out) => out,
+        };
       },
     };
 
