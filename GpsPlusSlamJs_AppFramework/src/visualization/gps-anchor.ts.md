@@ -45,8 +45,7 @@ constructor seam is reserved but not yet consulted.
   `camera`, `gpsPoint`, `getAlignmentMatrix`, `getGpsZeroRef`,
   `getCurrentGpsPoint`. Optional: `skipBootstrap`, `mode`, `floorY`,
   `distanceThreshold` (default 2 m), `angleThresholdInDegrees`
-  (default 15°), `lerpCorrections` (default `true`), `correctionLerpRate`
-  (default `DEFAULT_LERP_RATE` = 8), `targetPosRefreshRateInSec` (default 3 s),
+  (default 15°), `targetPosRefreshRateInSec` (default 3 s),
   `secondsToAccumulateGpsPose` (default 7 samples at 1 Hz),
   `settlingSeconds` (default 0), `heightAboveGround`.
 - `createGpsAnchor(options) → GpsAnchor` — the factory.
@@ -90,22 +89,18 @@ object as an `@internal` testing seam in lieu of pumping the global
   `'bootstrap'` it is the seed; after the median is committed it is
   the median. Callers may use it to decide visibility (e.g. ghost the
   object until `isFullyAnchored`).
-- **Smoothed corrections (D1′)**: when `lerpCorrections` is `true` (default)
-  an accepted steady-state correction **eases** `object3D.position` toward its
-  target over subsequent frames (`THREE.Vector3.lerp` at `correctionLerpRate`,
-  frame-rate-independent via `clampedAlpha(rate, dt)`), instead of teleporting
-  with `.copy()`. The **first** accepted commit out of (re-)bootstrap is always
-  instant (tracked by an internal `hasAdopted` flag, reset by
-  `markMovedExternally()`), so the object never visibly eases from the stale
-  bootstrap-held pose. The commit **gate** (distance-scaled threshold +
-  `snap-when-offscreen` frustum suppression + large-jump bypass) is **unchanged**
-  — smoothing changes only _how_ an accepted correction is applied, not _when_.
-  An in-progress ease settles (stops) once within `SETTLED_EPSILON_M` (1 cm) of
-  the target, and `scratchTarget` is recomputed every tick so the ease keeps
-  tracking ongoing alignment changes. Set `lerpCorrections: false` to restore
-  the legacy hard snap. This is the primitive through which the MinimalExample
-  and AnchorStarter inherit the recorder-like smooth feel (neither app applies
-  alignment to `arWorldGroup`; both place content solely via `createGpsAnchor`).
+- **Steady-state commits snap instantly**: when the commit gate accepts a
+  correction the object's local pose is set with `object3D.position.copy(target)`
+  (no per-anchor easing). Smoothing is done **once** at `arWorldGroup` via
+  `enableArWorldGroupAlignment` (the framework default that lerps
+  `arWorldGroup.matrix`), so the camera and every anchored child shift together
+  and each accepted commit here is only a small off-screen residual. The commit
+  **gate** (distance-scaled threshold + `snap-when-offscreen` frustum
+  suppression + large-jump bypass) decides _when_ a correction lands; the snap
+  decides _how_ (instantly). A previous per-anchor lerp (`lerpCorrections` /
+  `correctionLerpRate`, D1′) was removed once alignment was lerped at
+  `arWorldGroup` — see
+  `gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-05-gps-anchor-frame-architecture-bug-and-plan.md`.
 
 ## Examples
 

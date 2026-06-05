@@ -19,7 +19,6 @@ import {
 import { registerFrameUpdate } from '../ar/frame-loop.js';
 import { isObjectInCameraFrustum } from './frustum-visibility.js';
 import { nueToArLocal } from './frame-conversions.js';
-import { DEFAULT_LERP_RATE, clampedAlpha } from './lerp-utils.js';
 
 export type GpsAnchorMode = 'snap-when-offscreen' | 'snap-every-tick';
 export type GpsAnchorPhase = 'bootstrap' | 'anchored';
@@ -46,18 +45,6 @@ export interface GpsAnchorOptions {
   readonly floorY?: () => number | null;
   readonly distanceThreshold?: number;
   readonly angleThresholdInDegrees?: number;
-  /**
-   * Ease each steady-state correction toward its target over several frames
-   * instead of teleporting (default `true`). The first commit out of
-   * (re-)bootstrap is always instant so the object never eases from a stale
-   * pose; only later corrections are smoothed. Set `false` to restore the
-   * legacy hard-snap behaviour. The commit *gate* (threshold +
-   * `snap-when-offscreen` + large-jump bypass) is unaffected — this only
-   * changes *how* an accepted correction is applied, not *when*.
-   */
-  readonly lerpCorrections?: boolean;
-  /** Lerp speed multiplier for `lerpCorrections` (default {@link DEFAULT_LERP_RATE}). */
-  readonly correctionLerpRate?: number;
   readonly targetPosRefreshRateInSec?: number;
   /** Number of 1 Hz samples collected during bootstrap. Default 7. */
   readonly secondsToAccumulateGpsPose?: number;
@@ -175,18 +162,6 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
   void (options.angleThresholdInDegrees ?? 15);
   const mode: GpsAnchorMode = options.mode ?? 'snap-when-offscreen';
 
-  // D1′ — smoothed corrections. When enabled, an accepted steady-state
-  // correction eases toward its target over subsequent frames rather than
-  // snapping. The first accepted commit out of (re-)bootstrap stays instant
-  // (tracked by `hasAdopted`) so the object never visibly eases from the
-  // bootstrap-held pose. The commit gate below is unchanged.
-  const lerpCorrections = options.lerpCorrections ?? true;
-  const correctionLerpRate = options.correctionLerpRate ?? DEFAULT_LERP_RATE;
-  // Below this AR-local distance an in-progress ease is considered settled.
-  const SETTLED_EPSILON_M = 0.01;
-  let hasAdopted = false;
-  let isEasing = false;
-
   // Large-jump thresholds (mirror the C# `ApplyAlignmentMatrixToArOrigin`
   // constants). When the alignment matrix changes by more than any of
   // these between two consecutive ticks, the on-screen mode gate is
@@ -259,9 +234,6 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     // after the re-bootstrap doesn't compare against a stale matrix
     // from before the move.
     prevAlignmentMatrix = null;
-    // The re-bootstrapped anchor must instant-commit its first new pose again.
-    hasAdopted = false;
-    isEasing = false;
   };
 
   const commitMedian = (): void => {
@@ -291,7 +263,7 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
    * matrix yet — an AR-local object cannot be placed without knowing the
    * AR↔NUE transform).
    */
-  const maybeCommitSteadyState = (dt: number): void => {
+  const maybeCommitSteadyState = (): void => {
     const zero = options.getGpsZeroRef();
     if (zero === null || zero === undefined) return;
     const currentAlignment = options.getAlignmentMatrix();
@@ -329,45 +301,26 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     const scale = 1 + (10 * distFromCamera) / 100;
     const posDelta = options.object3D.position.distanceTo(scratchTarget);
 
-    // Commit gate (unchanged from the hard-snap version): the threshold, the
-    // `snap-when-offscreen` frustum suppression, and the large-jump bypass all
-    // behave exactly as before. The gate decides *when* a correction is
-    // accepted; the easing below decides *how* the accepted delta is applied.
+    // Commit gate: the distance-scaled threshold, the `snap-when-offscreen`
+    // frustum suppression, and the large-jump bypass. When the gate accepts a
+    // correction the object snaps instantly to the target. Smoothing is NOT
+    // done per-anchor: alignment is lerped once at `arWorldGroup`
+    // (`enableArWorldGroupAlignment`), so all anchored content shifts together
+    // and each accepted commit here is only a small off-screen residual.
     if (posDelta >= distanceThreshold * scale) {
       const blockedByMode =
         mode === 'snap-when-offscreen' &&
         !largeJump &&
         isObjectInCameraFrustum(options.camera, options.object3D);
       if (!blockedByMode) {
-        isEasing = true;
+        options.object3D.position.copy(scratchTarget);
       }
     }
-
-    if (!isEasing) return;
-
-    // Apply the accepted correction. The first commit out of (re-)bootstrap and
-    // the opt-out path land instantly; otherwise ease toward the target so the
-    // correction is smooth (D1′). `scratchTarget` is recomputed every tick from
-    // the current alignment, so an in-progress ease keeps tracking ongoing
-    // alignment changes.
-    if (!lerpCorrections || !hasAdopted) {
-      options.object3D.position.copy(scratchTarget);
-      isEasing = false;
-    } else {
-      const alpha = clampedAlpha(correctionLerpRate, dt);
-      options.object3D.position.lerp(scratchTarget, alpha);
-      if (
-        options.object3D.position.distanceTo(scratchTarget) < SETTLED_EPSILON_M
-      ) {
-        isEasing = false;
-      }
-    }
-    hasAdopted = true;
   };
 
   const tick = (dt: number, elapsed: number): void => {
     if (phase === 'anchored') {
-      maybeCommitSteadyState(dt);
+      maybeCommitSteadyState();
       return;
     }
     if (phaseEnteredAtElapsed === null) {
