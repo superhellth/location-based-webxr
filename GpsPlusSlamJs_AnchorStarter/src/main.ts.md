@@ -22,13 +22,17 @@
   - `main()` probes `checkWebXRSupport` + `checkGeolocationPermission`; if not
     fully supported, shows `capabilityMessage` (E1) and disables Start.
   - `startAr()` (user gesture): `createSlamAppStore({ NullStorageBackend })` →
-    `setTrackingStore` **+ `setTrackingCallbacks`** (BOTH are required before
+    `getSeams().setTrackingStore` **+ `getSeams().setTrackingCallbacks`** (BOTH
+    are required before
     `initAR`: the framework's per-frame `updateTrackingState()` only dispatches
     `poseReceived`/`poseLost` into the store when a store **and** a restart
     callback are wired — wiring only the store leaves `tracking.phase` stuck at
     `initializing`, which pins the tracking-quality report and the onboarding
     guidance to "AR tracking lost" forever; the callback also dispatches
-    `odometryTrackingRestarted(payload)` so alignment survives origin resets) →
+    `odometryTrackingRestarted(payload)` so alignment survives origin resets.
+    Both go through the seam so the Tier 1 e2e suite can assert the wiring
+    actually happens — `placement-flow.spec.js` checks both calls fired during
+    boot) →
     `initAR` (with the camera/depth crash-surface flags
     `enableCameraAccess` / `enableDepthSensingFeature` /
     `enableCameraTextureAcquisition` set to `false`, and `requestHitTest: true`

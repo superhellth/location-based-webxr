@@ -35,6 +35,11 @@ copy-link) without real WebXR or GPS. See the plan
   remove it again on any failure; specs assert this stays empty after a failed
   placement (no orphaned mesh left to overlap a retry).
 - `trackingReport` — mutable; mutate to change the onboarding phase mid-test.
+- `trackingStoreWired` / `trackingCallbacksWired` — booleans flipped by the
+  faked `setTrackingStore` / `setTrackingCallbacks`. A spec asserts both became
+  `true` during boot: the framework forwards per-frame poses only when both are
+  wired before `initAR`, so dropping either silently pins the onboarding
+  guidance to "AR tracking lost" (regression guard).
 - `failCreateAnchor` — set true to make the faked `createGpsAnchor` throw
   (placement-failure revert path).
 - `pushGps(fix)` — invoke the stashed GPS callback with a well-formed

@@ -31,11 +31,7 @@ import {
 } from "gps-plus-slam-app-framework/state";
 import { NullStorageBackend } from "gps-plus-slam-app-framework/storage";
 import { applyChromiumProjectionLayerWorkaround } from "gps-plus-slam-app-framework/ar/chromium-camera-access-workaround";
-import {
-  getCurrentArPose,
-  setTrackingStore,
-  setTrackingCallbacks,
-} from "gps-plus-slam-app-framework/ar/webxr-session";
+import { getCurrentArPose } from "gps-plus-slam-app-framework/ar/webxr-session";
 import {
   stopGpsWatch,
   stopOrientationWatch,
@@ -487,9 +483,10 @@ async function startAr(): Promise<void> {
   // onboarding guidance) stays pinned to "AR tracking lost" with no progress.
   // The callback also re-bases odometry after an origin reset so alignment
   // continues correctly across tracking restarts (same contract as the
-  // recorder).
-  setTrackingStore(store);
-  setTrackingCallbacks((payload) => {
+  // recorder). Routed through the seam so the e2e suite can assert the wiring
+  // actually happens (the fakes record both calls).
+  getSeams().setTrackingStore(store);
+  getSeams().setTrackingCallbacks((payload) => {
     store?.dispatch(odometryTrackingRestarted(payload));
   });
 

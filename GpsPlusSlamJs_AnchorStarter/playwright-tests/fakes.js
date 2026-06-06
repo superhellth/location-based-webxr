@@ -80,6 +80,17 @@ export async function installAnchorStarterFakes(page, options = {}) {
       worldGroupChildren: [],
       /** Current report returned by the faked `selectTrackingQuality`. */
       trackingReport: cfg.trackingReport,
+      /**
+       * Tracking-wiring observation (regression guard for the
+       * "guidance stuck on AR tracking lost" bug). The framework only forwards
+       * per-frame poses into the store when BOTH `setTrackingStore` AND
+       * `setTrackingCallbacks` are wired before `initAR`; if `main.ts` drops
+       * either call the guidance silently freezes. These flags let a spec
+       * assert both calls happened during boot. `addInitScript` re-runs per
+       * navigation, so they reset on reload.
+       */
+      trackingStoreWired: false,
+      trackingCallbacksWired: false,
       /** When true, the faked `createGpsAnchor` throws (placement failure). */
       failCreateAnchor: false,
       /**
@@ -140,6 +151,12 @@ export async function installAnchorStarterFakes(page, options = {}) {
         worldToLocal: (v) => v,
       }),
       getCamera: () => ({}),
+      setTrackingStore: () => {
+        control.trackingStoreWired = true;
+      },
+      setTrackingCallbacks: () => {
+        control.trackingCallbacksWired = true;
+      },
       startGpsWatch: (onPosition) => {
         control.gpsCallback = onPosition;
       },

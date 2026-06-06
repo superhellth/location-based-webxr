@@ -25,6 +25,8 @@ import {
   initAR,
   getArWorldGroup,
   getCamera,
+  setTrackingStore,
+  setTrackingCallbacks,
 } from "gps-plus-slam-app-framework/ar/webxr-session";
 import {
   startGpsWatch,
@@ -50,6 +52,16 @@ export interface AnchorStarterSeams {
   initAR: typeof initAR;
   getArWorldGroup: typeof getArWorldGroup;
   getCamera: typeof getCamera;
+  /**
+   * Inject the tracking store + register the tracking-restart callback. Both
+   * MUST be wired before `initAR` or the framework's per-frame
+   * `updateTrackingState()` never dispatches `poseReceived`/`poseLost`, leaving
+   * `tracking.phase` stuck at `initializing` and the onboarding guidance pinned
+   * to "AR tracking lost". Exposed through the seam (rather than imported
+   * directly) so the e2e suite can assert the wiring actually happens.
+   */
+  setTrackingStore: typeof setTrackingStore;
+  setTrackingCallbacks: typeof setTrackingCallbacks;
   startGpsWatch: typeof startGpsWatch;
   startOrientationWatch: typeof startOrientationWatch;
   requestDeviceOrientationPermission: typeof requestDeviceOrientationPermission;
@@ -75,6 +87,8 @@ export const realSeams: AnchorStarterSeams = {
   initAR,
   getArWorldGroup,
   getCamera,
+  setTrackingStore,
+  setTrackingCallbacks,
   startGpsWatch,
   startOrientationWatch,
   requestDeviceOrientationPermission,

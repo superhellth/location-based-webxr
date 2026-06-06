@@ -78,6 +78,27 @@ test.describe("Anchor starter — Tier 1 placement flow", () => {
     );
   });
 
+  test("wires BOTH the tracking store and the tracking-restart callback during boot", async ({
+    page,
+  }) => {
+    // Regression guard for the "guidance stuck on AR tracking lost" bug. The
+    // framework only forwards per-frame AR poses into the store when BOTH
+    // setTrackingStore AND setTrackingCallbacks are wired before initAR; drop
+    // either and tracking.phase never leaves `initializing`, pinning the
+    // onboarding guidance to "AR tracking lost" forever. The guidance e2e
+    // assertions above fake selectTrackingQuality directly, so they would NOT
+    // catch the missing wiring — this test observes the seam calls themselves.
+    await bootAnchorStarter(page);
+
+    const wiring = await page.evaluate(() => ({
+      store: window.__anchorStarterTest.trackingStoreWired,
+      callbacks: window.__anchorStarterTest.trackingCallbacksWired,
+    }));
+
+    expect(wiring.store).toBe(true);
+    expect(wiring.callbacks).toBe(true);
+  });
+
   test("saves the anchor and surfaces the share/reload affordances", async ({
     page,
   }) => {
