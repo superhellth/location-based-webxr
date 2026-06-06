@@ -243,6 +243,26 @@ describe('createEnableGpsArController — enable() failure paths', () => {
     expect(result.error).toBe('WebXR not available');
     expect(controller.getState().status).toBe('error');
   });
+
+  // Why this test matters: the controller exposes no watch teardown, so sensor
+  // watches must NOT be started when initAR rejects — otherwise they would leak
+  // and a retry from the `error` state would start duplicate active watches.
+  it('does not start sensor watches when initAR rejects', async () => {
+    const deps = makeDeps({
+      initAR: vi.fn(() => Promise.reject(new Error('WebXR not available'))),
+    });
+    const controller = createEnableGpsArController(deps);
+
+    const result = await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+      onOrientation: vi.fn(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(deps.startGpsWatch).not.toHaveBeenCalled();
+    expect(deps.startOrientationWatch).not.toHaveBeenCalled();
+  });
 });
 
 describe('createEnableGpsArController — idempotency', () => {

@@ -239,6 +239,16 @@ export function createEnableGpsArController(
         return fail(permissionError);
       }
 
+      // --- AR session ---
+      // Start sensor watches only AFTER a successful initAR. The controller
+      // exposes no watch teardown, so starting them before initAR would leak
+      // active watches if initAR rejects — and the retry from the `error` state
+      // would start duplicates. Gating the start calls behind the resolved
+      // initAR keeps watcher count bounded to one set per running session.
+      await resolved.initAR(config.container, config.isolationOptions, {
+        requestHitTest: config.requestHitTest,
+      });
+
       // --- Sensor watches ---
       if (config.onGpsPosition) {
         resolved.startGpsWatch(config.onGpsPosition);
@@ -246,11 +256,6 @@ export function createEnableGpsArController(
       if (config.onOrientation) {
         resolved.startOrientationWatch(config.onOrientation);
       }
-
-      // --- AR session ---
-      await resolved.initAR(config.container, config.isolationOptions, {
-        requestHitTest: config.requestHitTest,
-      });
 
       setState({ status: 'running' });
       return { ok: true };

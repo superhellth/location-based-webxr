@@ -40,6 +40,11 @@ framework does not own button DOM (unlike three.js' `ARButton`).
   success and the denied path. Tests assert this ordering for both.
 - **Idempotency:** `enable()` is a no-op (returns `{ ok: false }`) while the
   status is `starting` or `running`, so a double-tap cannot start two sessions.
+- **Watches start after `initAR`:** the sensor watches are started **only after**
+  `initAR` resolves. The controller exposes no watch teardown, so starting them
+  before `initAR` would leak active watches on an `initAR` rejection and let a
+  retry from `error` start duplicates. Gating the start calls behind the
+  resolved `initAR` bounds watcher count to one set per running session.
 - **In-gesture requirement:** `enable()` must be called synchronously from a
   user gesture so the permission prompts are allowed by the browser.
 - **DI:** every collaborator is injectable; defaults bind to the real framework
@@ -85,6 +90,9 @@ error, `initAR` rejection, the `starting → running` and `starting → error`
 transitional ordering, idempotency (running + still-starting), unsubscribe
 hygiene, and listener isolation (a throwing subscriber does not abort dispatch
 or the controller's own flow).
+
+Watch-lifecycle: `does not start sensor watches when initAR rejects` proves the
+watches are gated behind a resolved `initAR` (no leak / no retry duplication).
 
 ## Related
 
