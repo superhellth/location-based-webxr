@@ -21,6 +21,7 @@ import {
   setPermissionsReady,
   setFolderSelected,
   setSaveLocationSelected,
+  setFolderImportExpanded,
   updateFolderStatus,
   updateSaveStatus,
   updateRefPointButtonLabel,
@@ -47,6 +48,9 @@ function setupMinimalDOM(): void {
     <button id="btn-map"></button>
     <button id="btn-open-folder"></button>
     <button id="btn-choose-save"></button>
+    <details id="folder-import-section">
+      <p id="folder-import-hint" class="hidden"></p>
+    </details>
     <div id="setup-modal"></div>
     <div id="new-scenario-section" class="hidden"></div>
     <input id="new-scenario-name" type="text" />
@@ -414,24 +418,32 @@ describe('validateEnterButton', () => {
 
   /**
    * Why this test matters:
-   * Validates that the hint shows folder hint when folder not selected.
-   * This addresses user feedback about unclear button states.
+   * D5 (2026-06-05 recorder setup UX): the read folder is an OPTIONAL import
+   * step and must NOT gate Enter AR. With the save location, permissions and a
+   * scenario all ready, Enter AR must be enabled even when no folder is open.
    */
-  it('shows folder hint when folder not selected', () => {
+  it('does not require a folder — Enter AR enables without a folder when save+permissions+scenario are ready', () => {
     setupMinimalDOM();
     initUI(createMockCallbacks());
-    setFolderSelected(false); // No folder selected
-    setSaveLocationSelected(false);
+    setFolderSelected(false); // No folder opened
+    setSaveLocationSelected(true); // Save location chosen (the real requirement)
     setPermissionsReady(true);
 
-    const hint = document.getElementById('enter-ar-hint') as HTMLElement;
+    const btnEnterAR = document.getElementById(
+      'btn-enter-ar'
+    ) as HTMLButtonElement;
+    const scenarioSelect = document.getElementById(
+      'scenario-select'
+    ) as HTMLSelectElement;
+    scenarioSelect.disabled = false;
+    const option = document.createElement('option');
+    option.value = 'test-scenario';
+    scenarioSelect.appendChild(option);
+    scenarioSelect.value = 'test-scenario';
 
     validateEnterButton();
 
-    expect(hint.classList.contains('hidden')).toBe(false);
-    expect(hint.textContent).toContain(
-      'Open a folder with previous recordings'
-    );
+    expect(btnEnterAR.disabled).toBe(false);
   });
 
   /**
@@ -441,7 +453,7 @@ describe('validateEnterButton', () => {
   it('shows save location hint when save location not chosen', () => {
     setupMinimalDOM();
     initUI(createMockCallbacks());
-    setFolderSelected(true); // Folder selected
+    setFolderSelected(false); // Folder is optional and irrelevant to the gate
     setSaveLocationSelected(false); // No save location
     setPermissionsReady(true);
 
@@ -514,6 +526,54 @@ describe('validateEnterButton', () => {
     validateEnterButton();
 
     expect(hint.classList.contains('hidden')).toBe(true);
+  });
+});
+
+/**
+ * D5 (2026-06-05 recorder setup UX): the optional folder-import section is
+ * collapsed by default and auto-expanded (with a recovery hint) only when the
+ * chosen scenario has no saved reference points in OPFS. These tests pin the
+ * pure DOM toggling of `setFolderImportExpanded`.
+ */
+describe('setFolderImportExpanded', () => {
+  it('expands the section and shows the hint when expanded with a message', () => {
+    setupMinimalDOM();
+    initUI(createMockCallbacks());
+
+    setFolderImportExpanded(
+      true,
+      'no saved reference points — open the folder'
+    );
+
+    const section = document.getElementById(
+      'folder-import-section'
+    ) as HTMLDetailsElement;
+    const hint = document.getElementById('folder-import-hint') as HTMLElement;
+    expect(section.open).toBe(true);
+    expect(hint.classList.contains('hidden')).toBe(false);
+    expect(hint.textContent).toContain('no saved reference points');
+  });
+
+  it('collapses the section and clears the hint when collapsed', () => {
+    setupMinimalDOM();
+    initUI(createMockCallbacks());
+    // First expand it so the collapse is observable.
+    setFolderImportExpanded(true, 'recover them');
+
+    setFolderImportExpanded(false);
+
+    const section = document.getElementById(
+      'folder-import-section'
+    ) as HTMLDetailsElement;
+    const hint = document.getElementById('folder-import-hint') as HTMLElement;
+    expect(section.open).toBe(false);
+    expect(hint.classList.contains('hidden')).toBe(true);
+    expect(hint.textContent).toBe('');
+  });
+
+  it('does not throw when the folder-import elements are absent (graceful)', () => {
+    document.body.innerHTML = '';
+    expect(() => setFolderImportExpanded(true, 'x')).not.toThrow();
   });
 });
 

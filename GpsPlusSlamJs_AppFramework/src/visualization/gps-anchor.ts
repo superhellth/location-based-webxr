@@ -7,8 +7,9 @@
  *
  * This file implements sub-steps 2 (bootstrap phase), 3 (steady-state
  * `'snap-every-tick'` + distance-scaled threshold gate), and 4
- * (`'snap-when-offscreen'` mode gate + alignment-matrix large-jump
- * bypass). Floor-Y correction is sub-step 6 and remains deferred.
+ * (`'snap-when-offscreen'` mode gate, with a one-time initial-placement
+ * exemption for `skipBootstrap` anchors). Floor-Y correction is sub-step
+ * 6 and remains deferred.
  */
 import * as THREE from 'three';
 import {
@@ -41,6 +42,17 @@ export interface GpsAnchorOptions {
   readonly getGpsZeroRef: () => LatLong | null;
   /** Returns the current GPS reading at "now", or null when no fix yet. */
   readonly getCurrentGpsPoint: () => GpsAnchorSamplePoint | null;
+  /**
+   * Optional callback invoked whenever the bootstrap median is committed (the
+   * anchor's GPS reference is (re)assigned). Receives the exact committed point
+   * — the same value assigned to `gpsPoint`. Fires once after the initial
+   * bootstrap and again after every re-bootstrap (`markMovedExternally` →
+   * re-accumulate → commit). Never fires when `skipBootstrap` is true (there is
+   * no bootstrap to complete). Lets a host persist the committed reference (e.g.
+   * AnchorStarter writing `?show=`) so the persisted link equals the committed
+   * reference by construction.
+   */
+  readonly onBootstrapComplete?: (gpsPoint: LatLong | LatLongAlt) => void;
   readonly mode?: GpsAnchorMode;
   readonly floorY?: () => number | null;
   readonly distanceThreshold?: number;
@@ -81,6 +93,27 @@ function isObjectInAnchoredChain(object: THREE.Object3D): boolean {
   return false;
 }
 
+/**
+ * Returns true iff `object` is `arWorldGroup` itself or a descendant of it.
+ * The anchor's `object3D` MUST satisfy this: only then does it ride the
+ * alignment applied to `arWorldGroup.matrix` (the node the camera also lives
+ * under) via scene-graph propagation. An anchor parented to the scene root
+ * instead never receives the alignment, so each steady-state re-registration
+ * snaps the full alignment delta and the object visibly slides as the user
+ * moves — the exact instability the anchor exists to prevent.
+ */
+function isDescendantOf(
+  object: THREE.Object3D,
+  arWorldGroup: THREE.Object3D
+): boolean {
+  let cursor: THREE.Object3D | null = object;
+  while (cursor) {
+    if (cursor === arWorldGroup) return true;
+    cursor = cursor.parent;
+  }
+  return false;
+}
+
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -111,6 +144,13 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
         'the supplied object3D is already inside an anchored parent chain.'
     );
   }
+  if (!isDescendantOf(options.object3D, options.arWorldGroup)) {
+    throw new Error(
+      'createGpsAnchor: object3D must be a descendant of arWorldGroup ' +
+        '(the alignment-bearing node the camera lives under); parenting an ' +
+        'anchor to the scene root defeats AR stability.'
+    );
+  }
   anchoredObjects.add(options.object3D);
 
   const sampleCount = options.secondsToAccumulateGpsPose ?? 7;
@@ -134,25 +174,10 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
   void (options.angleThresholdInDegrees ?? 15);
   const mode: GpsAnchorMode = options.mode ?? 'snap-when-offscreen';
 
-  // Large-jump thresholds (mirror the C# `ApplyAlignmentMatrixToArOrigin`
-  // constants). When the alignment matrix changes by more than any of
-  // these between two consecutive ticks, the on-screen mode gate is
-  // bypassed for that tick.
-  const LARGE_JUMP_TRANSLATION_M = 4;
-  const LARGE_JUMP_Y_M = 20;
-  const LARGE_JUMP_ROTATION_DEG = 2;
-
-  // Scratch vectors / matrices / quaternions — reused across ticks to
-  // avoid per-frame allocs.
+  // Scratch vectors — reused across ticks to avoid per-frame allocs.
   const scratchTarget = new THREE.Vector3();
   const scratchCamWorld = new THREE.Vector3();
   const scratchObjWorld = new THREE.Vector3();
-  const scratchPrevMatrix = new THREE.Matrix4();
-  const scratchCurrMatrix = new THREE.Matrix4();
-  const scratchPrevTrans = new THREE.Vector3();
-  const scratchCurrTrans = new THREE.Vector3();
-  const scratchPrevQuat = new THREE.Quaternion();
-  const scratchCurrQuat = new THREE.Quaternion();
 
   let phase: GpsAnchorPhase =
     options.skipBootstrap === true ? 'anchored' : 'bootstrap';
@@ -162,39 +187,19 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
   let lastSampleAtElapsed: number | null = null;
   const samples: GpsAnchorSamplePoint[] = [];
   /**
-   * Snapshot of the previous tick's alignment matrix. `null` until the
-   * first steady-state tick in which `getAlignmentMatrix()` returned a
-   * non-null value. Used by the large-jump bypass to compare against
-   * the current tick's matrix.
+   * The one-time "initial placement" exemption from the `snap-when-offscreen`
+   * frustum gate. A `skipBootstrap` anchor is `anchored` from frame one but its
+   * `object3D` still sits at the AR origin (local 0,0,0 — "inside the user")
+   * until its first steady-state commit. That first commit MUST land even while
+   * the object is on-screen, otherwise the marker stays stuck at the origin
+   * until the user happens to look away. A fresh appearance is not a "jump", so
+   * it is exempt. Consumed (set false) by the first committed correction; never
+   * re-armed (a re-bootstrap moves an already-placed object, so its later
+   * corrections are normal gated snaps). Anchors that bootstrap are placed at
+   * their seed pose by the host, so they never need this exemption — hence it is
+   * armed only for `skipBootstrap`.
    */
-  let prevAlignmentMatrix: readonly number[] | null = null;
-
-  /**
-   * Returns true iff the alignment matrix has jumped by more than the
-   * configured large-jump thresholds between `prev` and `curr`. A
-   * `null` `prev` (first tick) is treated as "no jump".
-   */
-  const detectLargeAlignmentJump = (
-    prev: readonly number[] | null,
-    curr: readonly number[] | null
-  ): boolean => {
-    if (prev === null || curr === null) return false;
-    scratchPrevMatrix.fromArray(prev);
-    scratchCurrMatrix.fromArray(curr);
-    scratchPrevTrans.setFromMatrixPosition(scratchPrevMatrix);
-    scratchCurrTrans.setFromMatrixPosition(scratchCurrMatrix);
-    const dTrans = scratchPrevTrans.distanceTo(scratchCurrTrans);
-    const dY = Math.abs(scratchCurrTrans.y - scratchPrevTrans.y);
-    scratchPrevQuat.setFromRotationMatrix(scratchPrevMatrix);
-    scratchCurrQuat.setFromRotationMatrix(scratchCurrMatrix);
-    const dRotRad = scratchPrevQuat.angleTo(scratchCurrQuat);
-    const dRotDeg = (dRotRad * 180) / Math.PI;
-    return (
-      dTrans > LARGE_JUMP_TRANSLATION_M ||
-      dY > LARGE_JUMP_Y_M ||
-      dRotDeg > LARGE_JUMP_ROTATION_DEG
-    );
-  };
+  let firstCommitPending = options.skipBootstrap === true;
 
   const enterBootstrap = (): void => {
     phase = 'bootstrap';
@@ -202,10 +207,6 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     phaseEnteredAtElapsed = null;
     lastSampleAtElapsed = null;
     samples.length = 0;
-    // Reset the large-jump baseline so the first steady-state tick
-    // after the re-bootstrap doesn't compare against a stale matrix
-    // from before the move.
-    prevAlignmentMatrix = null;
   };
 
   const commitMedian = (): void => {
@@ -213,6 +214,11 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     phase = 'anchored';
     isFullyAnchored = true;
     samples.length = 0;
+    // Hand the host the exact committed reference so it can persist it (the
+    // persisted value equals the committed `gpsPoint` by construction). Re-fires
+    // after every re-bootstrap because this is the only place `gpsPoint` is
+    // assigned from a median.
+    options.onBootstrapComplete?.(gpsPoint);
   };
 
   /**
@@ -220,8 +226,18 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
    * `gpsPoint` and the current `zeroRef`, map it into `arWorldGroup`'s
    * AR-local frame via the inverse alignment matrix, and commit it to
    * `object3D.position` iff the (AR-local) position delta exceeds the
-   * distance-scaled threshold AND the mode gate (with optional large-jump
-   * bypass) allows it.
+   * distance-scaled threshold AND the mode gate allows it.
+   *
+   * Mode gate: in `'snap-when-offscreen'` a correction is suppressed while the
+   * object is inside the camera frustum — corrections only land when the user
+   * is not looking, so the anchor never visibly jumps. The whole AR frame
+   * (camera + every anchor) rides one lerped `arWorldGroup.matrix`
+   * (`enableArWorldGroupAlignment`), so an on-screen alignment change is
+   * absorbed smoothly for the entire view and never needs a per-anchor
+   * on-screen snap. The one exception is the first placement of a `skipBootstrap`
+   * anchor (see `firstCommitPending`), which must escape the origin even while
+   * on-screen. See
+   * `gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-06-anchor-starter-cachehit-jump-investigation.md`.
    *
    * Frame note: `arWorldGroup.matrix` IS the alignment matrix, which maps
    * **AR-odometry NUE → GPS-world NUE**. `object3D.position` is a *local*
@@ -239,14 +255,6 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     const zero = options.getGpsZeroRef();
     if (zero === null || zero === undefined) return;
     const currentAlignment = options.getAlignmentMatrix();
-    const largeJump = detectLargeAlignmentJump(
-      prevAlignmentMatrix,
-      currentAlignment
-    );
-    // Update the snapshot for the next tick BEFORE any early-returns so
-    // jump detection on subsequent ticks compares against the most
-    // recent matrix the anchor actually saw.
-    prevAlignmentMatrix = currentAlignment;
 
     // Without an alignment matrix we cannot map the GPS-world NUE target
     // into `arWorldGroup`'s AR-local frame. Skip the commit and leave the
@@ -272,16 +280,25 @@ export function createGpsAnchor(options: GpsAnchorOptions): GpsAnchor {
     const distFromCamera = scratchCamWorld.distanceTo(scratchObjWorld);
     const scale = 1 + (10 * distFromCamera) / 100;
     const posDelta = options.object3D.position.distanceTo(scratchTarget);
-    if (posDelta < distanceThreshold * scale) return;
 
-    // Mode gate. `'snap-when-offscreen'` suppresses the commit when the
-    // object is currently visible — unless a large alignment-matrix
-    // jump forces us through (the user expects the object to be in the
-    // new "right" place after a big correction).
-    if (mode === 'snap-when-offscreen' && !largeJump) {
-      if (isObjectInCameraFrustum(options.camera, options.object3D)) return;
+    // Commit gate: the distance-scaled threshold plus the `snap-when-offscreen`
+    // frustum suppression. When the gate accepts a correction the object snaps
+    // instantly to the target. Smoothing is NOT done per-anchor: alignment is
+    // lerped once at `arWorldGroup` (`enableArWorldGroupAlignment`), so all
+    // anchored content shifts together and each accepted commit here is only a
+    // small off-screen residual. The sole on-screen exception is the one-time
+    // initial placement of a `skipBootstrap` anchor (`firstCommitPending`),
+    // which must escape the AR origin even while the user is looking.
+    if (posDelta >= distanceThreshold * scale) {
+      const blockedByMode =
+        mode === 'snap-when-offscreen' &&
+        !firstCommitPending &&
+        isObjectInCameraFrustum(options.camera, options.object3D);
+      if (!blockedByMode) {
+        options.object3D.position.copy(scratchTarget);
+        firstCommitPending = false;
+      }
     }
-    options.object3D.position.copy(scratchTarget);
   };
 
   const tick = (_dt: number, elapsed: number): void => {

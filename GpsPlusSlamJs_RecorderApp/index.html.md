@@ -121,11 +121,13 @@ Every ID below is referenced by TypeScript code. Removing or renaming any of the
 | `btn-settings` | `button` | `hud.ts` | Click opens settings modal. `aria-label="Recording Settings"` |
 | `help-section` | `details` | `hud.ts` | `.open` toggled programmatically |
 | `help-section-content` | `div` | — | Static content |
-| `storage-setup` | `div` | — | Container for folder selection UI |
-| `btn-open-folder` | `button` | `hud.ts` | Click opens File System Access API. `aria-label` set |
-| `folder-status` | `p` | `hud.ts` | `.textContent` set to selected folder path |
-| `btn-choose-save` | `button` | `hud.ts` | Click opens save directory picker. `aria-label` set |
+| `storage-setup` | `div` | — | Container for the storage setup UI (save location + optional folder import) |
+| `btn-choose-save` | `button` | `hud.ts` | Click opens save file picker. The **only mandatory** storage step (D5). `aria-label` set |
 | `save-status` | `p` | `hud.ts` | `.textContent` set to save location path |
+| `folder-import-section` | `details` | `hud.ts` | **Optional** folder-import step, collapsed by default; `.open` toggled by `setFolderImportExpanded` (auto-expanded when the chosen scenario has no OPFS ref points, and in replay mode) |
+| `folder-import-hint` | `p` | `hud.ts` | One-line recovery hint shown above the folder button when auto-expanded |
+| `btn-open-folder` | `button` | `hud.ts` | Inside `folder-import-section`. Click opens File System Access API. `aria-label` set |
+| `folder-status` | `p` | `hud.ts` | `.textContent` set to selected folder path |
 | `scenario-select` | `select` | `hud.ts` | `<option>` elements appended dynamically; `change` listener |
 | `new-scenario-section` | `div` | `hud.ts` | `.hidden` toggled + opacity animation (CSS transition contract) |
 | `new-scenario-name` | `input` | `hud.ts` | `.value` read for custom scenario name; pre-filled with `Default Scenario` (UX 2026-05-03) so users can tap Enter AR without typing when no existing scenarios are found |

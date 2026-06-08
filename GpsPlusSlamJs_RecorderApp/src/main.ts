@@ -37,6 +37,7 @@ import {
   setPermissionsReady,
   setFolderSelected,
   setSaveLocationSelected,
+  setFolderImportExpanded,
   updateFolderStatus,
   updateSaveStatus,
   resetUIForNewRecording,
@@ -293,6 +294,7 @@ const folderManager = createFolderManager({
   populateScenarios,
   setFolderSelected,
   setSaveLocationSelected,
+  setFolderImportExpanded,
   validateEnterButton,
   listScenariosFromFolder,
   extractScenarioNamesFromZips,
@@ -803,6 +805,9 @@ async function main(): Promise<void> {
       onMapZoomOut: () => replayHandlers.handleReplayMapZoomOut(),
     });
     updateStatus('Replay Mode — Open a recordings folder');
+    // In replay mode the recordings folder is the PRIMARY action (you browse
+    // recordings from it), so surface the otherwise-collapsed folder section.
+    setFolderImportExpanded(true);
     log.info('WebXR not supported — entered replay mode');
   } else if (initialPermissions.allMandatoryReady) {
     updateStatus('Ready - Configure scenario');
@@ -1321,6 +1326,7 @@ if (
     // Mandatory storage selection hooks (Task 1a-fix)
     setFolderSelected,
     setSaveLocationSelected,
+    setFolderImportExpanded,
   };
 }
 

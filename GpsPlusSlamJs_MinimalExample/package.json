@@ -5,8 +5,9 @@
   "description": "Minimal getting-started example consuming gps-plus-slam-app-framework: Three.js scene driven by createSlamAppStore() with NullStorageBackend.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "dev": "pnpm run build:framework && vite",
+    "build": "pnpm run build:framework && tsc -p tsconfig.json && vite build",
+    "build:framework": "pnpm --filter gps-plus-slam-app-framework run build",
     "preview": "vite preview",
     "test": "pnpm run typecheck && pnpm run test:unit",
     "test:unit": "vitest run",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^25.7.0",
     "@types/three": "^0.184.1",
+    "@types/webxr": "^0.5.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.12",
     "vitest": "^4.1.6"

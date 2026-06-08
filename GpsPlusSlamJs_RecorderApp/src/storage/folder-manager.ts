@@ -65,6 +65,11 @@ export interface FolderManagerDeps {
   setFolderSelected: (selected: boolean) => void;
   /** UI: mark save location as selected in the HUD. */
   setSaveLocationSelected: (selected: boolean) => void;
+  /**
+   * UI: expand/collapse the optional folder-import section and show a hint.
+   * D5: auto-expanded when the chosen scenario has no OPFS reference points.
+   */
+  setFolderImportExpanded: (expanded: boolean, hint?: string) => void;
   /** UI: revalidate the Enter AR button state. */
   validateEnterButton: () => void;
   /** UI: list scenario sub-directories from a folder handle. */
@@ -261,6 +266,17 @@ export function createFolderManager(deps: FolderManagerDeps): FolderManager {
         deps.updateStatus(
           `Scenario: ${scenarioName} | ${refPointCount} ref points (${observationCount} observations)`
         );
+        // D5 (F5-C): if this scenario has no saved reference points and no
+        // read folder is open, surface the optional import step so the user
+        // can recover them from prior recordings. Otherwise keep it collapsed.
+        if (refPointCount === 0 && !getReadFolderHandle()) {
+          deps.setFolderImportExpanded(
+            true,
+            `"${scenarioName}" has no saved reference points \u2014 open the recordings folder to recover them.`
+          );
+        } else {
+          deps.setFolderImportExpanded(false);
+        }
       } else {
         deps.showError(`Failed to load scenario: ${scenarioName}`);
       }

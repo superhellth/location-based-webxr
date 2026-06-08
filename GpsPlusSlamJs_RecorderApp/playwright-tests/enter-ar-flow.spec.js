@@ -498,3 +498,31 @@ test.describe('With Permissions Granted', () => {
     });
   });
 }); // End of 'With Permissions Granted' parent describe block
+
+test.describe('D5: read folder is optional for Enter AR', () => {
+  test('Enter AR enables without opening a folder; folder section collapsed by default', async ({
+    page,
+  }) => {
+    // Why this test matters: D5 (2026-06-05 recorder setup UX) makes the read
+    // folder an OPTIONAL import step. Enter AR is gated only on the save
+    // location, permissions and a scenario — not on opening a folder — and the
+    // folder-import section is collapsed by default (its summary visible, its
+    // button hidden until expanded).
+    await expect(page.locator('#btn-open-folder')).toBeHidden();
+    await expect(page.locator('#folder-import-section')).toBeVisible();
+
+    // Pick a scenario, then set ONLY the save location + permissions (no folder).
+    await callRealPopulateScenarios(page, ['SomeScenario']);
+    await page.locator('#scenario-select').selectOption('SomeScenario');
+    await page.evaluate(() => {
+      window.testHooks.setSaveLocationSelected(true);
+      window.testHooks.setPermissionsReady(true);
+      window.testHooks.validateEnterButton();
+    });
+
+    const enterButton = page.locator('#btn-enter-ar');
+    await expect(enterButton).toBeEnabled();
+    // Still collapsed — we never opened the folder.
+    await expect(page.locator('#btn-open-folder')).toBeHidden();
+  });
+});

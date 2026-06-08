@@ -6,6 +6,22 @@ Manages WebXR AR session initialization, Three.js renderer setup, and the XR fra
 
 **ARCHITECTURE NOTE:** See `docs/architecture-ar-gps-pose-separation.md` for the scene hierarchy design.
 
+## DOM-Overlay / HUD stacking invariant
+
+`buildSessionOptions(rootElement, …)` sets `sessionOptions.domOverlay = { root: rootElement }`
+when `enableDomOverlay` is on, and `initAR(container, …)` passes its `container`
+through as that `rootElement`. Under WebXR DOM Overlay the browser composites
+**only the overlay root's subtree** over the camera feed during an
+`immersive-ar` session.
+
+**Invariant:** any HUD/overlay node an app wants visible in AR must be a DOM
+**descendant** of the element passed to `initAR`. A sibling overlay renders in
+the 2D pre-AR layout but disappears once the session starts. This is a DOM
+_nesting_ rule, not a `z-index` rule. The repo-meta guard
+`tests/repo-config/hud-overlay-nesting.test.js` enforces it for every app's
+`index.html`; the AppFramework README's "DOM-Overlay / HUD stacking convention"
+documents it for app authors.
+
 ## Scene Hierarchy
 
 ```
@@ -20,6 +36,13 @@ scene (GPS world frame — NUE: X=North, Y=Up, Z=East)
 
 - `arWorldGroup` local space is **NUE** — objects added here use `[1,0,0]`=North, `[0,0,1]`=East.
   `applyAlignmentMatrix(m)` writes `m` directly to `arWorldGroup.matrix` (no WEBXR_TO_NUE composition).
+  **`arWorldGroup.matrix` carries the alignment (GPS→AR), and that is what GPS-registers the view:**
+  the camera (a descendant) and every GPS anchor parented under `arWorldGroup` ride the alignment
+  together. Apps apply it via `enableArWorldGroupAlignment({ store, arWorldGroup })`
+  (smoothly lerped); the recorder drives its own lerper into `applyAlignmentMatrix`. GPS anchors
+  (`createGpsAnchor`) MUST live under `arWorldGroup` (the factory throws otherwise) so they re-register
+  to their reference GPS off-screen with only a small residual; GPS-world "truth" markers that should
+  NOT ride the alignment go on the **scene root** instead.
 - `basisChangeNode` is a static child of arWorldGroup holding the constant WEBXR_TO_NUE basis-change
   matrix. It is set once at scene creation and never modified. This ensures the full camera chain is:
   `camera_world = alignment × WEBXR_TO_NUE × arpose × camera_local` — mathematically identical to the
@@ -34,35 +57,36 @@ scene (GPS world frame — NUE: X=North, Y=Up, Z=East)
 
 ## Public API
 
-| Export                           | Type                                                 | Description                                                                                                                                                                          |
-| -------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ARPose`                         | interface                                            | Extracted pose data (position + orientation)                                                                                                                                         |
-| `extractPoseFromViewer()`        | `(XRViewerPose \| null) => ARPose \| null`           | Extract pose from XR frame (pure function)                                                                                                                                           |
-| `isXRCameraLike()`               | `(unknown) => value is XRCameraLike`                 | Runtime guard for `XRView.camera` candidates; accepts only finite positive `width`/`height` values used by the capture pipeline                                                      |
-| `getCurrentArPose()`             | `() => ARPose \| null`                               | Get latest raw AR pose (for GPS callback)                                                                                                                                            |
-| `buildSessionOptions()`          | `(Element \| null) => XRSessionInit`                 | Build XR session options (throws if null)                                                                                                                                            |
-| `createSceneHierarchy()`         | `() => { scene, arWorldGroup, arpose, camera }`      | Create scene with correct hierarchy                                                                                                                                                  |
-| `isWebXRSupported()`             | `async () => boolean`                                | Check if immersive-ar is available                                                                                                                                                   |
-| `initAR()`                       | `async (container: HTMLElement) => void`             | Start AR session and Three.js renderer                                                                                                                                               |
-| `getScene()`                     | `() => THREE.Scene \| null`                          | Get current Three.js scene                                                                                                                                                           |
-| `getArWorldGroup()`              | `() => THREE.Group \| null`                          | Get AR world group (for AR content)                                                                                                                                                  |
-| `getCamera()`                    | `() => THREE.PerspectiveCamera \| null`              | Get current camera                                                                                                                                                                   |
-| `getArPose()`                    | `() => THREE.Object3D \| null`                       | Get arpose node (for replay odom updates)                                                                                                                                            |
-| `setScene()`                     | `(s: THREE.Scene \| null) => void`                   | Set scene externally (for replay mode)                                                                                                                                               |
-| `setArWorldGroup()`              | `(g: THREE.Group \| null) => void`                   | Set AR world group externally (for replay mode)                                                                                                                                      |
-| `setCamera()`                    | `(c: THREE.PerspectiveCamera \| null) => void`       | Set camera externally (for replay mode)                                                                                                                                              |
-| `setArPose()`                    | `(a: THREE.Object3D \| null) => void`                | Set arpose externally (for replay mode)                                                                                                                                              |
-| `applyAlignmentMatrix()`         | `(matrix: number[]) => void`                         | Write alignment directly to arWorldGroup.matrix                                                                                                                                      |
-| `nuePositionToWebXR()`           | `(nue: number[]) => [n, n, n]`                       | Convert NUE position to WebXR (for replay arpose)                                                                                                                                    |
-| `nueQuaternionToWebXR()`         | `(nue: readonly number[]) => [n, n, n, n]`           | Convert NUE quaternion to WebXR `[z, y, -x, w]` (for replay arpose rotation)                                                                                                         |
-| `endARSession()`                 | `async () => void`                                   | Full AR cleanup: stops animation loop, ends XR session, then delegates teardown to `resetWebXRState()` (disposes renderer/CSS3D, removes canvas, clears all module-level references) |
-| `setImageCaptureCallback()`      | `(cb, getRotation) => void`                          | Set callback for when images are captured                                                                                                                                            |
-| `startImageCapture()`            | `(config?: Partial<ImageCaptureConfig>) => void`     | Start periodic image capture with optional config                                                                                                                                    |
-| `stopImageCapture()`             | `() => void`                                         | Stop periodic image capture                                                                                                                                                          |
-| `setTrackingLostCallback()`      | `(cb: () => void) => void`                           | Register callback for tracking loss events                                                                                                                                           |
-| `setTrackingCallbacks()`         | `(cb: (payload) => void) => void`                    | Register callback for tracking restart (Case 2: origin reset). Activates store-backed tracking pipeline and `XRReferenceSpace` reset listener.                                       |
-| `setTrackingRecoveredCallback()` | `(cb: () => void) => void`                           | Register callback for seamless tracking recovery (Case 1: same coordinate frame). Clears UI warning without alignment correction.                                                    |
-| `setTrackingStore()`             | `(store: TrackingSubscribableStore \| null) => void` | Inject the Redux store used to drive tracking-phase callbacks. Must be called before `initAR()` whenever any tracking callback is wired. Passing `null` tears down the subscription. |
+| Export                           | Type                                                                      | Description                                                                                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ARPose`                         | interface                                                                 | Extracted pose data (position + orientation)                                                                                                                                         |
+| `extractPoseFromViewer()`        | `(XRViewerPose \| null) => ARPose \| null`                                | Extract pose from XR frame (pure function)                                                                                                                                           |
+| `isXRCameraLike()`               | `(unknown) => value is XRCameraLike`                                      | Runtime guard for `XRView.camera` candidates; accepts only finite positive `width`/`height` values used by the capture pipeline                                                      |
+| `getCurrentArPose()`             | `() => ARPose \| null`                                                    | Get latest raw AR pose (for GPS callback)                                                                                                                                            |
+| `SessionFeatureOptions`          | interface                                                                 | Opt-in standard WebXR features (`requestHitTest`) independent of crash-isolation flags                                                                                               |
+| `buildSessionOptions()`          | `(Element \| null, isolationOptions?, sessionFeatures?) => XRSessionInit` | Build XR session options (throws if null); `requestHitTest` adds `hit-test` as an _optional_ feature                                                                                 |
+| `createSceneHierarchy()`         | `() => { scene, arWorldGroup, arpose, camera }`                           | Create scene with correct hierarchy                                                                                                                                                  |
+| `isWebXRSupported()`             | `async () => boolean`                                                     | Check if immersive-ar is available                                                                                                                                                   |
+| `initAR()`                       | `async (container, isolationOptions?, sessionFeatures?) => void`          | Start AR session and Three.js renderer; forwards `sessionFeatures` (e.g. `requestHitTest`) to session negotiation                                                                    |
+| `getScene()`                     | `() => THREE.Scene \| null`                                               | Get current Three.js scene                                                                                                                                                           |
+| `getArWorldGroup()`              | `() => THREE.Group \| null`                                               | Get AR world group (for AR content)                                                                                                                                                  |
+| `getCamera()`                    | `() => THREE.PerspectiveCamera \| null`                                   | Get current camera                                                                                                                                                                   |
+| `getArPose()`                    | `() => THREE.Object3D \| null`                                            | Get arpose node (for replay odom updates)                                                                                                                                            |
+| `setScene()`                     | `(s: THREE.Scene \| null) => void`                                        | Set scene externally (for replay mode)                                                                                                                                               |
+| `setArWorldGroup()`              | `(g: THREE.Group \| null) => void`                                        | Set AR world group externally (for replay mode)                                                                                                                                      |
+| `setCamera()`                    | `(c: THREE.PerspectiveCamera \| null) => void`                            | Set camera externally (for replay mode)                                                                                                                                              |
+| `setArPose()`                    | `(a: THREE.Object3D \| null) => void`                                     | Set arpose externally (for replay mode)                                                                                                                                              |
+| `applyAlignmentMatrix()`         | `(matrix: number[]) => void`                                              | Write alignment directly to arWorldGroup.matrix                                                                                                                                      |
+| `nuePositionToWebXR()`           | `(nue: number[]) => [n, n, n]`                                            | Convert NUE position to WebXR (for replay arpose)                                                                                                                                    |
+| `nueQuaternionToWebXR()`         | `(nue: readonly number[]) => [n, n, n, n]`                                | Convert NUE quaternion to WebXR `[z, y, -x, w]` (for replay arpose rotation)                                                                                                         |
+| `endARSession()`                 | `async () => void`                                                        | Full AR cleanup: stops animation loop, ends XR session, then delegates teardown to `resetWebXRState()` (disposes renderer/CSS3D, removes canvas, clears all module-level references) |
+| `setImageCaptureCallback()`      | `(cb, getRotation) => void`                                               | Set callback for when images are captured                                                                                                                                            |
+| `startImageCapture()`            | `(config?: Partial<ImageCaptureConfig>) => void`                          | Start periodic image capture with optional config                                                                                                                                    |
+| `stopImageCapture()`             | `() => void`                                                              | Stop periodic image capture                                                                                                                                                          |
+| `setTrackingLostCallback()`      | `(cb: () => void) => void`                                                | Register callback for tracking loss events                                                                                                                                           |
+| `setTrackingCallbacks()`         | `(cb: (payload) => void) => void`                                         | Register callback for tracking restart (Case 2: origin reset). Activates store-backed tracking pipeline and `XRReferenceSpace` reset listener.                                       |
+| `setTrackingRecoveredCallback()` | `(cb: () => void) => void`                                                | Register callback for seamless tracking recovery (Case 1: same coordinate frame). Clears UI warning without alignment correction.                                                    |
+| `setTrackingStore()`             | `(store: TrackingSubscribableStore \| null) => void`                      | Inject the Redux store used to drive tracking-phase callbacks. Must be called before `initAR()` whenever any tracking callback is wired. Passing `null` tears down the subscription. |
 
 ## Invariants & Assumptions
 
@@ -114,6 +138,14 @@ scene (GPS world frame — NUE: X=North, Y=Up, Z=East)
 5. Trigger image capture / depth sampling if active
 6. Render scene
 
+Per-frame dispatch order: after the dimensionless `runFrameUpdates(dt, elapsed)`
+callbacks (see `frame-loop.ts`), `onXRFrame()` calls
+`runXrFrameUpdates({ frame, referenceSpace, session, dt, elapsed })` so app
+code registered via `registerXrFrameUpdate` (see `xr-frame-loop.ts`) gets live
+WebXR access for the current frame (e.g. hit-test, light estimation). Both
+registries are cleared during `resetWebXRState()`. The XR context object is
+valid only synchronously inside each callback.
+
 ## Examples
 
 ```typescript
@@ -149,6 +181,7 @@ Unit tests in `webxr-session.test.ts` cover:
 - Validates session features (local-floor, dom-overlay, depth-sensing)
 - Null-safety regression test
 - DOM overlay root binding
+- `hit-test` is off by default and added as an _optional_ feature only when `requestHitTest: true`
 
 **`extractPoseFromViewer()`:**
 

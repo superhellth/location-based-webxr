@@ -133,6 +133,7 @@ function createDefaultDeps(
     populateScenarios: vi.fn(),
     setFolderSelected: vi.fn(),
     setSaveLocationSelected: vi.fn(),
+    setFolderImportExpanded: vi.fn(),
     validateEnterButton: vi.fn(),
     listScenariosFromFolder: vi
       .fn<FolderManagerDeps['listScenariosFromFolder']>()
@@ -649,6 +650,43 @@ describe('createFolderManager', () => {
       expect(deps.updateStatus).toHaveBeenCalledWith(
         'Scenario: Paris | 2 ref points (3 observations)'
       );
+    });
+
+    it('auto-expands the folder-import section when the scenario has no OPFS ref points and no read folder (D5)', async () => {
+      // Why: F5-C — a scenario with zero saved reference points and no folder
+      // open should surface the optional import/recovery step with a hint.
+      vi.mocked(setCurrentScenario).mockResolvedValue(mockFolderHandle);
+      vi.mocked(getReadFolderHandle).mockReturnValue(null);
+      const { loadAllRefPoints } = await import('../storage/ref-point-loader');
+      vi.mocked(loadAllRefPoints).mockResolvedValue([]);
+      const { manager, deps } = createFolderManagerWithDefaults();
+
+      await manager.handleScenarioChange('FreshScenario');
+
+      expect(deps.setFolderImportExpanded).toHaveBeenCalledWith(
+        true,
+        expect.stringContaining('FreshScenario')
+      );
+    });
+
+    it('keeps the folder-import section collapsed when the scenario already has OPFS ref points (D5)', async () => {
+      // Why: F5-C — when the scenario already has reference points, the import
+      // step stays collapsed (typical flow: pick scenario → save → enter).
+      vi.mocked(setCurrentScenario).mockResolvedValue(mockFolderHandle);
+      vi.mocked(getReadFolderHandle).mockReturnValue(null);
+      const { loadAllRefPoints, flattenRefPointsToMarks } =
+        await import('../storage/ref-point-loader');
+      vi.mocked(loadAllRefPoints).mockResolvedValue([
+        { name: 'pt1', observations: [] },
+      ] as never);
+      vi.mocked(flattenRefPointsToMarks).mockReturnValue([
+        { lat: 0, lng: 0, name: 'pt1' },
+      ] as never);
+      const { manager, deps } = createFolderManagerWithDefaults();
+
+      await manager.handleScenarioChange('KnownScenario');
+
+      expect(deps.setFolderImportExpanded).toHaveBeenCalledWith(false);
     });
 
     it('should show error when scenario handle is null', async () => {

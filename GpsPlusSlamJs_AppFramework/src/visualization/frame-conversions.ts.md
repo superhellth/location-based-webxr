@@ -2,11 +2,17 @@
 
 ## Purpose
 
-Small, pure coordinate-frame helpers for the AR scene graph. Today it exposes
-one function — `nueToArLocal` — that converts a **GPS-world NUE** point into
-the **AR-odometry local** frame of `arWorldGroup`, i.e. computes
-`alignment⁻¹ · nue`. This is the conversion a direct child of `arWorldGroup`
-needs so that its WORLD position lands exactly on a GPS-world point.
+Small, pure coordinate-frame helpers for the AR scene graph. It exposes two
+functions:
+
+- `nueToArLocal` — converts a **GPS-world NUE** point into the **AR-odometry
+  local** frame of `arWorldGroup`, i.e. computes `alignment⁻¹ · nue`. This is the
+  conversion a direct child of `arWorldGroup` needs so that its WORLD position
+  lands exactly on a GPS-world point.
+- `worldNueToGps` — the **inverse direction** used by the GPS-anchor bootstrap:
+  converts an object's GPS-world NUE world position back into a GPS coordinate
+  (the C# `DetermineAndStoreGpsWorldPose` model), carrying the Up axis through as
+  `altitude`.
 
 It exists to give the `alignment⁻¹ · nue` math a single, named, tested home.
 Omitting this conversion (writing raw `nue` into a child of `arWorldGroup`)
@@ -28,6 +34,18 @@ was the alignment-frame bug
     sets it to the zero matrix and warns), which is the caller's
     responsibility to avoid — real alignment matrices are rigid and always
     invertible.
+- `worldNueToGps(worldNue, zero) → LatLongAlt`
+  - `worldNue` — the object's world position in **GPS-world NUE** metres
+    (`x = North`, `y = Up`, `z = East`); a `THREE.Vector3` or any `{x,y,z}`.
+  - `zero` — the GPS zero reference (origin for the conversion).
+  - Returns `{ lat, lon, altitude }` where `lat`/`lon` come from
+    `calcGpsCoords(zero, [x,y,z])` and `altitude = worldNue.y` (the Up axis,
+    which `calcGpsCoords` itself drops).
+  - **Precondition:** `worldNue` must already be GPS-world NUE — i.e. the object
+    rides an `arWorldGroup` whose `.matrix` carries the alignment
+    (`enableArWorldGroupAlignment`). Sampling a pure-VIO world position yields a
+    wrong GPS coordinate.
+  - Error modes: none thrown.
 
 ## Invariants & assumptions
 
@@ -57,6 +75,10 @@ object3D.position.copy(local); // object3D.getWorldPosition() === nue
 
 // One-off (allocates):
 const p = nueToArLocal(alignmentArray, [north, up, east]);
+
+// GpsAnchor bootstrap: pin the anchor to where the object actually sits.
+// (object3D rides arWorldGroup whose matrix carries the alignment.)
+const gps = worldNueToGps(object3D.getWorldPosition(scratch), zeroRef);
 ```
 
 ## Tests
@@ -66,6 +88,8 @@ const p = nueToArLocal(alignmentArray, [north, up, east]);
   parity with the open-coded invert-and-apply it replaced, identity
   degenerate case, pure-translation and pure-rotation direction checks,
   `out`-reuse / fresh-allocation, input-immutability, distance preservation.
+  For `worldNueToGps`: GPS→NUE→GPS round-trip via `calcRelativeCoordsInMeters`,
+  Up-axis→altitude carry-through, and `{x,y,z}`/`Vector3` parity.
 - [frame-conversions.property.test.ts](frame-conversions.property.test.ts) —
   property-based: round-trip and pairwise-distance preservation over fuzzed
   rigid alignments and points.

@@ -20,10 +20,14 @@
  */
 
 import { selectTrackingQuality } from "gps-plus-slam-app-framework/state";
+import { selectAlignmentMatrix } from "gps-plus-slam-app-framework/state";
 import {
   initAR,
+  endARSession,
   getArWorldGroup,
   getCamera,
+  setTrackingStore,
+  setTrackingCallbacks,
 } from "gps-plus-slam-app-framework/ar/webxr-session";
 import {
   startGpsWatch,
@@ -34,22 +38,40 @@ import {
   checkWebXRSupport,
   checkGeolocationPermission,
 } from "gps-plus-slam-app-framework/sensors";
-import { createGpsAnchor } from "gps-plus-slam-app-framework/visualization";
+import {
+  createGpsAnchor,
+  enableArWorldGroupAlignment,
+} from "gps-plus-slam-app-framework/visualization";
 
 import { createAnchorMarker } from "./marker.js";
+import { startReticleHitTest } from "./reticle-hit-test.js";
 
 /** The framework/marker functions a Playwright e2e fake may override. */
 export interface AnchorStarterSeams {
   checkWebXRSupport: typeof checkWebXRSupport;
   checkGeolocationPermission: typeof checkGeolocationPermission;
   initAR: typeof initAR;
+  endARSession: typeof endARSession;
   getArWorldGroup: typeof getArWorldGroup;
   getCamera: typeof getCamera;
+  /**
+   * Inject the tracking store + register the tracking-restart callback. Both
+   * MUST be wired before `initAR` or the framework's per-frame
+   * `updateTrackingState()` never dispatches `poseReceived`/`poseLost`, leaving
+   * `tracking.phase` stuck at `initializing` and the onboarding guidance pinned
+   * to "AR tracking lost". Exposed through the seam (rather than imported
+   * directly) so the e2e suite can assert the wiring actually happens.
+   */
+  setTrackingStore: typeof setTrackingStore;
+  setTrackingCallbacks: typeof setTrackingCallbacks;
   startGpsWatch: typeof startGpsWatch;
   startOrientationWatch: typeof startOrientationWatch;
   requestDeviceOrientationPermission: typeof requestDeviceOrientationPermission;
   createGpsAnchor: typeof createGpsAnchor;
+  enableArWorldGroupAlignment: typeof enableArWorldGroupAlignment;
   selectTrackingQuality: typeof selectTrackingQuality;
+  selectAlignmentMatrix: typeof selectAlignmentMatrix;
+  startReticleHitTest: typeof startReticleHitTest;
   createAnchorMarker: typeof createAnchorMarker;
 }
 
@@ -65,13 +87,19 @@ export const realSeams: AnchorStarterSeams = {
   checkWebXRSupport,
   checkGeolocationPermission,
   initAR,
+  endARSession,
   getArWorldGroup,
   getCamera,
+  setTrackingStore,
+  setTrackingCallbacks,
   startGpsWatch,
   startOrientationWatch,
   requestDeviceOrientationPermission,
   createGpsAnchor,
+  enableArWorldGroupAlignment,
   selectTrackingQuality,
+  selectAlignmentMatrix,
+  startReticleHitTest,
   createAnchorMarker,
 };
 

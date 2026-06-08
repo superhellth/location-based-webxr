@@ -27,21 +27,23 @@ import {
   updateDeviceOrientation,
   startSession,
   computeOnboardingGuidance,
-  selectAlignmentMatrix,
   selectZeroReference,
 } from "gps-plus-slam-app-framework/state";
 import { NullStorageBackend } from "gps-plus-slam-app-framework/storage";
-import {
-  getCurrentArPose,
-  setTrackingStore,
-} from "gps-plus-slam-app-framework/ar/webxr-session";
+import { applyChromiumProjectionLayerWorkaround } from "gps-plus-slam-app-framework/ar/chromium-camera-access-workaround";
+import { getCurrentArPose } from "gps-plus-slam-app-framework/ar/webxr-session";
 import {
   stopGpsWatch,
   stopOrientationWatch,
   type GpsPosition,
 } from "gps-plus-slam-app-framework/sensors";
-import { type GpsAnchor } from "gps-plus-slam-app-framework/visualization";
+import {
+  type GpsAnchor,
+  worldNueToGps,
+} from "gps-plus-slam-app-framework/visualization";
 import type { LatLong, LatLongAlt } from "gps-plus-slam-app-framework/core";
+import { odometryTrackingRestarted } from "gps-plus-slam-app-framework/core";
+import { Vector3 } from "three";
 
 import {
   initialSetupState,
@@ -59,6 +61,8 @@ import { toGuidanceView } from "./guidance-view.js";
 import { toPlacementView } from "./placement-view.js";
 import { isFullySupported, capabilityMessage } from "./capability.js";
 import { getSeams } from "./seams.js";
+import { decideAnchorPlacement } from "./placement-decision.js";
+import { type ReticleHandle } from "./reticle-hit-test.js";
 // --- your content here -----------------------------------------------------
 import { type MarkerOptions } from "./marker.js";
 // ---------------------------------------------------------------------------
@@ -99,6 +103,7 @@ type AppStore = ReturnType<typeof createSlamAppStore>;
 let store: AppStore | null = null;
 let setupState: SetupState = initialSetupState;
 let anchor: GpsAnchor | null = null;
+let reticleHandle: ReticleHandle | null = null;
 let lastGps: LatLongAlt | null = null;
 let lastTrackingReady = false;
 
@@ -122,6 +127,19 @@ function toLatLongAlt(pos: GpsPosition): LatLongAlt {
   return typeof pos.altitude === "number" && Number.isFinite(pos.altitude)
     ? { lat: pos.lat, lon: pos.lon, altitude: pos.altitude }
     : { lat: pos.lat, lon: pos.lon, altitude: 0 };
+}
+
+/**
+ * Current GPS alignment matrix, or null when no store/alignment exists yet.
+ * Read through the seam so the e2e fake can drive the alignment gate (the real
+ * alignment is computed from GPS + AR pose, neither of which exists in a desktop
+ * Playwright browser).
+ */
+function currentAlignment(): ReturnType<
+  ReturnType<typeof getSeams>["selectAlignmentMatrix"]
+> {
+  if (!store) return null;
+  return sel(getSeams().selectAlignmentMatrix);
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +208,17 @@ function spawnAnchor(
   gpsPoint: LatLong | LatLongAlt,
   skipBootstrap: boolean,
   markerOptions: MarkerOptions = {},
+  options: {
+    hideUntilAligned?: boolean;
+    /**
+     * World pose to place the marker at (the reticle hit point, cache-miss).
+     * When omitted the marker stays at the `arWorldGroup` origin (cache-hit;
+     * the skipBootstrap anchor snaps itself into place via steady-state).
+     */
+    worldPosition?: Vector3;
+    /** Forwarded to `createGpsAnchor` (cache-miss persists `?show=` from it). */
+    onBootstrapComplete?: (gpsPoint: LatLong | LatLongAlt) => void;
+  } = {},
 ): GpsAnchor {
   const seams = getSeams();
   const arWorldGroup = seams.getArWorldGroup();
@@ -199,6 +228,30 @@ function spawnAnchor(
   }
   const marker = seams.createAnchorMarker(markerOptions);
   arWorldGroup.add(marker);
+  // Place the marker at the reticle world pose (cache-miss). Refresh the world
+  // matrix first so the world→local conversion uses the current arWorldGroup
+  // transform, then express the world point in arWorldGroup-local coords (the
+  // marker is a child of arWorldGroup).
+  if (options.worldPosition) {
+    arWorldGroup.updateWorldMatrix(true, false);
+    marker.position.copy(
+      arWorldGroup.worldToLocal(options.worldPosition.clone()),
+    );
+  }
+
+  // Bootstrap source: the marker's own GPS-world (NUE) world pose, converted
+  // via `worldNueToGps` — NOT the phone's GPS fix. This pins the anchor to the
+  // reticle point the user aimed at, not the device, and only works because
+  // `enableArWorldGroupAlignment` makes the marker's world position GPS-world
+  // NUE. Skipped entirely for the cache-hit `skipBootstrap` path (no sampling).
+  const sampleScratch = new Vector3();
+  const sampleWorldPoseAsGps = (): LatLongAlt | null => {
+    const zero = sel(selectZeroReference);
+    const alignment = sel(getSeams().selectAlignmentMatrix);
+    // No GPS-world frame yet — skip this bootstrap tick (mirrors "no fix").
+    if (zero === null || alignment === null) return null;
+    return worldNueToGps(marker.getWorldPosition(sampleScratch), zero);
+  };
 
   let gpsAnchor: GpsAnchor;
   try {
@@ -208,9 +261,12 @@ function spawnAnchor(
       camera,
       gpsPoint,
       skipBootstrap,
-      getAlignmentMatrix: () => sel(selectAlignmentMatrix),
+      getAlignmentMatrix: () => sel(getSeams().selectAlignmentMatrix),
       getGpsZeroRef: (): LatLong | null => sel(selectZeroReference),
-      getCurrentGpsPoint: () => lastGps,
+      getCurrentGpsPoint: sampleWorldPoseAsGps,
+      ...(options.onBootstrapComplete
+        ? { onBootstrapComplete: options.onBootstrapComplete }
+        : {}),
     });
   } catch (err) {
     // createGpsAnchor failed *after* the marker was added to the scene — undo
@@ -218,6 +274,29 @@ function spawnAnchor(
     // later retry would overlap.
     arWorldGroup.remove(marker);
     throw err;
+  }
+
+  // Q4 — deferred reveal for the `?show=` reload (cache-hit) path. A
+  // skipBootstrap anchor sits at the AR origin (local 0,0,0) until its first
+  // steady-state commit, which cannot happen until an alignment exists. Showing
+  // the marker before then would flash it at the origin and then jump it to its
+  // real pose. Keep it hidden until the first non-null alignment arrives, then
+  // reveal it where the anchor has by-then placed it.
+  let unsubReveal: (() => void) | null = null;
+  if (options.hideUntilAligned) {
+    marker.visible = false;
+    const revealWhenAligned = (): void => {
+      if (sel(getSeams().selectAlignmentMatrix) === null) return;
+      marker.visible = true;
+      unsubReveal?.();
+      unsubReveal = null;
+    };
+    // Alignment may already be present (e.g. a fast re-localise); check once,
+    // and otherwise reveal on the first store change that produces one.
+    revealWhenAligned();
+    if (!marker.visible && store) {
+      unsubReveal = store.subscribe(revealWhenAligned);
+    }
   }
 
   // The framework's `dispose()` only unregisters the anchor from the frame
@@ -228,6 +307,7 @@ function spawnAnchor(
   const disposeAnchor = gpsAnchor.dispose.bind(gpsAnchor);
   gpsAnchor.dispose = (): void => {
     disposeAnchor();
+    unsubReveal?.();
     arWorldGroup.remove(marker);
   };
   return gpsAnchor;
@@ -238,12 +318,13 @@ function spawnAnchor(
 // so reloading restores it and the link can be shared to another device.
 // ---------------------------------------------------------------------------
 
-/** Build the minimal default-styled anchor spec from a live GPS fix. */
-function anchorSpecFromGps(gps: LatLongAlt): AnchorSpec {
+/** Build the minimal default-styled anchor spec from a committed GPS point. */
+function anchorSpecFromGps(gps: LatLong | LatLongAlt): AnchorSpec {
   return {
     lat: gps.lat,
     lon: gps.lon,
-    alt: gps.altitude ?? 0,
+    alt:
+      "altitude" in gps && typeof gps.altitude === "number" ? gps.altitude : 0,
     ui: 1,
     scale: 1,
     rotationDeg: 0,
@@ -290,22 +371,57 @@ async function copyShareLink(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Placement action (cache-miss branch) — synchronous (URL `?show=` write via
-// history.replaceState), but still routed through the setup FSM's
-// saving → saved / revert + error transitions so the placement view-model
-// renders the in-progress → final states consistently.
+// Placement action (cache-miss branch) — the press positions the marker at the
+// reticle pose and starts the bootstrap; the durable `?show=` write + the
+// `saving → saved` transition happen later, when the bootstrap median is
+// committed (`onBootstrapComplete`). A press that cannot place yet (no surface
+// / no alignment) surfaces a hint via `PLACE_BLOCKED` without entering `saving`.
+// All paths route through the setup FSM so the placement view-model renders the
+// in-progress → final states consistently.
 // ---------------------------------------------------------------------------
 
 function placeAnchor(): void {
   if (!canPlaceAnchor(setupState)) return;
+  // Surface/alignment gate (mirrors MinimalExample's decideTapPlacement): the
+  // anchor is placed under the hit-test reticle, so a press only commits when a
+  // surface is under the cursor AND a GPS alignment exists. Otherwise surface
+  // the matching hint and no-op (the FSM stays placeable — no `saving`).
+  const decision = decideAnchorPlacement({
+    reticleVisible: reticleHandle?.isVisible() ?? false,
+    hasAlignment: currentAlignment() !== null,
+  });
+  if (decision.kind === "blocked") {
+    dispatchSetup({ type: "PLACE_BLOCKED", message: decision.hint });
+    return;
+  }
   dispatchSetup({ type: "PLACE_REQUESTED" });
   try {
+    if (!reticleHandle)
+      throw new Error("Reticle not ready — point at the ground, then retry");
     const gps = lastGps;
     if (!gps)
       throw new Error("No GPS fix yet — wait for a location, then retry");
-    anchor = spawnAnchor(gps, false);
-    writeShowParam([anchorSpecFromGps(gps)]);
-    dispatchSetup({ type: "PLACE_SUCCEEDED" });
+    // Place the marker at the reticle world pose and bootstrap from that pose.
+    // `?show=` is NOT written here: it is persisted from the committed bootstrap
+    // median via `onBootstrapComplete`, so the shared link equals the anchor's
+    // committed reference by construction (and the "Saving…" state stays until
+    // the median lands, then resolves to "Saved ✓"). The reticle pose only
+    // *positions* the marker; the persisted GPS comes from the median.
+    const worldPosition = reticleHandle.getWorldPosition(new Vector3());
+    anchor = spawnAnchor(
+      gps,
+      false,
+      {},
+      {
+        worldPosition,
+        onBootstrapComplete: (median) => {
+          writeShowParam([anchorSpecFromGps(median)]);
+          reticleHandle?.dispose();
+          reticleHandle = null;
+          dispatchSetup({ type: "PLACE_SUCCEEDED" });
+        },
+      },
+    );
   } catch (err) {
     // Fully tear down a partially created anchor so a retry cannot accumulate
     // overlapping markers / leaked frame-loop registrations. This covers the
@@ -328,16 +444,32 @@ function placeAnchor(): void {
  * Unwind a failed AR boot so the app never lingers half-started. Any of the
  * post-`initAR` steps in `startAr` (the awaited orientation-permission prompt,
  * the GPS/orientation watch starts, the cache-hit `spawnAnchor`) can throw or
- * reject; this rolls back every side effect they may have left behind — stop
- * the sensor watches, drop a partially created anchor, and restore the start
- * screen — then surfaces the reason so the user can retry. Each cleanup call is
- * idempotent, so the helper is safe even when only some steps had run.
+ * reject; this rolls back every side effect they may have left behind — tear
+ * down the framework session, stop the sensor watches, drop a partially created
+ * anchor, and restore the start screen — then surfaces the reason so the user
+ * can retry. Each cleanup call is idempotent, so the helper is safe even when
+ * only some steps had run.
  */
-function failStart(err: unknown, fallbackMessage: string): void {
+async function failStart(err: unknown, fallbackMessage: string): Promise<void> {
+  // Tear down the framework session (renderer, xrSession, session-disposer
+  // registry) so `initAR()` can succeed on a retry. Without this, the
+  // re-entry guard ("AR session already initialized") permanently wedges the
+  // app after a post-initAR failure. Safe to call even when initAR itself
+  // failed (the session is only partly up or not at all).
+  try {
+    await getSeams().endARSession();
+  } catch {
+    // endARSession wraps XRSession.end() in try/finally and always runs
+    // resetWebXRState(); a throw here means the native session was already
+    // ended or never started — either way the framework is back to clean.
+  }
+
   stopGpsWatch();
   stopOrientationWatch();
   anchor?.dispose();
   anchor = null;
+  reticleHandle?.dispose();
+  reticleHandle = null;
 
   dom.startScreen.hidden = false;
   dom.guidance.hidden = true;
@@ -357,14 +489,41 @@ async function startAr(): Promise<void> {
   store = createSlamAppStore({ storageBackend: new NullStorageBackend() });
   store.subscribe(onStoreChanged);
 
-  // Tracking restart detection must be wired before initAR.
-  setTrackingStore(store);
+  // Tracking-state pipeline must be wired before initAR. The framework's
+  // per-frame `updateTrackingState()` only dispatches `poseReceived`/`poseLost`
+  // into the store when BOTH a store is injected AND a tracking-restart
+  // callback is registered — otherwise it silently no-ops, `tracking.phase`
+  // never leaves `initializing`, and the tracking-quality report (and thus the
+  // onboarding guidance) stays pinned to "AR tracking lost" with no progress.
+  // The callback also re-bases odometry after an origin reset so alignment
+  // continues correctly across tracking restarts (same contract as the
+  // recorder). Routed through the seam so the e2e suite can assert the wiring
+  // actually happens (the fakes record both calls).
+  getSeams().setTrackingStore(store);
+  getSeams().setTrackingCallbacks((payload) => {
+    store?.dispatch(odometryTrackingRestarted(payload));
+  });
 
   const appContainer = el("app");
   try {
-    await getSeams().initAR(appContainer);
+    // This example places its anchor under a screen-centre hit-test reticle —
+    // it never reads the camera image or depth. Turn off the camera/depth
+    // crash-surface features (which default to `true`) so the session doesn't
+    // request `camera-access` or `depth-sensing` or acquire the camera texture
+    // each frame, but DO request `hit-test` so the cache-miss reticle works.
+    // `dom-overlay` and the CSS3D renderer stay on so the overlay UI still
+    // composites in AR.
+    await getSeams().initAR(
+      appContainer,
+      {
+        enableCameraAccess: false,
+        enableDepthSensingFeature: false,
+        enableCameraTextureAcquisition: false,
+      },
+      { requestHitTest: true },
+    );
   } catch (err) {
-    failStart(err, "Failed to start the AR session.");
+    await failStart(err, "Failed to start the AR session.");
     return;
   }
 
@@ -380,6 +539,22 @@ async function startAr(): Promise<void> {
         startTime: Date.now(),
       }),
     );
+
+    // GPS-register the AR view: lerp the store's alignment onto arWorldGroup so
+    // the camera and the anchored marker ride the alignment together. Without
+    // this the camera is pure-VIO and the anchor must absorb the full alignment
+    // delta on every off-screen re-registration.
+    const alignmentArWorldGroup = getSeams().getArWorldGroup();
+    if (alignmentArWorldGroup) {
+      // Fire-and-forget: the framework ties this binding's disposal to the AR
+      // session teardown (it registers a session disposer that
+      // `resetWebXRState()` flushes), so a restart never leaks the previous
+      // session's per-frame lerp + store subscription.
+      getSeams().enableArWorldGroupAlignment({
+        store,
+        arWorldGroup: alignmentArWorldGroup,
+      });
+    }
 
     // GPS → store (+ remember the latest fix for the anchor's
     // getCurrentGpsPoint).
@@ -407,18 +582,35 @@ async function startAr(): Promise<void> {
     if (cached) {
       // cache-hit: seed from the URL-decoded GPS and let it re-converge as
       // alignment settles (skipBootstrap — no live median accumulation), then
-      // reveal the marker in its requested `ui` style.
+      // reveal the marker in its requested `ui` style. `hideUntilAligned` keeps
+      // the marker hidden until the first alignment arrives so it never flashes
+      // at the AR origin before jumping to its real pose (Q4).
       lastGps = { lat: cached.lat, lon: cached.lon, altitude: cached.alt };
-      anchor = spawnAnchor(lastGps, true, {
-        ui: cached.ui,
-        scale: cached.scale,
-        rotationDeg: cached.rotationDeg,
-      });
+      anchor = spawnAnchor(
+        lastGps,
+        true,
+        {
+          ui: cached.ui,
+          scale: cached.scale,
+          rotationDeg: cached.rotationDeg,
+        },
+        { hideUntilAligned: true },
+      );
+    } else {
+      // cache-miss: drive a screen-centre hit-test reticle so the user places
+      // the anchor under the AR cursor (the "ground spot" they point at), not
+      // at their own position. Parented under `arWorldGroup` so the reticle
+      // rides the GPS alignment and its world pose is GPS-world (NUE).
+      if (alignmentArWorldGroup) {
+        reticleHandle = getSeams().startReticleHitTest({
+          arWorldGroup: alignmentArWorldGroup,
+        });
+      }
     }
     dispatchSetup({ type: "BOOTED", hasCachedAnchor: cached !== null });
     render();
   } catch (err) {
-    failStart(err, "Failed to start the AR session.");
+    await failStart(err, "Failed to start the AR session.");
   }
 }
 
@@ -427,6 +619,13 @@ async function startAr(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  // Apply the Chromium WebXR camera-access tab-crash workaround before any
+  // session setup. It always forces the XRWebGLLayer fallback (required on
+  // every affected Chrome build, incl. Chrome 150) and additionally persists
+  // the baseLayer only on the affected Chrome window, so calling it
+  // unconditionally here is safe.
+  applyChromiumProjectionLayerWorkaround();
+
   render();
 
   const seams = getSeams();
@@ -465,6 +664,7 @@ async function main(): Promise<void> {
 window.addEventListener("beforeunload", () => {
   stopGpsWatch();
   anchor?.dispose();
+  reticleHandle?.dispose();
 });
 
 void main();

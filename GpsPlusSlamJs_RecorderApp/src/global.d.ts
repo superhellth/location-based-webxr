@@ -73,6 +73,7 @@ declare global {
       updateTrackingQuality: (report: TrackingQualityReport) => void;
       // Mandatory storage selection hooks (Task 1a-fix)
       setFolderSelected: (selected: boolean) => void;
+      setFolderImportExpanded: (expanded: boolean, hint?: string) => void;
       setSaveLocationSelected: (selected: boolean) => void;
     };
 

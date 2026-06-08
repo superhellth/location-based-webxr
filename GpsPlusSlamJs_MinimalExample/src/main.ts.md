@@ -2,33 +2,75 @@
 
 ## Purpose
 
-Entry script for the minimal example. Glue only — wires
-`createSlamAppStore()` (with `NullStorageBackend`) to a tiny
-Three.js scene and a status panel rendered by [status.ts](status.ts).
+Entry script for the minimal **GPS + AR hit-test** example. Glue only — a
+structural port of the stock three.js `webxr_ar_hittest` example
+(button → AR session → hit-test reticle → tap-to-place) adapted for the
+GPS-aligned framework.
 
 Intentionally does **not** depend on any recorder-only slices
-(routing, scenarios, ref-points). It is the smoke test that the
-framework's composable store factory is consumable from a fresh app.
+(routing, scenarios, ref-points). It demonstrates the smallest end-to-end AR
+integration over `createEnableGpsArController` + `registerXrFrameUpdate`.
 
 ## Behavior
 
 - Boots `createSlamAppStore({ storageBackend: new NullStorageBackend() })`
-  with default options (uses the bundled community license key).
-- Creates a Three.js scene with a single rotating cube and basic
-  lighting; resizes to the window.
-- Subscribes to the store; on each change, re-derives a small
-  `ExampleStatusInput` shape and feeds it to `formatStatus()`.
+  (the store backs the status panel's recording counters; the smoke test in
+  [boot.test.ts](boot.test.ts) covers that it resolves and boots).
+- Creates an "Enable GPS AR" controller and renders the app's **own** button
+  over its observable state via the pure `buttonView()` mapping
+  (checking → unsupported/ready → starting → running/stopping/error).
+- On click, calls `controller.enable({ container, requestHitTest: true,
+  isolationOptions, onGpsPosition })` inside the user gesture so permission
+  prompts are allowed. `isolationOptions` disables the camera/depth
+  crash-surface flags (`enableCameraAccess`, `enableDepthSensingFeature`,
+  `enableCameraTextureAcquisition` → `false`) since this example only places
+  content under a hit-test reticle; `dom-overlay` / CSS3D stay on for the
+  status-hint UI.
+- Once `running`, installs the hit-test reticle: requests a `viewer`-space
+  hit-test source once, then each XR frame reads
+  `frame.getHitTestResults(source)` and drives the reticle via the framework's
+  `hit-test-reticle.ts` (`createReticleMesh` / `updateReticle`). On session
+  `end` the per-session frame callback unregisters itself (via the handle from
+  `registerXrFrameUpdate`) so a later AR re-entry — which calls
+  `startArInteraction` again against a fresh `arWorldGroup` + reticle — does not
+  leave the old callback (or a hit-test source it resolved after `end`) running
+  against the new session.
+- Wires the AR `select` (tap) through the GPS gate in [placement.ts](placement.ts):
+  before the first GPS fix a tap flashes a transient "waiting for GPS…" hint;
+  after a fix it co-spawns the contrast pair (see below).
+- Feeds GPS + orientation into the store: dispatches `startSession` when AR
+  starts (recording must be active), forwards every fix through
+  `createGpsPositionHandler` and every orientation sample through
+  `updateDeviceOrientation`, so the alignment matrix the anchor reads is live.
+- On a valid tap, `placeContrastPair` co-spawns (via [co-spawn.ts](co-spawn.ts))
+  the deliberate floater cube under the scene root and an anchored marker under
+  `arWorldGroup` at the same world pose, then hands the marker to
+  `createGpsAnchor` in its **default bootstrap** (no `skipBootstrap`,
+  `mode: 'snap-when-offscreen'`, seeded with the latest GPS fix). It also draws a
+  red [connector line](connector-line.ts) from the sphere to its cube (a
+  per-frame `registerXrFrameUpdate`) so each pair — and the drift between them —
+  stays identifiable when several pairs are on screen.
 
 ## Invariants & assumptions
 
-- The DOM ships two known IDs: `#scene` (canvas) and `#status` (pre).
-  Missing either throws at startup so misconfiguration is loud.
-- No WebXR / no GPS sensor wiring is started here. The store therefore
-  stays idle in this example; integrators see how to wire it up by
-  reading [GpsPlusSlamJs_RecorderApp](../../GpsPlusSlamJs_RecorderApp/).
+- The DOM ships three known IDs: `#status` (pre), `#enter-ar` (button) and
+  `#ar-root` (the AR container passed to `initAR`). Missing any throws at
+  startup so misconfiguration is loud.
+- **Delta #1 — app-rendered button.** The framework owns the permission /
+  enter-AR *sequence* (the controller), not the button DOM. The app styles and
+  labels its own `<button>`.
+- **Delta #2 — parenting.** The reticle (and any placed content) is added under
+  `getArWorldGroup()` (AR-local space), **not** the GPS-aligned scene root
+  (`getScene()`). This is the single line a porting developer is most likely to
+  get wrong (Finding 2 in the plan doc).
+- The `XrFrameContext` handed to the registered update is valid **only
+  synchronously** inside the callback — the example never stashes `frame` /
+  `session` for later use.
 
 ## Tests
 
-This module is glue and is verified via `pnpm dev` + a real browser.
-The pure formatter it depends on is unit-tested in
-[status.test.ts](status.test.ts).
+This module is WebXR glue and is verified manually via `pnpm dev` on an
+AR-capable device. The pure pieces it depends on are unit-tested:
+the reticle view-model in [reticle.test.ts](reticle.test.ts) and the status
+formatter in [status.test.ts](status.test.ts). The store boot is covered by
+[boot.test.ts](boot.test.ts).

@@ -716,10 +716,12 @@ export function validateEnterButton(): void {
   let valid = false;
   let hintText = '';
 
-  // Check requirements in order of UI flow
-  if (!folderSelected) {
-    hintText = 'Open a folder with previous recordings';
-  } else if (!saveLocationSelected) {
+  // Check requirements in order of UI flow. The read folder is NOT gated here:
+  // recordings are written to the chosen save location (and OPFS), and scenarios
+  // load from OPFS without a folder. The folder is an optional import/recovery
+  // step (see setFolderImportExpanded + the 2026-06-05 recorder setup-UX
+  // decision D5), so only the save location, permissions, and a scenario gate.
+  if (!saveLocationSelected) {
     hintText = 'Choose a save location for this recording';
   } else if (!permissionsReady) {
     hintText = 'Grant required permissions to continue';
@@ -1019,6 +1021,38 @@ export function setPermissionsReady(ready: boolean): void {
  */
 export function setFolderSelected(selected: boolean): void {
   folderSelected = selected;
+}
+
+/**
+ * Expand or collapse the optional "Import previous recordings" folder section,
+ * and optionally show a one-line hint above the folder button.
+ *
+ * D5 (2026-06-05 recorder setup UX): the folder-read step is collapsed by
+ * default and auto-expanded only when the chosen scenario has no saved
+ * reference points in OPFS, with a recovery hint. Passing an empty/undefined
+ * hint clears and hides the hint line. Degrades gracefully if the elements are
+ * absent (e.g. minimal test DOM).
+ */
+export function setFolderImportExpanded(
+  expanded: boolean,
+  hint?: string
+): void {
+  const section = document.getElementById(
+    'folder-import-section'
+  ) as HTMLDetailsElement | null;
+  if (section) {
+    section.open = expanded;
+  }
+  const hintEl = document.getElementById('folder-import-hint');
+  if (hintEl) {
+    if (hint && hint.trim()) {
+      hintEl.textContent = hint;
+      hintEl.classList.remove('hidden');
+    } else {
+      hintEl.textContent = '';
+      hintEl.classList.add('hidden');
+    }
+  }
 }
 
 /**

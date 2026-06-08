@@ -92,9 +92,11 @@ test.describe('Recorder App Smoke Tests', () => {
     const storageSetup = page.locator('#storage-setup');
     await expect(storageSetup).toBeVisible();
 
-    // Open folder button should be visible
+    // The save location is the mandatory storage step and is visible by default.
+    // The folder-import step is an optional collapsed section (D5), so its
+    // button is present but hidden until expanded.
     const openFolderBtn = page.locator('#btn-open-folder');
-    await expect(openFolderBtn).toBeVisible();
+    await expect(openFolderBtn).toBeAttached();
     await expect(openFolderBtn).toContainText('Open Previous Recordings');
 
     // Choose save location button should be visible

@@ -8,6 +8,13 @@ export {
   createAlignmentLerper,
 } from './alignment-lerper.js';
 
+// --- ar-world-group-alignment ---
+export {
+  type ArWorldGroupAlignmentOptions,
+  type ArWorldGroupAlignmentHandle,
+  enableArWorldGroupAlignment,
+} from './ar-world-group-alignment.js';
+
 // --- camera-follower ---
 export {
   type CameraFollower,
@@ -37,7 +44,14 @@ export {
 } from './frustum-visibility.js';
 
 // --- frame-conversions ---
-export { nueToArLocal } from './frame-conversions.js';
+export { nueToArLocal, worldNueToGps } from './frame-conversions.js';
+
+// --- hit-test-reticle ---
+export {
+  type HitMatrix,
+  createReticleMesh,
+  updateReticle,
+} from './hit-test-reticle.js';
 
 // --- gps-anchor ---
 export {

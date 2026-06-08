@@ -20,8 +20,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { nueToArLocal } from './frame-conversions.js';
+import { nueToArLocal, worldNueToGps } from './frame-conversions.js';
 import { makeNonTrivialAlignment } from '../test-utils/non-trivial-alignment.js';
+import { calcRelativeCoordsInMeters } from '../core/index.js';
 
 /** Forward-apply a column-major alignment array to a point — the inverse of
  * what `nueToArLocal` does. Used to verify the round-trip independently of
@@ -160,5 +161,53 @@ describe('nueToArLocal', () => {
     const l1 = nueToArLocal(alignment, p1);
     const l2 = nueToArLocal(alignment, p2);
     expect(l1.distanceTo(l2)).toBeCloseTo(5, 9);
+  });
+});
+
+/**
+ * Unit tests for `worldNueToGps` — the inverse used by the GPS-anchor bootstrap
+ * to convert the object's GPS-world NUE world position back into a GPS
+ * coordinate (the C# `DetermineAndStoreGpsWorldPose` model). The defining
+ * contract is the **round-trip** against `calcRelativeCoordsInMeters`: a GPS
+ * point converted to NUE and back must return the same GPS point, and the Up
+ * (altitude) axis must survive the trip even though `calcGpsCoords` itself
+ * returns only lat/lon.
+ */
+describe('worldNueToGps', () => {
+  it('round-trips GPS → NUE → GPS for several offsets', () => {
+    const zero = { lat: 48.137, lon: 11.575 };
+    // A spread of targets around the origin (north/south, east/west, up).
+    const targets = [
+      { lat: 48.138, lon: 11.575, altitude: 12 },
+      { lat: 48.136, lon: 11.576, altitude: -5 },
+      { lat: 48.1375, lon: 11.574, altitude: 0 },
+    ];
+    for (const target of targets) {
+      const nue = calcRelativeCoordsInMeters(zero, target, target.altitude, 0);
+      const worldNue = new THREE.Vector3(nue[0], nue[1], nue[2]);
+      const gps = worldNueToGps(worldNue, zero);
+      expect(gps.lat).toBeCloseTo(target.lat, 6);
+      expect(gps.lon).toBeCloseTo(target.lon, 6);
+      // Altitude is carried from the Up axis (NUE index 1) verbatim.
+      expect(gps.altitude).toBeCloseTo(target.altitude, 6);
+    }
+  });
+
+  it('carries the Up axis (NUE y) through as altitude', () => {
+    // calcGpsCoords ignores Up for lat/lon; worldNueToGps must still surface
+    // the Up component as altitude so the steady-state vertical target
+    // reproduces where the object was sampled.
+    const zero = { lat: 0, lon: 0 };
+    const gps = worldNueToGps({ x: 0, y: 42.5, z: 0 }, zero);
+    expect(gps.altitude).toBeCloseTo(42.5, 9);
+  });
+
+  it('accepts a plain {x,y,z} as well as a THREE.Vector3', () => {
+    const zero = { lat: 10, lon: 20 };
+    const fromPlain = worldNueToGps({ x: 5, y: 1, z: -3 }, zero);
+    const fromVec = worldNueToGps(new THREE.Vector3(5, 1, -3), zero);
+    expect(fromPlain.lat).toBeCloseTo(fromVec.lat, 12);
+    expect(fromPlain.lon).toBeCloseTo(fromVec.lon, 12);
+    expect(fromPlain.altitude).toBe(fromVec.altitude);
   });
 });

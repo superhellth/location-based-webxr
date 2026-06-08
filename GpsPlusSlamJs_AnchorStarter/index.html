@@ -144,50 +144,58 @@
     </style>
   </head>
   <body>
-    <div id="app"></div>
-    <div id="overlay">
-      <!-- Onboarding guidance widget (driven by computeOnboardingGuidance) -->
-      <section id="guidance" class="panel" data-testid="guidance" hidden>
-        <div id="guidance-title">Starting up…</div>
-        <div id="guidance-bar"><div id="guidance-bar-fill"></div></div>
-        <div id="guidance-meta">
-          <span>alignment</span>
-          <span id="guidance-percent">0%</span>
-        </div>
-        <div id="guidance-hint"></div>
-      </section>
+    <!--
+      #overlay MUST be a descendant of #app (the element passed to initAR).
+      Under the WebXR DOM Overlay feature only the initAR container's subtree
+      composites over the AR camera feed; a sibling overlay vanishes once AR
+      starts. See the repo-meta guard tests/repo-config/hud-overlay-nesting.test.js
+      and the AppFramework README "DOM-Overlay / HUD stacking convention".
+    -->
+    <div id="app">
+      <div id="overlay">
+        <!-- Onboarding guidance widget (driven by computeOnboardingGuidance) -->
+        <section id="guidance" class="panel" data-testid="guidance" hidden>
+          <div id="guidance-title">Starting up…</div>
+          <div id="guidance-bar"><div id="guidance-bar-fill"></div></div>
+          <div id="guidance-meta">
+            <span>alignment</span>
+            <span id="guidance-percent">0%</span>
+          </div>
+          <div id="guidance-hint"></div>
+        </section>
 
-      <!-- Start / capability-gated screen -->
-      <section id="start-screen" class="panel" data-testid="start-screen">
-        <h1>Persistent GPS anchor</h1>
-        <p>
-          Place a marker in the real world, save it, then reload the page — it
-          reappears at the exact same spot. Go outside with a clear view of the
-          sky for the best GPS.
-        </p>
-        <button id="start-button" data-testid="start-button">Start AR</button>
-        <div
-          id="capability-message"
-          data-testid="capability-message"
-          hidden
-        ></div>
-      </section>
+        <!-- Start / capability-gated screen -->
+        <section id="start-screen" class="panel" data-testid="start-screen">
+          <h1>Persistent GPS anchor</h1>
+          <p>
+            Place a marker in the real world, save it, then reload the page — it
+            reappears at the exact same spot. Go outside with a clear view of
+            the sky for the best GPS.
+          </p>
+          <button id="start-button" data-testid="start-button">Start AR</button>
+          <div
+            id="capability-message"
+            data-testid="capability-message"
+            hidden
+          ></div>
+        </section>
 
-      <!-- Placement controls -->
-      <section id="placement" class="panel" data-testid="placement" hidden>
-        <div id="banner" data-testid="banner"></div>
-        <div id="error" data-testid="error" hidden></div>
-        <button id="place-button" data-testid="place-button" hidden>
-          Place anchor
-        </button>
-        <button id="copy-link-button" data-testid="copy-link-button" hidden>
-          Copy link
-        </button>
-        <div id="reload-prompt" data-testid="reload-prompt" hidden>
-          Your anchor lives in this page's link — reload to test persistence, or
-          copy the link to open it on another device.
-        </div>
-      </section>
+        <!-- Placement controls -->
+        <section id="placement" class="panel" data-testid="placement" hidden>
+          <div id="banner" data-testid="banner"></div>
+          <div id="error" data-testid="error" hidden></div>
+          <button id="place-button" data-testid="place-button" hidden>
+            Place anchor
+          </button>
+          <button id="copy-link-button" data-testid="copy-link-button" hidden>
+            Copy link
+          </button>
+          <div id="reload-prompt" data-testid="reload-prompt" hidden>
+            Your anchor lives in this page's link — reload to test persistence,
+            or copy the link to open it on another device.
+          </div>
+        </section>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -5,8 +5,8 @@
   "description": "Starter example consuming gps-plus-slam-app-framework: place a single GPS anchor, encode it into the page URL (?show=), reload, re-localise and re-display it at the exact physical spot — and share the link to open the same anchor on another device. The 'meaningful minimal' rung between the trivial minimal example and the full recorder app.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.app.json && vite build",
+    "dev": "pnpm run build:framework && vite",
+    "build": "pnpm run build:framework && tsc -p tsconfig.app.json && vite build",
     "preview": "vite preview",
     "test": "pnpm run test:core && pnpm run test:e2e",
     "test:core": "pnpm run format && pnpm run lint && pnpm run lint:css && pnpm run check:all && pnpm run typecheck && pnpm run typecheck:tests && pnpm run test:unit",

@@ -78,6 +78,27 @@ test.describe("Anchor starter — Tier 1 placement flow", () => {
     );
   });
 
+  test("wires BOTH the tracking store and the tracking-restart callback during boot", async ({
+    page,
+  }) => {
+    // Regression guard for the "guidance stuck on AR tracking lost" bug. The
+    // framework only forwards per-frame AR poses into the store when BOTH
+    // setTrackingStore AND setTrackingCallbacks are wired before initAR; drop
+    // either and tracking.phase never leaves `initializing`, pinning the
+    // onboarding guidance to "AR tracking lost" forever. The guidance e2e
+    // assertions above fake selectTrackingQuality directly, so they would NOT
+    // catch the missing wiring — this test observes the seam calls themselves.
+    await bootAnchorStarter(page);
+
+    const wiring = await page.evaluate(() => ({
+      store: window.__anchorStarterTest.trackingStoreWired,
+      callbacks: window.__anchorStarterTest.trackingCallbacksWired,
+    }));
+
+    expect(wiring.store).toBe(true);
+    expect(wiring.callbacks).toBe(true);
+  });
+
   test("saves the anchor and surfaces the share/reload affordances", async ({
     page,
   }) => {
@@ -151,6 +172,61 @@ test.describe("Anchor starter — Tier 1 placement flow", () => {
       scale: 1,
       rotationDeg: 0,
     });
+  });
+
+  test("blocks placement with the point-at-the-ground hint when no surface is under the reticle", async ({
+    page,
+  }) => {
+    // The anchor is placed under the hit-test reticle (the AR cursor), so a
+    // press with no surface must NOT place — it surfaces the hint and the
+    // button stays placeable for a retry once the user points at the ground.
+    await bootAnchorStarter(page);
+    await pushGpsFix(page, SAMPLE_FIX);
+
+    await page.evaluate(() => {
+      window.__anchorStarterTest.reticleVisible = false;
+    });
+    await page.getByTestId("place-button").click();
+
+    // Hint surfaced; nothing saved; button still placeable.
+    const error = page.getByTestId("error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Point your phone at the ground");
+    const placeButton = page.getByTestId("place-button");
+    await expect(placeButton).toHaveText("Place anchor");
+    await expect(placeButton).toBeEnabled();
+    await expect(page.getByTestId("copy-link-button")).toBeHidden();
+    const search = await page.evaluate(() => location.search);
+    expect(search).not.toMatch(/[?&]show=/);
+
+    // Pointing at the ground (reticle visible) then retrying places normally.
+    await page.evaluate(() => {
+      window.__anchorStarterTest.reticleVisible = true;
+    });
+    await page.getByTestId("place-button").click();
+    await expect(placeButton).toHaveText("Saved ✓");
+  });
+
+  test("blocks placement with the alignment hint when GPS alignment has not arrived", async ({
+    page,
+  }) => {
+    // A surface is under the cursor but alignment is still null → the reticle's
+    // world pose is not yet GPS-world, so placement must wait and surface the
+    // alignment hint rather than committing the anchor to a meaningless GPS.
+    await bootAnchorStarter(page);
+    await pushGpsFix(page, SAMPLE_FIX);
+
+    await page.evaluate(() => {
+      window.__anchorStarterTest.alignmentMatrix = null;
+    });
+    await page.getByTestId("place-button").click();
+
+    const error = page.getByTestId("error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Aligning to GPS");
+    await expect(page.getByTestId("place-button")).toHaveText("Place anchor");
+    const search = await page.evaluate(() => location.search);
+    expect(search).not.toMatch(/[?&]show=/);
   });
 
   test("reverts and surfaces an error when anchor creation fails", async ({
@@ -245,5 +321,45 @@ test.describe("Anchor starter — boot rollback", () => {
     await expect(message).not.toBeEmpty();
     await expect(page.getByTestId("guidance")).toBeHidden();
     await expect(page.getByTestId("placement")).toBeHidden();
+  });
+
+  /**
+   * Why this test matters: when `failStart` fires after `initAR` has already
+   * created the renderer + WebXR session, it must call `endARSession()` to
+   * return the framework to a clean, re-initialisable state. Without that call
+   * `renderer`/`xrSession` stay non-null and `initAR()` throws on the retry
+   * ("AR session already initialized"), permanently wedging the app. The faked
+   * seams don't reproduce the real re-entry guard (the fake `initAR` is a
+   * no-op), but we can assert the call happened and that the retry boots
+   * cleanly.
+   */
+  test("calls endARSession on post-initAR failure and retry boots cleanly", async ({
+    page,
+  }) => {
+    await installAnchorStarterFakes(page, { failOrientationPermission: true });
+    await page.goto("/");
+
+    await page.getByTestId("start-button").click();
+
+    // Wait for the rollback to complete.
+    await expect(page.getByTestId("start-screen")).toBeVisible();
+    await expect(page.getByTestId("start-button")).toBeEnabled();
+
+    // endARSession must have been called during failStart.
+    const calls = await page.evaluate(
+      () => window.__anchorStarterTest.endARSessionCalls,
+    );
+    expect(calls).toBe(1);
+
+    // Clear the fault so the retry succeeds.
+    await page.evaluate(() => {
+      window.__anchorStarterTest.failOrientationPermission = false;
+      window.__anchorStarterTest.endARSessionCalls = 0;
+    });
+
+    // Retry: the app should boot fully now that the framework is clean.
+    await page.getByTestId("start-button").click();
+    await expect(page.getByTestId("guidance")).toBeVisible();
+    await expect(page.getByTestId("placement")).toBeVisible();
   });
 });

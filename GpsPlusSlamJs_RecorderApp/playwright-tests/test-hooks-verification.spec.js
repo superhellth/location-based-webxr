@@ -242,6 +242,8 @@ test.describe('Test Hooks Match Real Behavior', () => {
       // Mandatory storage selection hooks (Task 1a-fix)
       'setFolderSelected',
       'setSaveLocationSelected',
+      // Optional folder-import collapse hook (D5)
+      'setFolderImportExpanded',
     ];
 
     // Verify no hook is missing from our wait condition

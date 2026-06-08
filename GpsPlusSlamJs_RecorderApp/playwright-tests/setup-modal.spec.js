@@ -81,11 +81,20 @@ test.describe('Setup Modal Flow', () => {
   test('storage buttons are visible for mandatory selection', async ({
     page,
   }) => {
-    // Task 1a-fix: Storage is now mandatory (not collapsible)
-    const openFolderBtn = page.locator('#btn-open-folder');
+    // D5 (2026-06-05): the save location is the only mandatory storage step and
+    // is visible by default; the folder-import step is an OPTIONAL collapsed
+    // section, so its button is hidden until the section is expanded.
     const chooseSaveBtn = page.locator('#btn-choose-save');
-    await expect(openFolderBtn).toBeVisible();
     await expect(chooseSaveBtn).toBeVisible();
+
+    const folderSection = page.locator('#folder-import-section');
+    await expect(folderSection).toBeVisible(); // the <summary> is shown
+    const openFolderBtn = page.locator('#btn-open-folder');
+    await expect(openFolderBtn).toBeHidden(); // collapsed by default
+
+    // Expanding the optional section reveals the folder button.
+    await page.evaluate(() => window.testHooks.setFolderImportExpanded(true));
+    await expect(openFolderBtn).toBeVisible();
   });
 
   test('folder status shows not selected initially', async ({ page }) => {
@@ -131,6 +140,9 @@ test.describe('Setup Modal Flow', () => {
       }
     });
 
+    // The folder button lives in the collapsed optional section (D5); expand it
+    // first so it is actionable, then click it.
+    await page.evaluate(() => window.testHooks.setFolderImportExpanded(true));
     const openFolderBtn = page.locator('#btn-open-folder');
     await openFolderBtn.click();
 

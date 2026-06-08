@@ -10,10 +10,23 @@ export {
   CameraBlitCapture,
 } from './camera-blit-capture.js';
 
+// --- capability-checker ---
+export {
+  type CapabilitySupport,
+  type CapabilityMessageOptions,
+  isFullySupported,
+  capabilityMessage,
+} from './capability-checker.js';
+
 // --- chromium-camera-access-workaround ---
 export {
   type ChromiumProjectionLayerWorkaroundResult,
+  type ChromeVersion,
+  BASELAYER_WINDOW_MIN,
+  BASELAYER_WINDOW_MAX,
   applyChromiumProjectionLayerWorkaround,
+  parseChromeVersion,
+  needsBaseLayerPersistence,
 } from './chromium-camera-access-workaround.js';
 
 // --- capture-failure-tracker ---
@@ -35,6 +48,24 @@ export {
 
 // --- frame-loop ---
 export { type FrameUpdate, registerFrameUpdate } from './frame-loop.js';
+
+// --- xr-frame-loop ---
+export {
+  type XrFrameContext,
+  type XrFrameUpdate,
+  registerXrFrameUpdate,
+} from './xr-frame-loop.js';
+
+// --- enable-gps-ar ---
+export {
+  type EnableGpsArStatus,
+  type EnableGpsArState,
+  type EnableGpsArConfig,
+  type EnableGpsArResult,
+  type EnableGpsArDeps,
+  type EnableGpsArController,
+  createEnableGpsArController,
+} from './enable-gps-ar.js';
 
 // --- image-capture ---
 export {
@@ -80,7 +111,15 @@ export {
   getDepthSampleCount,
   setFrameCallback,
   getLiveCss3dManager,
+  getScene,
+  getArWorldGroup,
+  getCamera,
+  getCurrentArPose,
+  type SessionFeatureOptions,
 } from './webxr-session.js';
+
+// --- webxr-nue-basis ---
+export { WEBXR_TO_NUE } from './webxr-nue-basis.js';
 
 // --- xr-camera-texture ---
 export {

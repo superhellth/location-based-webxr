@@ -17,7 +17,7 @@
         color: #eee;
         font-family: system-ui, sans-serif;
       }
-      #scene {
+      #ar-root {
         position: fixed;
         inset: 0;
         z-index: 0;
@@ -36,11 +36,42 @@
         white-space: pre-line;
         max-width: min(70vw, 480px);
       }
+      #enter-ar {
+        position: fixed;
+        left: 50%;
+        bottom: 32px;
+        transform: translateX(-50%);
+        z-index: 2;
+        padding: 12px 20px;
+        font-size: 15px;
+        font-family: inherit;
+        color: #eee;
+        background: #2b6cff;
+        border: 1px solid #4f8cff;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #enter-ar:disabled {
+        background: #333;
+        border-color: #444;
+        color: #999;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
-    <canvas id="scene"></canvas>
-    <pre id="status" data-testid="status">loading…</pre>
+    <!--
+      #status and #enter-ar MUST be descendants of #ar-root (the element passed
+      to initAR). Under the WebXR DOM Overlay feature only the initAR container's
+      subtree composites over the AR camera feed; a sibling overlay vanishes once
+      AR starts. See the repo-meta guard
+      tests/repo-config/hud-overlay-nesting.test.js and the AppFramework README
+      "DOM-Overlay / HUD stacking convention".
+    -->
+    <div id="ar-root">
+      <pre id="status" data-testid="status">loading…</pre>
+      <button id="enter-ar" type="button" disabled>Checking AR support…</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

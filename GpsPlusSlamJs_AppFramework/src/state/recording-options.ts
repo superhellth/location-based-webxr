@@ -36,10 +36,16 @@ export interface ArCrashIsolationOptions {
   enableCameraTextureAcquisition: boolean;
   /**
    * Apply the Chromium WebXR camera-access tab-crash workaround at app
-   * bootstrap (deletes `XRWebGLBinding.prototype.createProjectionLayer` and
-   * `XRRenderState.prototype.layers` so three.js falls back to
-   * `XRWebGLLayer`). Opt-in because the upstream issue thread warns it may
-   * break WebXR on unaffected devices.
+   * bootstrap. The workaround always deletes
+   * `XRWebGLBinding.prototype.createProjectionLayer` /
+   * `XRRenderState.prototype.layers` (forcing `XRWebGLLayer`) — required on
+   * every affected Chrome build observed on-device, including Chrome 150 — and
+   * additionally persists the `baseLayer` across
+   * `XRSession.prototype.updateRenderState` only for Chrome builds inside the
+   * affected window (148.0.7778.12 up to 149.0.7821).
+   *
+   * Default `true`. Opt-out is offered because forcing `XRWebGLLayer` may break
+   * WebXR on unaffected (e.g. Quest) devices.
    *
    * @see GpsPlusSlamJs_AppFramework/src/ar/chromium-camera-access-workaround.ts
    * @see https://github.com/mrdoob/three.js/issues/33404

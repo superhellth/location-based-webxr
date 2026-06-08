@@ -11,6 +11,7 @@
  *                          → (PLACE_REQUESTED) saving
  *                          → (PLACE_SUCCEEDED) saved        [prompt reload]
  *                          → (PLACE_FAILED)    back to placeable + error
+ *                          → (PLACE_BLOCKED)   stays placeable + hint (no save)
  *
  *   cache-hit:   booting → relocalising → (tracking ready) anchor-shown
  *
@@ -50,7 +51,8 @@ export type SetupEvent =
   | { type: "TRACKING_READY_CHANGED"; ready: boolean }
   | { type: "PLACE_REQUESTED" }
   | { type: "PLACE_SUCCEEDED" }
-  | { type: "PLACE_FAILED"; message: string };
+  | { type: "PLACE_FAILED"; message: string }
+  | { type: "PLACE_BLOCKED"; message: string };
 
 export const initialSetupState: SetupState = {
   phase: "booting",
@@ -123,6 +125,21 @@ export function setupReducer(state: SetupState, event: SetupEvent): SetupState {
         phase: state.trackingReady ? "ready-to-place" : "awaiting-tracking",
         errorMessage: event.message,
       };
+    }
+
+    case "PLACE_BLOCKED": {
+      // A press that cannot place yet (no surface under the reticle / no GPS
+      // alignment). Surface the hint WITHOUT entering `saving` — nothing was
+      // attempted, so the phase is unchanged and the button stays placeable.
+      // Only meaningful in the cache-miss placement branch.
+      if (
+        state.phase !== "awaiting-tracking" &&
+        state.phase !== "ready-to-place"
+      ) {
+        return state;
+      }
+      if (state.errorMessage === event.message) return state;
+      return { ...state, errorMessage: event.message };
     }
 
     default: {

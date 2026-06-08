@@ -535,37 +535,52 @@ No errors</pre
               class="bg-gray-700/50 rounded-lg p-3 space-y-3"
             >
               <p class="text-xs text-gray-400">
-                Select a folder with your previous recordings to import
-                reference points, then choose where to save this new recording.
+                Choose where to save this recording. Importing a previous
+                recordings folder is optional — it's only needed to recover
+                reference points the browser no longer has.
               </p>
 
-              <!-- Step 1: Open folder for reading -->
-              <div class="space-y-1">
-                <button
-                  id="btn-open-folder"
-                  class="w-full bg-blue-600 hover:bg-blue-500 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white py-2 px-3 rounded-lg text-left text-sm"
-                  aria-label="Open folder with previous recordings"
-                >
-                  📂 1. Open Previous Recordings Folder...
-                </button>
-                <p id="folder-status" class="text-xs text-gray-500 truncate">
-                  ❌ No folder selected
-                </p>
-              </div>
-
-              <!-- Step 2: Choose save location -->
+              <!-- Choose save location (the only required storage step) -->
               <div class="space-y-1">
                 <button
                   id="btn-choose-save"
                   class="w-full bg-blue-600 hover:bg-blue-500 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white py-2 px-3 rounded-lg text-left text-sm"
                   aria-label="Choose where to save new recording"
                 >
-                  💾 2. Choose Save Location...
+                  💾 Choose Save Location...
                 </button>
                 <p id="save-status" class="text-xs text-gray-500 truncate">
                   ❌ No save location chosen
                 </p>
               </div>
+
+              <!-- Optional: import previous recordings to recover ref points.
+                   Collapsed by default; auto-expanded by the app when the
+                   chosen scenario has no saved reference points in OPFS. -->
+              <details id="folder-import-section" class="space-y-1">
+                <summary
+                  class="cursor-pointer text-xs text-blue-400 hover:text-blue-300 select-none"
+                >
+                  📂 Import previous recordings / recover reference points
+                  (optional)
+                </summary>
+                <div class="space-y-1 mt-2">
+                  <p
+                    id="folder-import-hint"
+                    class="text-xs text-yellow-400 hidden"
+                  ></p>
+                  <button
+                    id="btn-open-folder"
+                    class="w-full bg-gray-600 hover:bg-gray-500 focus:ring-2 focus:ring-blue-400 focus:outline-none text-white py-2 px-3 rounded-lg text-left text-sm"
+                    aria-label="Open folder with previous recordings"
+                  >
+                    📂 Open Previous Recordings Folder...
+                  </button>
+                  <p id="folder-status" class="text-xs text-gray-500 truncate">
+                    ❌ No folder selected
+                  </p>
+                </div>
+              </details>
             </div>
 
             <!-- Scenario Selection -->

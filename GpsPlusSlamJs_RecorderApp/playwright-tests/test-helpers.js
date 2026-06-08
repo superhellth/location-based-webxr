@@ -153,7 +153,9 @@ export async function waitForTestHooks(page) {
       window.testHooks?.updateTrackingQuality &&
       // Mandatory storage selection hooks (Task 1a-fix)
       window.testHooks?.setFolderSelected &&
-      window.testHooks?.setSaveLocationSelected,
+      window.testHooks?.setSaveLocationSelected &&
+      // Optional folder-import collapse hook (D5)
+      window.testHooks?.setFolderImportExpanded,
     { timeout: TEST_HOOKS_TIMEOUT_MS }
   );
 }

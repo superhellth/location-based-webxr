@@ -64,6 +64,14 @@ export async function installAnchorStarterFakes(page, options = {}) {
       /** Arguments captured on every `createAnchorMarker` call. */
       markerCalls: [],
       /**
+       * `{ gpsPoint, skipBootstrap }` captured on every successful
+       * `createGpsAnchor` call. Lets a spec assert the GPS reference (including
+       * altitude) the anchor was created with — e.g. that a `?show=` reload
+       * re-applies the persisted altitude on the cache-hit (`skipBootstrap`)
+       * path. `addInitScript` re-runs per navigation, so this resets on reload.
+       */
+      anchorCalls: [],
+      /**
        * Markers currently attached to the faked AR world group. spawnAnchor
        * adds a marker before creating the GpsAnchor and must remove it again
        * on any failure; specs assert this stays empty after a failed placement
@@ -72,8 +80,40 @@ export async function installAnchorStarterFakes(page, options = {}) {
       worldGroupChildren: [],
       /** Current report returned by the faked `selectTrackingQuality`. */
       trackingReport: cfg.trackingReport,
+      /**
+       * Tracking-wiring observation (regression guard for the
+       * "guidance stuck on AR tracking lost" bug). The framework only forwards
+       * per-frame poses into the store when BOTH `setTrackingStore` AND
+       * `setTrackingCallbacks` are wired before `initAR`; if `main.ts` drops
+       * either call the guidance silently freezes. These flags let a spec
+       * assert both calls happened during boot. `addInitScript` re-runs per
+       * navigation, so they reset on reload.
+       */
+      trackingStoreWired: false,
+      trackingCallbacksWired: false,
       /** When true, the faked `createGpsAnchor` throws (placement failure). */
       failCreateAnchor: false,
+      /**
+       * Whether the faked hit-test reticle currently reports a surface under
+       * the screen centre. Defaults to `true` so the existing placement specs
+       * (which don't care about the reticle) keep placing; the no-surface spec
+       * flips it to exercise the "point at the ground" gate.
+       */
+      reticleVisible: true,
+      /** Faked reticle world position handed to `getWorldPosition(out)`. */
+      reticleWorldPosition: { x: 1, y: 0, z: -2 },
+      /** Set true once the faked reticle handle is disposed. */
+      reticleDisposed: false,
+      /** Whether `requestDeviceOrientationPermission` should reject. */
+      failOrientationPermission: cfg.failOrientationPermission,
+      /** Counts how many times `endARSession` was called (rollback proof). */
+      endARSessionCalls: 0,
+      /**
+       * Current GPS alignment the faked `selectAlignmentMatrix` returns.
+       * Non-null by default (a desktop browser never computes a real one), so
+       * the placement gate passes; the no-alignment spec sets it to `null`.
+       */
+      alignmentMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
     };
 
     /** Drive a GPS fix through the stashed watch callback. */
@@ -101,6 +141,10 @@ export async function installAnchorStarterFakes(page, options = {}) {
       checkGeolocationPermission: () =>
         Promise.resolve({ supported: true, granted: true }),
       initAR: () => Promise.resolve(),
+      endARSession: () => {
+        control.endARSessionCalls++;
+        return Promise.resolve();
+      },
       getArWorldGroup: () => ({
         add(child) {
           control.worldGroupChildren.push(child);
@@ -109,26 +153,78 @@ export async function installAnchorStarterFakes(page, options = {}) {
           const index = control.worldGroupChildren.indexOf(child);
           if (index !== -1) control.worldGroupChildren.splice(index, 1);
         },
+        // Stubs for the cache-miss marker positioning (world→local). The fake
+        // marker is duck-typed, so an identity worldToLocal is enough.
+        updateWorldMatrix() {},
+        worldToLocal: (v) => v,
       }),
       getCamera: () => ({}),
+      setTrackingStore: () => {
+        control.trackingStoreWired = true;
+      },
+      setTrackingCallbacks: () => {
+        control.trackingCallbacksWired = true;
+      },
       startGpsWatch: (onPosition) => {
         control.gpsCallback = onPosition;
       },
       startOrientationWatch: () => {},
       requestDeviceOrientationPermission: () =>
-        cfg.failOrientationPermission
-          ? Promise.reject(new Error("forced orientation-permission failure (e2e)"))
+        control.failOrientationPermission
+          ? Promise.reject(
+              new Error("forced orientation-permission failure (e2e)"),
+            )
           : Promise.resolve(),
-      createGpsAnchor: () => {
+      createGpsAnchor: (opts) => {
         if (control.failCreateAnchor) {
           throw new Error("forced anchor failure (e2e)");
+        }
+        // Record the GPS reference (lat/lon/altitude) + phase the anchor was
+        // created with so specs can assert the persisted altitude is re-applied
+        // on a `?show=` reload (cache-hit `skipBootstrap` path).
+        control.anchorCalls.push({
+          gpsPoint: opts?.gpsPoint,
+          skipBootstrap: opts?.skipBootstrap === true,
+        });
+        // Mirror the framework: a cache-miss anchor (no skipBootstrap) commits
+        // its bootstrap median and fires onBootstrapComplete. The fake has no
+        // real median, so it reports the seed gpsPoint as the committed
+        // reference — which is what AnchorStarter persists into `?show=`.
+        if (
+          opts &&
+          !opts.skipBootstrap &&
+          typeof opts.onBootstrapComplete === "function"
+        ) {
+          opts.onBootstrapComplete(opts.gpsPoint);
         }
         return { dispose() {} };
       },
       selectTrackingQuality: () => control.trackingReport,
+      selectAlignmentMatrix: () => control.alignmentMatrix,
+      startReticleHitTest: () => ({
+        isVisible: () => control.reticleVisible,
+        getWorldPosition: (out) => {
+          const p = control.reticleWorldPosition;
+          if (out && typeof out.set === "function") {
+            out.set(p.x, p.y, p.z);
+            return out;
+          }
+          return p;
+        },
+        dispose: () => {
+          control.reticleDisposed = true;
+        },
+      }),
       createAnchorMarker: (markerOptions) => {
         control.markerCalls.push(markerOptions ?? {});
-        return {};
+        // Duck-typed marker: just enough for the cache-miss positioning
+        // (`marker.position.copy(...)`) and the deferred reveal
+        // (`marker.visible`).
+        return {
+          visible: true,
+          position: { copy() {} },
+          getWorldPosition: (out) => out,
+        };
       },
     };
 

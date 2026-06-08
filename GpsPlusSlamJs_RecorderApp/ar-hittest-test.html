@@ -153,14 +153,45 @@
     </fieldset>
 
     <fieldset>
+      <legend>Per-frame camera usage (matches the production apps)</legend>
+      <label>
+        <input type="checkbox" id="opt-camera-texture-read" />
+        <span>
+          Each frame, read the live camera image via
+          <code>renderer.xr.getCameraTexture(view.camera)</code> &mdash; which
+          internally calls <code>XRWebGLBinding.getCameraImage()</code>. This is
+          what the production apps do every frame and what the plain reproducer
+          does <strong>not</strong>: requesting <code>camera-access</code> alone
+          never touches the camera image. Enable
+          <code>camera-access</code> above for this to have an effect. No reload
+          needed — it changes the render loop, not the session init.
+          <span id="camera-texture-read-status" style="color: #fcd34d"></span>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset>
       <legend>Workarounds (page reloads on toggle)</legend>
       <label>
         <input type="checkbox" id="opt-projection-layer-workaround" />
         <span>
           Delete <code>XRWebGLBinding.prototype.createProjectionLayer</code>
           and <code>XRRenderState.prototype.layers</code> at script init
-          (forces three.js to <code>XRWebGLLayer</code>).
+          (forces three.js to <code>XRWebGLLayer</code>). Worked on Chrome
+          147–148, but stopped having any effect after Chrome
+          <code>148.0.7778.12</code>.
           <span id="workaround-status" style="color: #fcd34d"></span>
+        </span>
+      </label>
+      <label>
+        <input type="checkbox" id="opt-baselayer-persistence-workaround" />
+        <span>
+          Additionally patch <code>XRSession.prototype.updateRenderState</code>
+          to persist the <code>baseLayer</code> reference (Chrome
+          <code>148.0.7778.12</code>+ stop-gap until M149). Enable
+          <em>together with</em> the projection-layer workaround above for the
+          full fix. May break Quest / projection-layer devices — opt-in only.
+          <span id="baselayer-status" style="color: #fcd34d"></span>
         </span>
       </label>
     </fieldset>
@@ -186,7 +217,20 @@
       // enabled. Must run before three.js touches any WebXR API. Reading
       // sessionStorage and deleting the prototype members is synchronous,
       // so doing it before the dynamic imports below is sufficient.
-      let workaroundApplied = { createProjectionLayer: false, layers: false };
+      //
+      // NOTE: this is an intentional standalone copy of the production helper
+      // gps-plus-slam-app-framework/ar/chromium-camera-access-workaround.ts.
+      // It is deliberately NOT reused here: the production helper always
+      // applies the deletes and only adds the baseLayer-persistence patch on
+      // the affected Chrome window, but this diagnostic page must be able to
+      // force BOTH toggles ON/OFF independently on ANY Chrome build to bisect
+      // on-device. The logic below (delete + baseLayer-persistence merge
+      // order) mirrors the helper; keep them in sync when the helper changes.
+      let workaroundApplied = {
+        createProjectionLayer: false,
+        layers: false,
+        baseLayerPersistence: false,
+      };
       try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
         const state = raw ? JSON.parse(raw) : null;
@@ -210,6 +254,53 @@
             workaroundApplied
           );
         }
+        // Chrome 148.0.7778.12+ defeated the plain projection-layer workaround
+        // above. Additionally persist the baseLayer reference across
+        // updateRenderState calls so three.js's later depthNear/depthFar update
+        // does not drop the active glBaseLayer (which triggers the crash on the
+        // camera-texture access). Stop-gap until Chrome M149 ships the real fix.
+        // See three.js#33404 (m0nzderr, 2026-05) and crbug.com/507508099.
+        if (state?.baseLayerPersistence && typeof XRSession !== 'undefined') {
+          const originalUpdateRenderState =
+            XRSession.prototype.updateRenderState;
+          // Track the last-seen baseLayer PER XRSession instance (keyed on the
+          // call's `this`), mirroring the production helper. A single shared
+          // variable would leak a previous session's baseLayer into a later
+          // session: an XRWebGLLayer is bound to the session it was created
+          // for, so re-supplying a stale layer to a different session throws
+          // InvalidStateError. The WeakMap also lets entries be GC'd with their
+          // sessions.
+          const lastBaseLayerBySession = new WeakMap();
+          XRSession.prototype.updateRenderState = function (rawOptions) {
+            // Normalize null/undefined/non-object to {} so an explicit
+            // updateRenderState(null) does not throw on options.baseLayer
+            // (native WebXR coerces a null dictionary arg to an empty one; a
+            // default param value only covers undefined). Mirrors the helper.
+            const options =
+              typeof rawOptions === 'object' && rawOptions !== null
+                ? rawOptions
+                : {};
+            if (typeof this !== 'object' || this === null) {
+              return originalUpdateRenderState.call(this, options);
+            }
+            if (options.baseLayer !== undefined) {
+              lastBaseLayerBySession.set(this, options.baseLayer);
+            }
+            const remembered = lastBaseLayerBySession.get(this);
+            // Spread options FIRST so the restored baseLayer always wins; an
+            // explicit baseLayer: undefined in options must not clobber it.
+            return originalUpdateRenderState.call(
+              this,
+              remembered !== undefined
+                ? { ...options, baseLayer: remembered }
+                : options
+            );
+          };
+          workaroundApplied.baseLayerPersistence = true;
+          console.log(
+            `${LOG_PREFIX} applied baseLayer-persistence workaround`
+          );
+        }
       } catch {
         /* ignore — workaround is best-effort */
       }
@@ -228,10 +319,20 @@
       const optCameraAccess = document.getElementById('opt-camera-access');
       const optDomOverlay = document.getElementById('opt-dom-overlay');
       const optDepthSensing = document.getElementById('opt-depth-sensing');
+      const optCameraTextureRead = document.getElementById(
+        'opt-camera-texture-read'
+      );
       const optWorkaround = document.getElementById(
         'opt-projection-layer-workaround'
       );
+      const optBaseLayer = document.getElementById(
+        'opt-baselayer-persistence-workaround'
+      );
       const workaroundStatus = document.getElementById('workaround-status');
+      const baseLayerStatus = document.getElementById('baselayer-status');
+      const cameraTextureReadStatus = document.getElementById(
+        'camera-texture-read-status'
+      );
 
       function log(msg, cls) {
         const stamp = new Date().toISOString().slice(11, 23);
@@ -293,7 +394,9 @@
           cameraAccess: optCameraAccess.checked,
           domOverlay: optDomOverlay.checked,
           depthSensing: optDepthSensing.checked,
+          cameraTextureRead: optCameraTextureRead.checked,
           workaround: optWorkaround.checked,
+          baseLayerPersistence: optBaseLayer.checked,
         };
         try {
           sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -313,7 +416,9 @@
           optCameraAccess.checked = !!state.cameraAccess;
           optDomOverlay.checked = !!state.domOverlay;
           optDepthSensing.checked = !!state.depthSensing;
+          optCameraTextureRead.checked = !!state.cameraTextureRead;
           optWorkaround.checked = !!state.workaround;
+          optBaseLayer.checked = !!state.baseLayerPersistence;
         } catch {
           /* ignore */
         }
@@ -331,12 +436,38 @@
         });
       }
 
+      // Camera-texture read is a render-loop flag, not a session-init flag, so
+      // it does NOT reload the page. Toggling it takes effect on the next
+      // animation frame.
+      function updateCameraTextureReadStatus() {
+        if (!optCameraTextureRead.checked) {
+          cameraTextureReadStatus.textContent = '';
+        } else if (!optCameraAccess.checked) {
+          cameraTextureReadStatus.textContent =
+            ' — enable camera-access above for this to do anything';
+        } else {
+          cameraTextureReadStatus.textContent =
+            ' — will read the camera image each frame';
+        }
+      }
+      optCameraTextureRead.addEventListener('change', () => {
+        saveState();
+        updateCameraTextureReadStatus();
+      });
+      optCameraAccess.addEventListener('change', updateCameraTextureReadStatus);
+
       // Workaround toggle: save state then reload so the early `delete`
       // block at the top of the script can run with the new value before
       // any WebXR API is touched.
       optWorkaround.addEventListener('change', () => {
         saveState();
         workaroundStatus.textContent = ' — reloading…';
+        setTimeout(() => location.reload(), 50);
+      });
+
+      optBaseLayer.addEventListener('change', () => {
+        saveState();
+        baseLayerStatus.textContent = ' — reloading…';
         setTimeout(() => location.reload(), 50);
       });
 
@@ -349,6 +480,12 @@
             ? ' — applied this load'
             : ' — enabled but globals absent on this device';
       }
+      if (optBaseLayer.checked) {
+        baseLayerStatus.textContent = workaroundApplied.baseLayerPersistence
+          ? ' — applied this load'
+          : ' — enabled but XRSession absent on this device';
+      }
+      updateCameraTextureReadStatus();
 
       // Three.js scene setup — intentionally identical in shape to the upstream
       // webxr_ar_hittest.html example.
@@ -388,6 +525,54 @@
       let hitTestSourceRequested = false;
       let frameCount = 0;
       let lastFrameLogTime = 0;
+      // State for the per-frame camera-texture read (the production-app crash
+      // path the plain reproducer otherwise skips). Reset per session in
+      // rebuildArButton so each AR entry re-logs the grant status once.
+      let cameraReadLoggedGrant = false;
+      let cameraTextureNullCount = 0;
+
+      /**
+       * Mirror the production frame loop's camera usage. Three.js clears its
+       * per-frame camera-texture cache each animation frame and only calls
+       * `XRWebGLBinding.getCameraImage(view.camera)` lazily when the app calls
+       * `renderer.xr.getCameraTexture(view.camera)`. The plain reproducer
+       * REQUESTS `camera-access` but never calls it, so it never hits
+       * `getCameraImage` — the exact `camera_helper_` null-deref in
+       * crbug.com/507508099. The production apps DO call it every frame. This
+       * function reproduces that, so the page exercises the same crash surface.
+       */
+      function readCameraTextureForCrashRepro(frame, referenceSpace) {
+        const pose = frame.getViewerPose(referenceSpace);
+        if (!pose) return;
+        const view = pose.views[0];
+        const xrCamera = view && view.camera;
+        if (!xrCamera) {
+          if (!cameraReadLoggedGrant) {
+            cameraReadLoggedGrant = true;
+            log(
+              'camera-texture read: XRView.camera is undefined — camera-access not granted?',
+              'err'
+            );
+          }
+          return;
+        }
+        if (!cameraReadLoggedGrant) {
+          cameraReadLoggedGrant = true;
+          log(
+            `camera-texture read: XRView.camera ${xrCamera.width}x${xrCamera.height} — calling getCameraTexture()`,
+            'ok'
+          );
+        }
+        // This call triggers XRWebGLBinding.getCameraImage() inside three.js.
+        const texture = renderer.xr.getCameraTexture(xrCamera);
+        if (!texture && cameraTextureNullCount < 5) {
+          cameraTextureNullCount++;
+          log(
+            `getCameraTexture() returned null/undefined (${cameraTextureNullCount}/5)`,
+            'info'
+          );
+        }
+      }
 
       function animate(_timestamp, frame) {
         if (frame) {
@@ -431,6 +616,12 @@
               reticle.visible = false;
             }
           }
+
+          // Production-app camera usage: read the camera image every frame.
+          // Independent of hit-test so it can be bisected on its own.
+          if (optCameraTextureRead.checked && referenceSpace) {
+            readCameraTextureForCrashRepro(frame, referenceSpace);
+          }
         }
         renderer.render(scene, camera);
       }
@@ -454,6 +645,8 @@
         frameCount = 0;
         hitTestSource = null;
         hitTestSourceRequested = false;
+        cameraReadLoggedGrant = false;
+        cameraTextureNullCount = 0;
         const init = buildSessionInit();
         log(
           `creating ARButton with ${JSON.stringify(serializablePayload(init))}`,

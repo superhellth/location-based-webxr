@@ -70,6 +70,7 @@ vi.mock('./ui/hud', () => ({
   setPermissionsReady: vi.fn(),
   setFolderSelected: vi.fn(),
   setSaveLocationSelected: vi.fn(),
+  setFolderImportExpanded: vi.fn(),
   updateFolderStatus: vi.fn(),
   updateSaveStatus: vi.fn(),
   updateSyncStatus: vi.fn(),

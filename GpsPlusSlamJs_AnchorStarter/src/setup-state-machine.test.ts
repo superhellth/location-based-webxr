@@ -143,6 +143,39 @@ describe("setupReducer — cache-miss placement branch", () => {
     s = setupReducer(s, { type: "PLACE_REQUESTED" });
     expect(s.errorMessage).toBeNull();
   });
+
+  it("PLACE_BLOCKED surfaces a hint without leaving the placeable phase", () => {
+    // A press that cannot place yet (no surface / no alignment) must show the
+    // hint but never enter `saving` — the phase stays placeable and the button
+    // stays enabled so the user can retry after pointing at the ground.
+    const s = setupReducer(boot(false), {
+      type: "PLACE_BLOCKED",
+      message: "point at the ground",
+    });
+    expect(s.phase).toBe("awaiting-tracking");
+    expect(s.errorMessage).toBe("point at the ground");
+    expect(isBusy(s)).toBe(false);
+  });
+
+  it("PLACE_BLOCKED is a no-op once a save is in flight (cannot clobber saving)", () => {
+    const s = setupReducer(boot(false), { type: "PLACE_REQUESTED" });
+    expect(s.phase).toBe("saving");
+    const same = setupReducer(s, {
+      type: "PLACE_BLOCKED",
+      message: "ignored",
+    });
+    expect(same).toBe(s);
+  });
+
+  it("a subsequent PLACE_REQUESTED clears a PLACE_BLOCKED hint", () => {
+    let s = setupReducer(boot(false), {
+      type: "PLACE_BLOCKED",
+      message: "point at the ground",
+    });
+    s = setupReducer(s, { type: "PLACE_REQUESTED" });
+    expect(s.phase).toBe("saving");
+    expect(s.errorMessage).toBeNull();
+  });
 });
 
 describe("setupReducer — cache-hit relocalise branch", () => {
