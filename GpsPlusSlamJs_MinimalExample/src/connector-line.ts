@@ -59,6 +59,7 @@ export function createConnectorLine(opts: {
   );
   const material = new LineBasicMaterial({ color: CONNECTOR_LINE_COLOR });
   const line = new Line(geometry, material);
+  line.frustumCulled = false;
   sphere.add(line);
 
   const scratch = new Vector3();
