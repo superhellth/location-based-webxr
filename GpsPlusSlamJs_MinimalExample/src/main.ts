@@ -84,6 +84,8 @@ function buttonView(state: EnableGpsArState): { label: string; disabled: boolean
       return { label: 'Starting…', disabled: true };
     case 'running':
       return { label: 'AR running', disabled: true };
+    case 'stopping':
+      return { label: 'Stopping…', disabled: true };
     case 'error':
       return { label: `Retry — ${state.error ?? 'failed to start'}`, disabled: false };
   }

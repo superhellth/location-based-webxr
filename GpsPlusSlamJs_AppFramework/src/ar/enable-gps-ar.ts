@@ -35,9 +35,12 @@ import {
 import {
   startGpsWatch as defaultStartGpsWatch,
   startOrientationWatch as defaultStartOrientationWatch,
+  stopGpsWatch as defaultStopGpsWatch,
+  stopOrientationWatch as defaultStopOrientationWatch,
 } from '../sensors/gps';
 import {
   initAR as defaultInitAR,
+  endARSession as defaultEndARSession,
   isWebXRSupported as defaultIsWebXRSupported,
   type SessionFeatureOptions,
 } from './webxr-session';
@@ -52,6 +55,7 @@ const log = createLogger('EnableGpsAr');
  * - `ready`      — supported and idle; button is the live "Enable GPS AR" CTA
  * - `starting`   — in-gesture orchestration in flight (button shows progress)
  * - `running`    — AR session started; button reflects the durable end state
+ * - `stopping`   — teardown in flight (watches stopping, session ending)
  * - `error`      — orchestration failed; button reverts to a retryable CTA
  */
 export type EnableGpsArStatus =
@@ -60,6 +64,7 @@ export type EnableGpsArStatus =
   | 'ready'
   | 'starting'
   | 'running'
+  | 'stopping'
   | 'error';
 
 /** Observable controller state. */
@@ -116,6 +121,9 @@ export interface EnableGpsArDeps {
     isolationOptions?: Partial<ArCrashIsolationOptions>,
     sessionFeatures?: SessionFeatureOptions
   ) => Promise<void>;
+  stopGpsWatch: () => void;
+  stopOrientationWatch: () => void;
+  endARSession: () => Promise<void>;
 }
 
 /** Public controller surface the app drives from its button. */
@@ -133,9 +141,15 @@ export interface EnableGpsArController {
    * In-gesture orchestration: request the configured permissions, start the
    * sensor watches and `initAR`. Must be called synchronously from a user
    * gesture so the permission prompts are allowed. Idempotent while
-   * `starting`/`running`.
+   * `starting`/`running`/`stopping`.
    */
   enable: (config: EnableGpsArConfig) => Promise<EnableGpsArResult>;
+  /**
+   * Tear down the running AR session: stop sensor watches, end the WebXR
+   * session, and transition `running → stopping → ready` so the user can
+   * re-enter AR. No-op when not `running`.
+   */
+  disable: () => Promise<void>;
 }
 
 const defaultDeps: EnableGpsArDeps = {
@@ -146,6 +160,9 @@ const defaultDeps: EnableGpsArDeps = {
   startGpsWatch: defaultStartGpsWatch,
   startOrientationWatch: defaultStartOrientationWatch,
   initAR: defaultInitAR,
+  stopGpsWatch: defaultStopGpsWatch,
+  stopOrientationWatch: defaultStopOrientationWatch,
+  endARSession: defaultEndARSession,
 };
 
 /**
@@ -159,6 +176,8 @@ export function createEnableGpsArController(
 
   let state: EnableGpsArState = { status: 'checking' };
   const listeners = new Set<(state: EnableGpsArState) => void>();
+  let gpsWatchActive = false;
+  let orientationWatchActive = false;
 
   function setState(next: EnableGpsArState): void {
     state = next;
@@ -184,7 +203,12 @@ export function createEnableGpsArController(
     // states: the post-probe guard below only covers a *concurrent* enable()
     // that advances the status *during* the probe — by then we have already
     // overwritten any pre-existing active status, so it cannot restore it.
-    if (state.status === 'starting' || state.status === 'running') return;
+    if (
+      state.status === 'starting' ||
+      state.status === 'running' ||
+      state.status === 'stopping'
+    )
+      return;
     setState({ status: 'checking' });
     const supported = await probeSupport();
     // Guard the async gap: a concurrent enable() (which is not blocked from the
@@ -242,9 +266,15 @@ export function createEnableGpsArController(
   }
 
   async function enable(config: EnableGpsArConfig): Promise<EnableGpsArResult> {
-    // Idempotency guard: never run two orchestrations concurrently.
-    if (state.status === 'starting' || state.status === 'running') {
-      return { ok: false, error: 'AR is already starting or running.' };
+    if (
+      state.status === 'starting' ||
+      state.status === 'running' ||
+      state.status === 'stopping'
+    ) {
+      return {
+        ok: false,
+        error: 'AR is already starting, running or stopping.',
+      };
     }
 
     setState({ status: 'starting' });
@@ -268,9 +298,11 @@ export function createEnableGpsArController(
       // --- Sensor watches ---
       if (config.onGpsPosition) {
         resolved.startGpsWatch(config.onGpsPosition);
+        gpsWatchActive = true;
       }
       if (config.onOrientation) {
         resolved.startOrientationWatch(config.onOrientation);
+        orientationWatchActive = true;
       }
 
       setState({ status: 'running' });
@@ -286,6 +318,28 @@ export function createEnableGpsArController(
     return { ok: false, error };
   }
 
+  async function disable(): Promise<void> {
+    if (state.status !== 'running') return;
+    setState({ status: 'stopping' });
+
+    if (gpsWatchActive) {
+      resolved.stopGpsWatch();
+      gpsWatchActive = false;
+    }
+    if (orientationWatchActive) {
+      resolved.stopOrientationWatch();
+      orientationWatchActive = false;
+    }
+
+    try {
+      await resolved.endARSession();
+    } catch (err) {
+      log.error('endARSession threw during disable; continuing teardown:', err);
+    }
+
+    setState({ status: 'ready' });
+  }
+
   return {
     getState: () => state,
     subscribe: (listener) => {
@@ -296,5 +350,6 @@ export function createEnableGpsArController(
     },
     refreshSupport,
     enable,
+    disable,
   };
 }

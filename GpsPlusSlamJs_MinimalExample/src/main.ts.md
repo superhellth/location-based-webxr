@@ -18,7 +18,7 @@ integration over `createEnableGpsArController` + `registerXrFrameUpdate`.
   [boot.test.ts](boot.test.ts) covers that it resolves and boots).
 - Creates an "Enable GPS AR" controller and renders the app's **own** button
   over its observable state via the pure `buttonView()` mapping
-  (checking → unsupported/ready → starting → running/error).
+  (checking → unsupported/ready → starting → running/stopping/error).
 - On click, calls `controller.enable({ container, requestHitTest: true,
   isolationOptions, onGpsPosition })` inside the user gesture so permission
   prompts are allowed. `isolationOptions` disables the camera/depth

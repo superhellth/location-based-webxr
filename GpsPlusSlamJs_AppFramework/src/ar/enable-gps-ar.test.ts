@@ -36,6 +36,9 @@ function makeDeps(overrides: Partial<EnableGpsArDeps> = {}): EnableGpsArDeps {
     startGpsWatch: vi.fn(),
     startOrientationWatch: vi.fn(),
     initAR: vi.fn(() => Promise.resolve()),
+    stopGpsWatch: vi.fn(),
+    stopOrientationWatch: vi.fn(),
+    endARSession: vi.fn(() => Promise.resolve()),
     ...overrides,
   };
 }
@@ -435,5 +438,251 @@ describe('createEnableGpsArController — subscription hygiene', () => {
     expect(controller.getState().status).toBe('ready');
 
     consoleError.mockRestore();
+  });
+});
+
+// Why this test group matters:
+// The controller's state machine previously had no exit from `running`. Once AR
+// started, the button stayed permanently disabled — the only recovery was a page
+// reload. `disable()` adds a full teardown path: stop sensor watches, end the AR
+// session, and transition `running → stopping → ready` so the user can re-enter
+// AR. The tests prove the teardown is sequenced correctly and that partial
+// failures (e.g. endARSession rejects) still reach a clean `ready` state.
+
+describe('createEnableGpsArController — disable()', () => {
+  it('transitions running → stopping → ready', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+    expect(controller.getState().status).toBe('running');
+
+    const seen: EnableGpsArStatus[] = [];
+    controller.subscribe((s: EnableGpsArState) => seen.push(s.status));
+
+    await controller.disable();
+
+    expect(seen).toContain('stopping');
+    expect(seen[seen.length - 1]).toBe('ready');
+    expect(seen.indexOf('stopping')).toBeLessThan(seen.indexOf('ready'));
+  });
+
+  it('calls stopGpsWatch and stopOrientationWatch when watches were started', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+      onOrientation: vi.fn(),
+    });
+
+    await controller.disable();
+
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+    expect(deps.stopOrientationWatch).toHaveBeenCalledTimes(1);
+  });
+
+  // Why this test matters: watches are only started when the corresponding
+  // config callback is provided. Calling stop on a watch that was never started
+  // is harmless for the real implementation but proves the controller tracks
+  // which watches it owns rather than blindly tearing down.
+  it('does not call stop watch deps when watches were not started', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+
+    await controller.disable();
+
+    expect(deps.stopGpsWatch).not.toHaveBeenCalled();
+    expect(deps.stopOrientationWatch).not.toHaveBeenCalled();
+  });
+
+  it('stops only the GPS watch when only onGpsPosition was provided', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+    });
+
+    await controller.disable();
+
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+    expect(deps.stopOrientationWatch).not.toHaveBeenCalled();
+  });
+
+  it('calls endARSession', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+
+    await controller.disable();
+
+    expect(deps.endARSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op when not running', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+    await controller.refreshSupport();
+    expect(controller.getState().status).toBe('ready');
+
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    await controller.disable();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(deps.endARSession).not.toHaveBeenCalled();
+    expect(controller.getState().status).toBe('ready');
+  });
+
+  // Why this test matters: the whole point of disable() is allowing re-entry.
+  // After a full enable → disable cycle, the controller must be in a state where
+  // enable() succeeds again, proving no leaked state blocks a second session.
+  it('allows re-entry: enable → disable → enable', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+
+    const first = await controller.enable({ container: fakeContainer() });
+    expect(first.ok).toBe(true);
+
+    await controller.disable();
+    expect(controller.getState().status).toBe('ready');
+
+    const second = await controller.enable({ container: fakeContainer() });
+    expect(second.ok).toBe(true);
+    expect(controller.getState().status).toBe('running');
+    expect(deps.initAR).toHaveBeenCalledTimes(2);
+  });
+
+  // Why this test matters: endARSession can reject (e.g. session already ended
+  // externally). The controller must still reach `ready` and stop watches so
+  // the user isn't stuck in a dead state.
+  it('handles endARSession rejection gracefully (still reaches ready)', async () => {
+    const deps = makeDeps({
+      endARSession: vi.fn(() =>
+        Promise.reject(new Error('session already ended'))
+      ),
+    });
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+    });
+
+    await controller.disable();
+
+    expect(controller.getState().status).toBe('ready');
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+  });
+
+  // Why this test matters: if endARSession is slow (awaiting xrSession.end()),
+  // the controller must block enable() during the teardown window. The
+  // `stopping` state serves this purpose — it's the async gap between `running`
+  // and the clean `ready`.
+  it('enable() refuses during stopping', async () => {
+    let releaseEnd: () => void = () => undefined;
+    const deps = makeDeps({
+      endARSession: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseEnd = resolve;
+          })
+      ),
+    });
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+
+    const disabling = controller.disable();
+    expect(controller.getState().status).toBe('stopping');
+
+    const second = await controller.enable({ container: fakeContainer() });
+    expect(second.ok).toBe(false);
+
+    releaseEnd();
+    await disabling;
+    expect(controller.getState().status).toBe('ready');
+  });
+
+  // Why this test matters: same hazard as the enable() guard above — a
+  // resume-triggered refreshSupport() during teardown must not re-probe or
+  // clobber the stopping state.
+  it('refreshSupport() skips during stopping', async () => {
+    let releaseEnd: () => void = () => undefined;
+    const deps = makeDeps({
+      endARSession: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseEnd = resolve;
+          })
+      ),
+    });
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+    const isWebXRSupported = deps.isWebXRSupported as ReturnType<typeof vi.fn>;
+    isWebXRSupported.mockClear();
+
+    const disabling = controller.disable();
+    expect(controller.getState().status).toBe('stopping');
+
+    await controller.refreshSupport();
+    expect(controller.getState().status).toBe('stopping');
+    expect(isWebXRSupported).not.toHaveBeenCalled();
+
+    releaseEnd();
+    await disabling;
+  });
+
+  // Why this test matters: a second disable() call while the first is in flight
+  // must not double-teardown or corrupt the state machine.
+  it('is idempotent during stopping (concurrent disable calls)', async () => {
+    let releaseEnd: () => void = () => undefined;
+    const deps = makeDeps({
+      endARSession: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseEnd = resolve;
+          })
+      ),
+    });
+    const controller = createEnableGpsArController(deps);
+    await controller.enable({ container: fakeContainer() });
+
+    const first = controller.disable();
+    const second = controller.disable();
+
+    releaseEnd();
+    await first;
+    await second;
+
+    expect(controller.getState().status).toBe('ready');
+    expect(deps.endARSession).toHaveBeenCalledTimes(1);
+  });
+
+  // Why this test matters: after disable() clears the watch tracking, a
+  // re-enable that starts new watches must have those watches correctly tracked
+  // for the next disable() cycle.
+  it('tracks watches independently per enable/disable cycle', async () => {
+    const deps = makeDeps();
+    const controller = createEnableGpsArController(deps);
+
+    // First cycle: start with GPS watch only.
+    await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+    });
+    await controller.disable();
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+    expect(deps.stopOrientationWatch).not.toHaveBeenCalled();
+
+    // Second cycle: start with both watches.
+    await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+      onOrientation: vi.fn(),
+    });
+    await controller.disable();
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(2);
+    expect(deps.stopOrientationWatch).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,13 +17,16 @@ framework does not own button DOM (unlike three.js' `ARButton`).
   - `refreshSupport(): Promise<void>` — `checking → ready | unsupported`.
   - `enable(config: EnableGpsArConfig): Promise<EnableGpsArResult>` — the
     in-gesture orchestration; returns `{ ok, error? }`.
+  - `disable(): Promise<void>` — teardown: stop watches, end session,
+    `running → stopping → ready`. No-op when not `running`.
 - Types: `EnableGpsArStatus`, `EnableGpsArState`, `EnableGpsArConfig`,
   `EnableGpsArResult`, `EnableGpsArDeps`, `EnableGpsArController`.
 
 ### `EnableGpsArStatus`
 
-`checking → ready → starting → running` on success; any failure routes to
-`error`; an unsupported probe routes to `unsupported`.
+`checking → ready → starting → running` on success; `running → stopping → ready`
+on teardown; any failure routes to `error`; an unsupported probe routes to
+`unsupported`.
 
 ## Invariants & assumptions
 
@@ -37,34 +40,44 @@ framework does not own button DOM (unlike three.js' `ARButton`).
   degrades; we still request it so iOS prompts inside the gesture).
 - **Async UX rule:** `enable()` always passes through the transitional
   `starting` state before the durable `running`/`error` final state, on both the
-  success and the denied path. Tests assert this ordering for both.
+  success and the denied path. `disable()` likewise passes through `stopping`
+  before reaching `ready`. Tests assert this ordering for both directions.
 - **Idempotency:** `enable()` is a no-op (returns `{ ok: false }`) while the
-  status is `starting` or `running`, so a double-tap cannot start two sessions.
+  status is `starting`, `running`, or `stopping`, so a double-tap cannot start
+  two sessions and an enable during teardown is blocked.
 - **Active-session guard:** `refreshSupport()` returns immediately (no probe, no
-  `setState`) when the status is `starting` or `running`. A resume/visibility
-  `refreshSupport()` over an active session would otherwise enter `checking` and
-  clobber the live state, wrongly reverting the button to a "not started" CTA.
+  `setState`) when the status is `starting`, `running`, or `stopping`. A
+  resume/visibility `refreshSupport()` over an active or tearing-down session
+  would otherwise enter `checking` and clobber the live state.
 - **Stale-probe guard:** once past the active-session guard, `refreshSupport()`
   awaits the support probe, then applies `ready`/`unsupported` **only if** the
   status is still `checking`. This covers a concurrent `enable()` (not blocked
   from `checking`) that advances the status _during_ the probe, so the late probe
   result cannot clobber the new active state.
+- **Watches tracked per cycle:** the controller tracks which sensor watches
+  (`gpsWatchActive`, `orientationWatchActive`) were started in each `enable()`
+  cycle and stops only those in `disable()`. Watches that were not started are
+  never stopped, and the tracking is reset each cycle.
 - **Watches start after `initAR`:** the sensor watches are started **only after**
-  `initAR` resolves. The controller exposes no watch teardown, so starting them
-  before `initAR` would leak active watches on an `initAR` rejection and let a
-  retry from `error` start duplicates. Gating the start calls behind the
-  resolved `initAR` bounds watcher count to one set per running session.
+  `initAR` resolves. Starting them before `initAR` would leak active watches on
+  an `initAR` rejection and let a retry from `error` start duplicates. Gating
+  the start calls behind the resolved `initAR` bounds watcher count to one set
+  per running session.
+- **Teardown resilience:** `disable()` catches and logs `endARSession` rejections
+  (e.g. session already ended externally) and still transitions to `ready`, so a
+  failing teardown cannot strand the controller in `stopping`.
 - **In-gesture requirement:** `enable()` must be called synchronously from a
   user gesture so the permission prompts are allowed by the browser.
 - **DI:** every collaborator is injectable; defaults bind to the real framework
   functions (`isWebXRSupported`, `requestGeolocationPermission`,
   `requestOrientationPermission`, `requestWebXRWithDepthPermission`,
-  `startGpsWatch`, `startOrientationWatch`, `initAR`). This keeps the
-  orchestration unit-testable without WebXR/GPS hardware or a DOM.
+  `startGpsWatch`, `startOrientationWatch`, `initAR`, `stopGpsWatch`,
+  `stopOrientationWatch`, `endARSession`). This keeps the orchestration
+  unit-testable without WebXR/GPS hardware or a DOM.
 - **Listener isolation:** `setState` dispatches over a snapshot and wraps each
   subscriber in try/catch (logging via `createLogger('EnableGpsAr')`), so one
   throwing subscriber cannot abort the dispatch or interrupt the
-  `refreshSupport()`/`enable()` transition that drives it.
+  `refreshSupport()`/`enable()`/`disable()` transition that drives it.
 - Uses the `PermissionStatus`-returning `requestOrientationPermission` from
   `sensors/permission-checker.ts`, **not** the legacy `boolean`-returning one in
   `sensors/gps.ts` (plan §6.1 disambiguation).
@@ -88,6 +101,11 @@ button.addEventListener('click', () => {
 controller.subscribe((s) => {
   button.textContent = s.status === 'starting' ? 'Starting…' : 'Enable GPS AR';
 });
+
+// When the XR session ends (e.g. user exits AR), tear down and allow re-entry:
+xrSession.addEventListener('end', () => {
+  void controller.disable();
+});
 ```
 
 ## Tests
@@ -97,14 +115,19 @@ minimal default set (depth NOT probed), `requestHitTest` forwarding, depth opt-i
 geolocation-denied error (no `initAR`), orientation-denied proceed, depth-denied
 error, `initAR` rejection, the `starting → running` and `starting → error`
 transitional ordering, idempotency (running + still-starting), unsubscribe
-hygiene, and listener isolation (a throwing subscriber does not abort dispatch
-or the controller's own flow).
+hygiene, listener isolation (a throwing subscriber does not abort dispatch or
+the controller's own flow), and the full `disable()` teardown: `stopping → ready`
+transition, selective watch stop (only watches that were started), `endARSession`
+call, no-op when not running, re-entry after disable, resilience to
+`endARSession` rejection, `enable()`/`refreshSupport()` blocked during
+`stopping`, concurrent `disable()` idempotency, and per-cycle watch tracking.
 
 ## Related
 
 - Plan: `GpsPlusSlamJs_Docs/docs/2026-06-03-threejs-arbutton-minimal-ar-example-user-feedback.md`
   §5 Step 1, §6.1, §6.5.
-- [webxr-session.ts](./webxr-session.ts) — `initAR`, `isWebXRSupported`,
-  `SessionFeatureOptions`.
-- [gps.ts](../sensors/gps.ts) — `startGpsWatch`, `startOrientationWatch`.
+- [webxr-session.ts](./webxr-session.ts) — `initAR`, `endARSession`,
+  `isWebXRSupported`, `SessionFeatureOptions`.
+- [gps.ts](../sensors/gps.ts) — `startGpsWatch`, `startOrientationWatch`,
+  `stopGpsWatch`, `stopOrientationWatch`.
 - [permission-checker.ts](../sensors/permission-checker.ts) — the permission requesters.
