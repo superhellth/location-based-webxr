@@ -1,11 +1,27 @@
 # Location-Based WebXR
 
+**Stable outdoor AR in the browser — no native app, no VPS, no signup, not even internet required**
+
+Three.js + GPS + WebXR sensor fusion that keeps 3D content pinned to real-world coordinates as the user walks.
+
 [![npm version](https://img.shields.io/npm/v/gps-plus-slam-app-framework.svg)](https://www.npmjs.com/package/gps-plus-slam-app-framework)
 [![npm downloads](https://img.shields.io/npm/dm/gps-plus-slam-app-framework.svg)](https://www.npmjs.com/package/gps-plus-slam-app-framework)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org/)
 
-Build location-based Augmented Reality experiences on the web — an Apache-2.0 framework, a reference recorder app, and a closed-source alignment core that fuses GPS with WebXR odometry.
+<p align="center">
+  <a href="https://gps.csutil.com"><strong>Live Demos & Examples →</strong></a>
+</p>
+
+---
+
+- Build **outdoor AR apps** like navigation, GPS-anchored scavenger hunts, location-triggered tour guides, ... in the browser -> accurate AR content without the need of an native app or VPS service or requiring the user to be online at all.
+
+- Provides a **client-side sensor fusion** pipeline that incrementally refines a GPS-to-AR alignment matrix using outlier-rejected observations. If you want to build any kind of game or experience tied to physical locations, this gives you stable world-anchored coordinates in a web browser.
+
+- A composable Redux-based app framework where you plug in extraReducers and a storage backend, and it handles WebXR sessions, GPS sensors, recording, and replay out of the box.
+
+- Ship location-based AR experiences as progressive web apps — no App Store review, no native SDK dependency, and a free community license key with zero signup
 
 ## What You Can Build With It
 
@@ -63,10 +79,10 @@ The core alignment library ([`gps-plus-slam-js`](https://www.npmjs.com/package/g
 
 - **Sub-meter positioning** — fuses high-frequency AR odometry with noisy GPS.
 - **Fully offline** — all computation runs on-device, no network requests.
-- **Framework-agnostic** — pure TypeScript with a Redux-based state store.
+- **Framework-agnostic** — pure TypeScript with a Redux-based state store. 
 - **Incremental alignment** — the alignment matrix updates live as new observations arrive.
 
-A free **community license key** is bundled with the framework, so you can start building right away — no signup or API key required. See the [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for the full terms.
+A free license key is bundled with the framework, so you can start building right away — no signup or API key request process required, see the [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for further details on how it works. The key is updated every time a new framework version is released and it's valid for a year so that updating to the latest framework version automatically updates to a new license key as well. 
 
 ## Quick Start: Try the Recorder
 
@@ -74,26 +90,6 @@ A free **community license key** is bundled with the framework, so you can start
 > landing page links to the **Demo** (persistent-anchor starter, `/starter/`)
 > and the **Example app to evaluate the tracking accuracy** (the recorder,
 > `/recorder/`). Open it on a WebXR-capable phone.
-
-### Prerequisites
-
-- Node.js ≥ 20
-- pnpm ≥ 10 (enable via `corepack enable`)
-
-### Run the Recorder App
-
-```bash
-git clone https://github.com/cs-util-com/location-based-webxr.git
-cd location-based-webxr
-
-# Install all workspace dependencies
-pnpm install
-
-# Start the dev server
-pnpm --filter gps-plus-slam-recorder dev
-```
-
-The recorder app opens at `http://localhost:5173`. Use a WebXR-capable mobile device (e.g., Chrome on Android) to start recording AR+GPS sessions. The recorder also runs in a desktop browser for replay-only flows.
 
 ## Quick Start: Build Your Own App
 
@@ -194,4 +190,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, 
 
 The framework, recorder app, and minimal example are licensed under the [Apache License 2.0](LICENSE).
 
-The core library (`gps-plus-slam-js`) is distributed under a separate proprietary license. See its [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for details.
+The `gps-plus-slam-js` library used by the framework has a proprietary license, see its [EULA](https://www.npmjs.com/package/gps-plus-slam-js) for details.
