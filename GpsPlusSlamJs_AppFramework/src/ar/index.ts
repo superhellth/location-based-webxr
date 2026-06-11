@@ -44,7 +44,11 @@ export {
   type DepthSamplerCallbacks,
   type DepthInfo,
   DepthSampler,
+  wrapXRDepthInfo,
 } from './depth-sampler.js';
+
+// --- depth-unprojection ---
+export { unprojectDepthPoint } from './depth-unprojection.js';
 
 // --- frame-loop ---
 export { type FrameUpdate, registerFrameUpdate } from './frame-loop.js';
