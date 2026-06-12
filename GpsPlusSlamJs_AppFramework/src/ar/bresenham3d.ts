@@ -22,6 +22,23 @@
 export type GridCell = readonly [number, number, number];
 
 /**
+ * Main-thread safety cap: the maximum dominant-axis (Chebyshev) span a single
+ * trace may cover. The trace runs synchronously, one iteration per
+ * dominant-axis step, so an unbounded span freezes the UI. Finite-but-absurd
+ * coordinates (a tracking glitch, a corrupt projectionMatrix unprojecting to a
+ * huge world point) quantize to safe integers and pass the integer check, so
+ * this is the only thing standing between such input and a multi-second
+ * (potentially multi-billion-iteration) freeze.
+ *
+ * Chosen generously — at the grid's 0.15 m cells this is ~150 km, far beyond
+ * any real AR scene, so it never trips on legitimate carving or raycasting.
+ * It is a circuit breaker against programmer/data error, not a ray-length
+ * policy: exceeding it throws (loud — surfaces the upstream bug) rather than
+ * silently truncating the trace.
+ */
+export const MAX_TRACE_STEPS = 1_000_000;
+
+/**
  * Trace the line from `start` to `end`, calling `visitCell` per cell.
  *
  * @param visitCell - return `false` to stop the trace early.
@@ -29,6 +46,9 @@ export type GridCell = readonly [number, number, number];
  *   (default 0 = trace all the way to `end`).
  * @throws TypeError when a coordinate is not a safe integer (cells must be
  *   quantized before tracing — programmer error, not a data error).
+ * @throws RangeError when the dominant-axis span exceeds {@link MAX_TRACE_STEPS}
+ *   (circuit breaker against a synchronous main-thread freeze from
+ *   finite-but-absurd coordinates).
  */
 export function bresenham3d(
   start: GridCell,
@@ -48,6 +68,12 @@ export function bresenham3d(
   const sz = z < end[2] ? 1 : -1;
 
   const dm = Math.max(dx, dy, dz);
+  if (dm > MAX_TRACE_STEPS) {
+    throw new RangeError(
+      `bresenham3d dominant-axis span ${dm} exceeds MAX_TRACE_STEPS ${MAX_TRACE_STEPS}; ` +
+        `cells [${start.join(', ')}]→[${end.join(', ')}] are too far apart to trace synchronously`
+    );
+  }
   let i = dm;
   let errX = Math.floor(dm / 2);
   let errY = errX;

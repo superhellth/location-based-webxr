@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { bresenham3d, type GridCell } from './bresenham3d';
+import { bresenham3d, MAX_TRACE_STEPS, type GridCell } from './bresenham3d';
 
 function trace(start: GridCell, end: GridCell, stopDistance = 0): GridCell[] {
   const visited: GridCell[] = [];
@@ -105,5 +105,40 @@ describe('bresenham3d', () => {
     expect(() => bresenham3d([0, 0, 0], [NaN, 0, 0], () => true)).toThrow(
       TypeError
     );
+  });
+
+  // Circuit breaker: finite-but-absurd coordinates (a tracking glitch, a
+  // corrupt projectionMatrix unprojecting to a huge world point) quantize to
+  // safe integers, so they pass the integer check yet would spin the loop
+  // for billions of synchronous iterations and freeze the main thread. The
+  // dominant-axis span is bounded up front, before any visiting, by a throw.
+  describe('main-thread safety cap', () => {
+    it('throws RangeError when the dominant-axis span exceeds MAX_TRACE_STEPS', () => {
+      expect(() =>
+        bresenham3d([0, 0, 0], [MAX_TRACE_STEPS + 1, 0, 0], () => true)
+      ).toThrow(RangeError);
+    });
+
+    it('throws before invoking the visitor (the loop is never entered)', () => {
+      const visited: GridCell[] = [];
+      expect(() =>
+        bresenham3d([0, 0, 0], [MAX_TRACE_STEPS + 1, 0, 0], (cell) => {
+          visited.push(cell);
+          return true;
+        })
+      ).toThrow(RangeError);
+      expect(visited).toEqual([]);
+    });
+
+    it('still traces normally exactly at the cap boundary', () => {
+      let count = 0;
+      bresenham3d([0, 0, 0], [MAX_TRACE_STEPS, 0, 0], () => {
+        count++;
+        // stop immediately — we only assert the call was allowed, not walk
+        // the whole (large but bounded) line
+        return false;
+      });
+      expect(count).toBe(1);
+    });
   });
 });

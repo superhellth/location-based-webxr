@@ -14,7 +14,7 @@ Plan: `GpsPlusSlamJs_Docs/docs/2026-06-11-depth-occupancy-grid-port-plan.md`.
 - **`cellForPosition(pos): GridCell`** — round-quantization per axis (−0 normalized).
 - **`getCellCenter(cell): Vector3`** — `cell · cellSizeM`.
 - **`getCellColor(cell): RgbTuple | null`** — running-average camera color of the cell's COLORED observations (Iter 8), rounded and clamped to 0–255 per channel; `null` for unknown cells or cells only ever observed without `point.rgb` (visualizers fall back to height-based coloring). Color-less observations advance the observation count but never dilute the average; non-finite rgb triples are ignored defensively.
-- **`raycast(startPos, endPos, minObservations = 1): Vector3 | null`** — center of the first sufficiently-observed cell on the Bresenham line (port of Unity `TryRaycast`; hook for future cursor/floor-detection parity). Returns `null` for non-finite input or no hit.
+- **`raycast(startPos, endPos, minObservations = 1): Vector3 | null`** — center of the first sufficiently-observed cell on the Bresenham line (port of Unity `TryRaycast`; hook for future cursor/floor-detection parity). Returns `null` for non-finite input or no hit. Both `raycast` and the internal carving inherit `bresenham3d`'s `MAX_TRACE_STEPS` circuit breaker: a finite-but-absurd start/end (a tracking glitch, a corrupt `projectionMatrix` unprojecting to a huge world point) that spans more than ~150 km throws a `RangeError` instead of freezing the main thread.
 - **`clear(): void`** / **`size: number`**.
 
 ## Invariants & Assumptions

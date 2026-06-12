@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { bresenham3d, type GridCell } from './bresenham3d';
+import { bresenham3d, MAX_TRACE_STEPS, type GridCell } from './bresenham3d';
 
 const arbCoord = fc.integer({ min: -50, max: 50 });
 const arbCell = fc.tuple(arbCoord, arbCoord, arbCoord);
@@ -72,6 +72,31 @@ describe('bresenham3d properties', () => {
           for (const cell of visited.slice(1)) {
             expect(chebyshev(cell, end)).toBeGreaterThanOrEqual(stopDistance);
           }
+        }
+      )
+    );
+  });
+
+  // The safety cap must hold on whichever axis is dominant, in either
+  // direction — so the freeze guard cannot be slipped past by routing the
+  // huge span through y/z or a negative delta.
+  it('throws RangeError for any over-cap span without ever visiting a cell', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 2 }), // dominant axis
+        fc.constantFrom(1, -1), // direction
+        fc.integer({ min: 1, max: 1_000_000 }), // overshoot beyond the cap
+        (axis, sign, overshoot) => {
+          const end: [number, number, number] = [0, 0, 0];
+          end[axis] = sign * (MAX_TRACE_STEPS + overshoot);
+          let visited = 0;
+          expect(() =>
+            bresenham3d([0, 0, 0], end, () => {
+              visited++;
+              return true;
+            })
+          ).toThrow(RangeError);
+          expect(visited).toBe(0);
         }
       )
     );
