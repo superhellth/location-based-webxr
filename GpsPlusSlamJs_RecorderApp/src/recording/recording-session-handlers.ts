@@ -379,11 +379,16 @@ export function createRecordingSessionHandlers(
       log.info('Image capture disabled by user settings');
     }
 
-    // Start depth sampling (if enabled)
+    // Start depth sampling (if enabled). The user's interval/grid options
+    // are plumbed into the sampler here — before this they were dead knobs
+    // (persisted + shown in settings but never applied; port plan Iter 6).
     if (recordingOptions.depth.enabled) {
-      startDepthCapture();
+      startDepthCapture({
+        intervalMs: recordingOptions.depth.intervalMs,
+        gridSize: recordingOptions.depth.gridSize,
+      });
       log.info(
-        `Depth sampling started (interval: ${recordingOptions.depth.intervalMs}ms)`
+        `Depth sampling started (interval: ${recordingOptions.depth.intervalMs}ms, grid: ${recordingOptions.depth.gridSize}×${recordingOptions.depth.gridSize})`
       );
     } else {
       log.info('Depth sampling disabled by user settings');

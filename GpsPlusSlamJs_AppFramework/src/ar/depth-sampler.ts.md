@@ -14,6 +14,7 @@ Samples sparse depth points from the WebXR depth sensing API at a configurable i
 - **`isRunning(): boolean`** — returns whether sampling is active.
 - **`getSampleCount(): number`** — number of samples captured since last `start()`.
 - **`getConfig(): DepthSamplerConfig`** — returns a copy of the current config.
+- **`updateConfig(config: Partial<DepthSamplerConfig>): void`** — applies partial overrides (the plumbing seam for the user's `depth.*` recording options, called by `startDepthCapture(config)`). Invalid values (non-finite, non-positive, fractional `gridSize`) are ignored defensively.
 - **`onFrame(timestamp: number, depthInfo: DepthInfo | null): void`** — call once per XR frame. Throttles sampling to `intervalMs`.
 
 ### `wrapXRDepthInfo(raw, projectionMatrix)` (function)

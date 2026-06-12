@@ -100,7 +100,7 @@ describe('recording-options', () => {
     });
 
     it('clamps gridSize above maximum to maximum', () => {
-      const result = validateDepthOptions({ gridSize: 20 });
+      const result = validateDepthOptions({ gridSize: 100 });
       expect(result.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.max);
     });
 

@@ -56,6 +56,7 @@ import {
   DepthSampler,
   wrapXRDepthInfo,
   type DepthSamplerCallbacks,
+  type DepthSamplerConfig,
   type DepthSample,
   type DepthInfo,
 } from './depth-sampler';
@@ -1477,14 +1478,25 @@ export function setDepthCaptureCallback(
 /**
  * Start depth sampling during recording.
  * Must call setDepthCaptureCallback before initAR.
+ *
+ * @param config - optional sampler overrides (typically the user's
+ *   `depth.intervalMs`/`depth.gridSize` recording options); applied via
+ *   `DepthSampler.updateConfig` before sampling starts. Without this the
+ *   sampler's own defaults apply — the settings knobs were dead before
+ *   this parameter existed (occupancy-grid port plan, Iter 6).
  */
-export function startDepthCapture(): void {
+export function startDepthCapture(config?: Partial<DepthSamplerConfig>): void {
   if (!depthSampler) {
     log.warn('Cannot start depth capture - sampler not initialized');
     return;
   }
+  if (config) {
+    depthSampler.updateConfig(config);
+  }
   depthSampler.start();
-  log.info('Depth capture started');
+  log.info(
+    `Depth capture started (interval: ${depthSampler.getConfig().intervalMs}ms, grid: ${depthSampler.getConfig().gridSize}×${depthSampler.getConfig().gridSize})`
+  );
 }
 
 /**

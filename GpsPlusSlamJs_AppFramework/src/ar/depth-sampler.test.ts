@@ -69,6 +69,45 @@ describe('DepthSampler', () => {
     });
   });
 
+  describe('updateConfig', () => {
+    /**
+     * Why these tests matter:
+     * The recorder's depth.gridSize/intervalMs settings were dead knobs —
+     * persisted and shown in the settings UI but never reaching the
+     * sampler (webxr-session constructed it without config; port plan
+     * Iter 6). updateConfig is the plumbing seam: startDepthCapture
+     * applies the user's recording options just before sampling starts,
+     * and invalid values must be ignored defensively.
+     */
+    it('applies partial overrides to the active config', () => {
+      sampler.updateConfig({ gridSize: 8, intervalMs: 500 });
+      expect(sampler.getConfig().gridSize).toBe(8);
+      expect(sampler.getConfig().intervalMs).toBe(500);
+      // Untouched keys keep their values
+      expect(sampler.getConfig().unavailabilityThresholdMs).toBe(5000);
+    });
+
+    it('affects the next sample (gridSize change takes effect)', () => {
+      sampler.updateConfig({ gridSize: 4 });
+      sampler.start();
+      sampler.onFrame(0, createMockDepthInfo(4));
+      const sample = vi.mocked(callbacks.onSampleCaptured).mock.calls[0][0];
+      expect(sample.points).toHaveLength(16);
+    });
+
+    it('ignores invalid values (non-finite, non-positive, fractional gridSize)', () => {
+      const before = sampler.getConfig();
+      sampler.updateConfig({
+        gridSize: 0,
+        intervalMs: NaN,
+        unavailabilityThresholdMs: -1,
+      });
+      expect(sampler.getConfig()).toEqual(before);
+      sampler.updateConfig({ gridSize: 2.5 });
+      expect(sampler.getConfig().gridSize).toBe(before.gridSize);
+    });
+  });
+
   describe('start/stop', () => {
     it('starts sampling when start() is called', () => {
       sampler.start();

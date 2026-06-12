@@ -172,6 +172,27 @@ export class DepthSampler {
   }
 
   /**
+   * Apply partial configuration overrides (e.g. the user's recording
+   * options, plumbed in by `startDepthCapture` just before sampling
+   * starts). Invalid values are ignored defensively: every key requires a
+   * finite positive number, and `gridSize` additionally an integer.
+   */
+  updateConfig(config: Partial<DepthSamplerConfig>): void {
+    if (isFinitePositive(config.intervalMs)) {
+      this.config.intervalMs = config.intervalMs;
+    }
+    if (
+      isFinitePositive(config.gridSize) &&
+      Number.isInteger(config.gridSize)
+    ) {
+      this.config.gridSize = config.gridSize;
+    }
+    if (isFinitePositive(config.unavailabilityThresholdMs)) {
+      this.config.unavailabilityThresholdMs = config.unavailabilityThresholdMs;
+    }
+  }
+
+  /**
    * Called each frame with depth information.
    *
    * @param timestamp - Current frame timestamp in milliseconds
@@ -289,4 +310,8 @@ export class DepthSampler {
   hasReceivedDepth(): boolean {
     return this.depthReceived;
   }
+}
+
+function isFinitePositive(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }

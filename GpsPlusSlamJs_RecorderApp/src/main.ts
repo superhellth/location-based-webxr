@@ -1177,14 +1177,11 @@ function handleImageCaptured(image: CapturedImage): void {
  * This enables integration tests to process depth data during replay.
  */
 function handleDepthSampleCaptured(sample: DepthSample): void {
-  store.dispatch(
-    recordDepthSample({
-      timestamp: sample.timestamp,
-      cameraPos: sample.cameraPos,
-      cameraRot: sample.cameraRot,
-      points: sample.points,
-    })
-  );
+  // Dispatch the sampler's payload AS-IS. Re-building it field-by-field
+  // silently dropped the optional projectionMatrix when it was added (see
+  // 2026-06-12-payload-rebuild-field-drop-audit.md F1) — without it the
+  // occupancy grid cannot unproject the sample's points.
+  store.dispatch(recordDepthSample(sample));
   log.info(`Recorded depth sample with ${sample.points.length} points`);
 }
 

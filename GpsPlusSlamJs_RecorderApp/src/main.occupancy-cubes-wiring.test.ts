@@ -403,6 +403,8 @@ vi.mock('./storage/folder-manager', () => ({
 
 // Import after all mocks are set up
 import { handleEnterARForTesting, resetMainState } from './main';
+import { setDepthCaptureCallback } from 'gps-plus-slam-app-framework/ar/webxr-session';
+import { recordDepthSample, type DepthSample } from './state/recorder-store';
 
 describe('Occupancy-grid cube wiring in live AR', () => {
   beforeEach(() => {
@@ -466,5 +468,34 @@ describe('Occupancy-grid cube wiring in live AR', () => {
 
     await expect(handleEnterARForTesting()).resolves.not.toThrow();
     expect(mockWireOccupancyGridSubscribers).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Why this test matters (2026-06-12-payload-rebuild-field-drop-audit.md F1):
+   * handleDepthSampleCaptured used to re-create the recordDepthSample
+   * payload field-by-field, silently dropping the optional
+   * projectionMatrix — the camera intrinsics the occupancy grid needs to
+   * unproject points. The handler must forward the sampler's payload
+   * AS-IS (same reference, every field).
+   */
+  it('forwards captured depth samples to recordDepthSample unmodified', async () => {
+    await handleEnterARForTesting();
+
+    const handler = vi.mocked(setDepthCaptureCallback).mock.calls[0]?.[0];
+    expect(handler).toBeDefined();
+
+    const sample: DepthSample = {
+      timestamp: 1234,
+      cameraPos: [1, 2, 3],
+      cameraRot: [0, 0, 0, 1],
+      points: [{ screenX: 0.5, screenY: 0.5, depthM: 2 }],
+      projectionMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, -1, 0, 0, -0.2, 0],
+    };
+    handler!(sample);
+
+    const dispatched = vi.mocked(recordDepthSample).mock.calls[0]?.[0];
+    // Same reference — nothing was rebuilt, so no field can be dropped
+    expect(dispatched).toBe(sample);
+    expect(dispatched?.projectionMatrix).toEqual(sample.projectionMatrix);
   });
 });
