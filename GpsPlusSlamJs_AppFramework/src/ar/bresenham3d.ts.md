@@ -12,6 +12,7 @@ Walks integer grid cells from a start to an end cell, invoking a visitor per cel
   - `visitCell(cell) => boolean` — return `false` to stop the trace early.
   - `stopDistance` — dominant-axis (Chebyshev) steps before `end` at which the trace stops.
   - Throws `TypeError` for non-integer coordinates (programmer error — quantize first).
+  - Throws `RangeError` for a `stopDistance` that is not a non-negative safe integer. `NaN`/`-Infinity` never satisfy the loop's `i <= stopDistance` exit and would freeze the main thread; negatives/fractionals violate the "steps before end" contract.
   - Throws `RangeError` when the dominant-axis span exceeds `MAX_TRACE_STEPS` (main-thread freeze circuit breaker — see invariant 5).
 
 ## Invariants & Assumptions (Unity parity, pinned by tests)
@@ -33,5 +34,5 @@ bresenham3d([0, 0, 0], [4, 2, 1], (cell) => {
 
 ## Tests
 
-- `bresenham3d.test.ts` — known traces (axes, diagonal, negative, mixed slope vs. hand-stepped Unity arithmetic), stop-distance semantics, early visitor exit, integer validation, and the `MAX_TRACE_STEPS` cap (throws at the boundary, before any visit; still traces exactly at the cap).
+- `bresenham3d.test.ts` — known traces (axes, diagonal, negative, mixed slope vs. hand-stepped Unity arithmetic), stop-distance semantics, early visitor exit, integer validation, `stopDistance` validation (`NaN`/`±Infinity`/negative/fractional all `RangeError`), and the `MAX_TRACE_STEPS` cap (throws at the boundary, before any visit; still traces exactly at the cap).
 - `bresenham3d.property.test.ts` — fast-check invariants 2 and 3 above over random cells, plus the cap holding on any dominant axis/direction without visiting a cell.

@@ -107,6 +107,19 @@ describe('bresenham3d', () => {
     );
   });
 
+  // stopDistance is validated up front because the loop terminates on a
+  // counter that decrements unconditionally: a negative/fractional value still
+  // terminates (it just traces past `end`), but NaN/-Infinity never satisfy
+  // `i <= stopDistance` and would spin the main thread forever. The guard also
+  // enforces the "non-negative dominant-axis steps before end" contract.
+  it('throws RangeError on a stopDistance that breaks the contract or hangs the loop', () => {
+    for (const bad of [NaN, -Infinity, Infinity, -1, 0.5]) {
+      expect(() => bresenham3d([0, 0, 0], [3, 0, 0], () => true, bad)).toThrow(
+        RangeError
+      );
+    }
+  });
+
   // Circuit breaker: finite-but-absurd coordinates (a tracking glitch, a
   // corrupt projectionMatrix unprojecting to a huge world point) quantize to
   // safe integers, so they pass the integer check yet would spin the loop

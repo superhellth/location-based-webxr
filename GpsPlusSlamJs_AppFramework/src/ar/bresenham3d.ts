@@ -46,6 +46,12 @@ export const MAX_TRACE_STEPS = 1_000_000;
  *   (default 0 = trace all the way to `end`).
  * @throws TypeError when a coordinate is not a safe integer (cells must be
  *   quantized before tracing — programmer error, not a data error).
+ * @throws RangeError when `stopDistance` is not a non-negative safe integer.
+ *   The loop terminates on a counter (`i--`) that decrements unconditionally,
+ *   so a negative or fractional value still terminates (it merely traces past
+ *   `end`); but `NaN`/`-Infinity` never satisfy `i <= stopDistance` and would
+ *   spin forever. Rejecting up front both prevents that freeze and enforces
+ *   the "dominant-axis steps before end" contract.
  * @throws RangeError when the dominant-axis span exceeds {@link MAX_TRACE_STEPS}
  *   (circuit breaker against a synchronous main-thread freeze from
  *   finite-but-absurd coordinates).
@@ -58,6 +64,11 @@ export function bresenham3d(
 ): void {
   assertIntegerCell(start);
   assertIntegerCell(end);
+  if (!Number.isSafeInteger(stopDistance) || stopDistance < 0) {
+    throw new RangeError(
+      `bresenham3d stopDistance must be a non-negative safe integer, got ${stopDistance}`
+    );
+  }
 
   let [x, y, z] = start;
   const dx = Math.abs(end[0] - x);
