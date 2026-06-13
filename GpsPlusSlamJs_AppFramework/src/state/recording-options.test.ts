@@ -16,6 +16,7 @@ import {
   validateDepthOptions,
   validateImageOptions,
   validateOccupancyOptions,
+  validateVisualizationOptions,
   validateRecordingOptions,
   cloneRecordingOptions,
   DEFAULT_RECORDING_OPTIONS,
@@ -261,10 +262,81 @@ describe('recording-options', () => {
     });
   });
 
+  describe('validateVisualizationOptions', () => {
+    /**
+     * Why these tests matter (Finding B / DB-1b of
+     * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md): the new
+     * `visualization` group gates the four live debug overlays (frame tiles,
+     * occupancy cubes, GPS+VIO alignment markers, compass cubes). All four MUST
+     * default ON so the change is purely additive (no behaviour change), and
+     * each field is validated boolean-or-default — a corrupted or pre-feature
+     * persisted value must fall back to ON, never silently disable an overlay.
+     */
+    it('returns all-true defaults when given empty object', () => {
+      const result = validateVisualizationOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.visualization);
+      expect(result).toEqual({
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      });
+    });
+
+    it('preserves valid boolean values', () => {
+      const result = validateVisualizationOptions({
+        frameTiles: false,
+        occupancyCubes: false,
+        gpsAlignmentMarkers: false,
+        compassCubes: false,
+      });
+      expect(result).toEqual({
+        frameTiles: false,
+        occupancyCubes: false,
+        gpsAlignmentMarkers: false,
+        compassCubes: false,
+      });
+    });
+
+    it('falls back to the ON default for non-boolean values per field', () => {
+      expect(
+        validateVisualizationOptions({
+          frameTiles: 'on' as unknown as boolean,
+        }).frameTiles
+      ).toBe(true);
+      expect(
+        validateVisualizationOptions({
+          occupancyCubes: 1 as unknown as boolean,
+        }).occupancyCubes
+      ).toBe(true);
+      expect(
+        validateVisualizationOptions({
+          gpsAlignmentMarkers: null as unknown as boolean,
+        }).gpsAlignmentMarkers
+      ).toBe(true);
+      // A genuine false must survive (not be treated as "missing").
+      expect(
+        validateVisualizationOptions({ compassCubes: false }).compassCubes
+      ).toBe(false);
+    });
+  });
+
   describe('validateRecordingOptions', () => {
     it('returns defaults when given empty object', () => {
       const result = validateRecordingOptions({});
       expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('merges partial visualization options with defaults', () => {
+      const result = validateRecordingOptions({
+        visualization: { frameTiles: false },
+      });
+      expect(result.visualization.frameTiles).toBe(false);
+      // Other overlays stay ON; other groups untouched.
+      expect(result.visualization.occupancyCubes).toBe(true);
+      expect(result.visualization.gpsAlignmentMarkers).toBe(true);
+      expect(result.visualization.compassCubes).toBe(true);
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
     });
 
     it('merges partial occupancy options with defaults', () => {
@@ -339,6 +411,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
       localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(stored));
 
@@ -361,6 +434,11 @@ describe('recording-options', () => {
       expect(result.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
       // Pre-occupancy persisted blobs gain the default voxel size, not undefined.
       expect(result.occupancy).toEqual(DEFAULT_RECORDING_OPTIONS.occupancy);
+      // Pre-visualization persisted blobs gain the all-ON overlay group, so
+      // upgrading the app never silently turns an overlay off.
+      expect(result.visualization).toEqual(
+        DEFAULT_RECORDING_OPTIONS.visualization
+      );
     });
 
     it('merges partial stored AR isolation options with defaults', () => {
@@ -423,6 +501,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       saveRecordingOptions(options);
@@ -444,6 +523,7 @@ describe('recording-options', () => {
         }, // invalid
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       saveRecordingOptions(options);
@@ -577,6 +657,15 @@ describe('recording-options', () => {
     it('has occupancy cell size defaulting to 0.15 m (OccupancyGrid parity)', () => {
       expect(DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM).toBe(0.15);
     });
+
+    it('has every visualization overlay enabled by default (purely additive)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.visualization).toEqual({
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      });
+    });
   });
 
   describe('constraints', () => {
@@ -654,6 +743,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { cellSizeM: 0.1 },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       saveRecordingOptions(customOptions);
@@ -673,6 +763,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       saveRecordingOptions(options1);
@@ -701,6 +792,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       });
 
       // Reset
@@ -757,6 +849,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
       localStorageMock.setItem(CUSTOM_KEY, JSON.stringify(custom));
 

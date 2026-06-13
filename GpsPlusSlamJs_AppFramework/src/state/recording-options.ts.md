@@ -8,25 +8,27 @@ User-configurable recording options for controlling high-frequency data streams 
 
 ### Types
 
-| Type                  | Description                                                                       |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `DepthCaptureOptions` | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`, `rgb`             |
-| `ImageCaptureOptions` | Config for image capture: `enabled`, `intervalMs`, `quality`, `resolutionDivisor` |
-| `OccupancyOptions`    | Config for the derived occupancy grid: `cellSizeM` (voxel edge length, metres)    |
-| `RecordingOptions`    | Combined config with `depth`, `images`, `arCrashIsolation`, `occupancy` sections  |
+| Type                   | Description                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `DepthCaptureOptions`  | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`, `rgb`                                              |
+| `ImageCaptureOptions`  | Config for image capture: `enabled`, `intervalMs`, `quality`, `resolutionDivisor`                                  |
+| `OccupancyOptions`     | Config for the derived occupancy grid: `cellSizeM` (voxel edge length, metres)                                     |
+| `VisualizationOptions` | Live debug-overlay toggles: `frameTiles`, `occupancyCubes`, `gpsAlignmentMarkers`, `compassCubes` (all default ON) |
+| `RecordingOptions`     | Combined config with `depth`, `images`, `arCrashIsolation`, `occupancy`, `visualization` sections                  |
 
 ### Functions
 
-| Function                              | Input                            | Output                | Description                                            |
-| ------------------------------------- | -------------------------------- | --------------------- | ------------------------------------------------------ |
-| `loadRecordingOptions(key?)`          | `key?: string`                   | `RecordingOptions`    | Loads from localStorage, returns defaults if not found |
-| `saveRecordingOptions(options, key?)` | `RecordingOptions, key?: string` | `void`                | Validates and saves to localStorage                    |
-| `resetRecordingOptions(key?)`         | `key?: string`                   | `RecordingOptions`    | Clears storage, returns defaults                       |
-| `cloneRecordingOptions(options)`      | `RecordingOptions`               | `RecordingOptions`    | Deep copy                                              |
-| `validateDepthOptions(partial)`       | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions` | Validates and clamps values                            |
-| `validateImageOptions(partial)`       | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions` | Validates and clamps values                            |
-| `validateOccupancyOptions(partial)`   | `Partial<OccupancyOptions>`      | `OccupancyOptions`    | Clamps `cellSizeM`; rejects NaN/Infinity to default    |
-| `validateRecordingOptions(partial)`   | `Partial<RecordingOptions>`      | `RecordingOptions`    | Validates full options object                          |
+| Function                                | Input                            | Output                 | Description                                            |
+| --------------------------------------- | -------------------------------- | ---------------------- | ------------------------------------------------------ |
+| `loadRecordingOptions(key?)`            | `key?: string`                   | `RecordingOptions`     | Loads from localStorage, returns defaults if not found |
+| `saveRecordingOptions(options, key?)`   | `RecordingOptions, key?: string` | `void`                 | Validates and saves to localStorage                    |
+| `resetRecordingOptions(key?)`           | `key?: string`                   | `RecordingOptions`     | Clears storage, returns defaults                       |
+| `cloneRecordingOptions(options)`        | `RecordingOptions`               | `RecordingOptions`     | Deep copy                                              |
+| `validateDepthOptions(partial)`         | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions`  | Validates and clamps values                            |
+| `validateImageOptions(partial)`         | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions`  | Validates and clamps values                            |
+| `validateOccupancyOptions(partial)`     | `Partial<OccupancyOptions>`      | `OccupancyOptions`     | Clamps `cellSizeM`; rejects NaN/Infinity to default    |
+| `validateVisualizationOptions(partial)` | `Partial<VisualizationOptions>`  | `VisualizationOptions` | Boolean-or-default per field (missing/corrupted → ON)  |
+| `validateRecordingOptions(partial)`     | `Partial<RecordingOptions>`      | `RecordingOptions`     | Validates full options object                          |
 
 ### Constants
 
@@ -51,9 +53,12 @@ User-configurable recording options for controlling high-frequency data streams 
 {
   depth: { enabled: true, intervalMs: 1000, gridSize: 16, rgb: true },
   images: { enabled: true, intervalMs: 2000, quality: 0.7, resolutionDivisor: 1 },
-  occupancy: { cellSizeM: 0.15 }
+  occupancy: { cellSizeM: 0.15 },
+  visualization: { frameTiles: true, occupancyCubes: true, gpsAlignmentMarkers: true, compassCubes: true }
 }
 ```
+
+`visualization.*` (all default **ON**) gate the four live AR debug overlays — frame tiles, occupancy cubes, GPS+VIO alignment spheres, and compass cubes. They control **only what is drawn live during recording**: capture (frame blobs, depth samples, occupancy data, GPS events) is never affected, and **replay is never gated** (reviewing the captured overlays is the point there). Like `occupancy.cellSizeM`, they are read once at Enter-AR — toggling mid-session applies on the next Enter-AR, not retroactively. Because all four default ON the group is purely additive: every overlay still renders until the operator opts out. The recorder reads them in `handleEnterAR` (frame tiles / occupancy cubes / compass cubes are skipped by _not_ wiring them; the alignment spheres are hidden via `GpsEventVisualizer.setVisible`). See [2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md) (Finding B) and [gps-event-markers.ts.md](../visualization/gps-event-markers.ts.md).
 
 `occupancy.cellSizeM` (default **0.15 m**, matching `OccupancyGrid`'s own default) is the voxel edge length for the derived occupancy grid. It does **not** change what is recorded — it governs the grid built from the recorded depth points (debug cubes + COLMAP `points3D`), so it applies on replay too, letting the same recording be re-quantized at a different resolution. The recorder surfaces it as a cm slider in the settings modal; it is read once at grid construction (Enter-AR / replay load). See [2026-06-13-occupancy-grid-settings-and-mesh-review.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-13-occupancy-grid-settings-and-mesh-review.md) (item 1) and [occupancy-grid.ts.md](../ar/occupancy-grid.ts.md).
 
@@ -97,8 +102,9 @@ const defaults = resetRecordingOptions();
 
 ## Tests
 
-- `recording-options.test.ts` — 44 unit tests
+- `recording-options.test.ts` — unit tests
   - Validation: clamps out-of-range, handles invalid types
   - Persistence: load/save/reset with localStorage
-  - Schema evolution: partial stored data merges with defaults
+  - Schema evolution: partial stored data merges with defaults (incl. pre-`visualization` blobs gaining the all-ON overlay group)
   - Constraints: bounds are valid, defaults within bounds
+  - `visualization`: all-ON defaults + boolean-or-default validation per overlay toggle

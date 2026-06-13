@@ -22,6 +22,7 @@ export interface RecordingOptionsInput {
   images?: Partial<ImageCaptureOptions>;
   arCrashIsolation?: Partial<ArCrashIsolationOptions>;
   occupancy?: Partial<OccupancyOptions>;
+  visualization?: Partial<VisualizationOptions>;
 }
 
 /**
@@ -110,6 +111,30 @@ export interface OccupancyOptions {
 }
 
 /**
+ * Visibility toggles for the live AR debug overlays (Finding B / DB-2 of
+ * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md).
+ *
+ * These gate **only what is drawn live during recording** — they never change
+ * what is captured (frame blobs, depth samples, occupancy data, GPS events all
+ * continue regardless) and they never affect replay (where reviewing the
+ * captured overlays is the whole point). Read once at Enter-AR: toggling
+ * mid-session applies on the next Enter-AR, not retroactively.
+ *
+ * All four default ON, so adding this group is purely additive — every overlay
+ * still renders until the operator opts out.
+ */
+export interface VisualizationOptions {
+  /** Live frame-tile planes (`FrameTileVisualizer`). Default: true */
+  frameTiles: boolean;
+  /** Voxel depth cubes (`OccupancyCubesVisualizer`). Default: true */
+  occupancyCubes: boolean;
+  /** Raw/fused/snapshot GPS+VIO alignment spheres (`GpsEventVisualizer`). Default: true */
+  gpsAlignmentMarkers: boolean;
+  /** N/E/S/W compass orientation cubes (`createGpsCompassCubes`). Default: true */
+  compassCubes: boolean;
+}
+
+/**
  * User-configurable recording options.
  * Persisted to localStorage for cross-session consistency.
  */
@@ -122,6 +147,8 @@ export interface RecordingOptions {
   arCrashIsolation: ArCrashIsolationOptions;
   /** Derived occupancy-grid configuration (voxel size) */
   occupancy: OccupancyOptions;
+  /** Live AR debug-overlay visibility toggles (live-only; replay unaffected) */
+  visualization: VisualizationOptions;
 }
 
 // --- Constants ---
@@ -161,6 +188,14 @@ export const DEFAULT_RECORDING_OPTIONS: RecordingOptions = {
   },
   occupancy: {
     cellSizeM: 0.15, // 15 cm voxels — matches OccupancyGrid's own default (Unity parity)
+  },
+  visualization: {
+    // All overlays ON so the group is purely additive (DB-1b) — no behaviour
+    // change until the operator opts out.
+    frameTiles: true,
+    occupancyCubes: true,
+    gpsAlignmentMarkers: true,
+    compassCubes: true,
   },
 };
 
@@ -226,6 +261,36 @@ export function validateArCrashIsolationOptions(
       typeof options.applyChromiumProjectionLayerWorkaround === 'boolean'
         ? options.applyChromiumProjectionLayerWorkaround
         : defaults.applyChromiumProjectionLayerWorkaround,
+  };
+}
+
+/**
+ * Validate and normalize the live debug-overlay visibility toggles.
+ * Each field is boolean-or-default (same policy as the AR-crash-isolation
+ * flags): a missing, corrupted, or pre-feature persisted value falls back to
+ * the ON default so an overlay is never silently disabled by bad input.
+ */
+export function validateVisualizationOptions(
+  options: Partial<VisualizationOptions>
+): VisualizationOptions {
+  const defaults = DEFAULT_RECORDING_OPTIONS.visualization;
+  return {
+    frameTiles:
+      typeof options.frameTiles === 'boolean'
+        ? options.frameTiles
+        : defaults.frameTiles,
+    occupancyCubes:
+      typeof options.occupancyCubes === 'boolean'
+        ? options.occupancyCubes
+        : defaults.occupancyCubes,
+    gpsAlignmentMarkers:
+      typeof options.gpsAlignmentMarkers === 'boolean'
+        ? options.gpsAlignmentMarkers
+        : defaults.gpsAlignmentMarkers,
+    compassCubes:
+      typeof options.compassCubes === 'boolean'
+        ? options.compassCubes
+        : defaults.compassCubes,
   };
 }
 
@@ -339,6 +404,7 @@ export function validateRecordingOptions(
       options.arCrashIsolation ?? {}
     ),
     occupancy: validateOccupancyOptions(options.occupancy ?? {}),
+    visualization: validateVisualizationOptions(options.visualization ?? {}),
   };
 }
 
@@ -414,5 +480,6 @@ export function cloneRecordingOptions(
     images: { ...options.images },
     arCrashIsolation: { ...options.arCrashIsolation },
     occupancy: { ...options.occupancy },
+    visualization: { ...options.visualization },
   };
 }
