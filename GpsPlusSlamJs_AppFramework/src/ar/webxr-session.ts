@@ -24,6 +24,7 @@ import {
   ImageCaptureManager,
   type ImageCaptureCallbacks,
   type CapturedImage,
+  type CapturedFrame,
   type ImageCaptureConfig,
   DEFAULT_CAPTURE_CONFIG,
 } from './image-capture';
@@ -1385,12 +1386,20 @@ export function startImageCapture(config?: Partial<ImageCaptureConfig>): void {
   blitCapture = new CameraBlitCapture();
   const currentRenderer = renderer;
   const divisor = mergedConfig.resolutionDivisor;
-  callbacks.captureFrame = async (quality: number): Promise<Blob | null> => {
+  callbacks.captureFrame = async (
+    quality: number
+  ): Promise<CapturedFrame | null> => {
     if (!blitCapture || !latestCameraTexture) {
-      // camera-access not available or no texture yet — fall back to canvas.toBlob
-      return new Promise<Blob | null>((resolve) => {
-        currentRenderer.domElement.toBlob(
-          (blob) => resolve(blob),
+      // camera-access not available or no texture yet — fall back to
+      // canvas.toBlob. The canvas backing store is what toBlob encodes, so its
+      // width/height are the produced JPEG's true pixel dimensions.
+      const canvas = currentRenderer.domElement;
+      return new Promise<CapturedFrame | null>((resolve) => {
+        canvas.toBlob(
+          (blob) =>
+            resolve(
+              blob ? { blob, width: canvas.width, height: canvas.height } : null
+            ),
           'image/jpeg',
           quality
         );
@@ -1407,11 +1416,19 @@ export function startImageCapture(config?: Partial<ImageCaptureConfig>): void {
       blitCapture.resizeIfNeeded(target.width, target.height);
     }
 
-    return blitCapture.captureToBlob(
+    const blob = await blitCapture.captureToBlob(
       currentRenderer,
       latestCameraTexture,
       quality
     );
+    if (!blob) return null;
+    // Render-target size == encoded JPEG size, so persist it as the image's
+    // true pixel dimensions for aspect-correct frame-tile rendering.
+    return {
+      blob,
+      width: blitCapture.getWidth(),
+      height: blitCapture.getHeight(),
+    };
   };
   log.info(`Blit capture pipeline initialized (resolutionDivisor=${divisor})`);
 

@@ -149,6 +149,8 @@ import { FrameBlobCache } from './visualization/frame-blob-cache';
 import { OccupancyGrid } from 'gps-plus-slam-app-framework/ar/occupancy-grid';
 import { OccupancyCubesVisualizer } from './visualization/occupancy-cubes-visualizer';
 import { wireOccupancyGridSubscribers } from './visualization/wire-occupancy-grid-subscribers';
+import { setOccupancyGrid } from './state/occupancy-grid-provider';
+import { SESSION_IMAGES_DIR } from 'gps-plus-slam-app-framework/storage/file-system-utils';
 
 import {
   initReplayUI,
@@ -419,6 +421,7 @@ export function resetMainState(): void {
     occupancyCubesVisualizer = null;
   }
   occupancyGrid = null;
+  setOccupancyGrid(null);
   liveFrameBlobs.clear();
   recordingSessionHandlers.reset();
   refPointHandlers.reset();
@@ -1002,7 +1005,10 @@ async function handleEnterAR(): Promise<void> {
         frameTileVisualizer?.dispose();
         frameTileVisualizer = null;
 
-        frameTileVisualizer = new FrameTileVisualizer(arScene);
+        // Parent under arWorldGroup (NOT the scene root): the selector
+        // emits raw-WebXR poses, so tiles must ride the camera's
+        // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
+        frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
         unsubscribeFrameTiles = wireFrameTileSubscribers({
           storeRef,
           visualizer: frameTileVisualizer,
@@ -1037,8 +1043,14 @@ async function handleEnterAR(): Promise<void> {
         occupancyCubesVisualizer?.dispose();
         occupancyCubesVisualizer = null;
         occupancyGrid = null;
+        setOccupancyGrid(null);
 
         occupancyGrid = new OccupancyGrid();
+        // Publish the single live grid so non-visualizer consumers (the COLMAP
+        // ZIP contributor, future floor/nav-mesh builders) can read it without a
+        // one-off reference. Mirrors main.ts's `occupancyGrid` var exactly; the
+        // teardown paths below clear it back to null (COLMAP export plan Q2).
+        setOccupancyGrid(occupancyGrid);
         occupancyCubesVisualizer = new OccupancyCubesVisualizer(arWorldGroup);
         unsubscribeOccupancyGrid = wireOccupancyGridSubscribers({
           storeRef,
@@ -1163,13 +1175,13 @@ function handleImageCaptured(image: CapturedImage): void {
   // F3.5d — cache the blob BEFORE dispatch so the frame-tile listener
   // (F3.2) and visualizer (F3.5d wire-up) can resolve it synchronously
   // when they react to the add2dImage action.
-  liveFrameBlobs.set(`frames/${filename}`, image.blob);
+  liveFrameBlobs.set(`${SESSION_IMAGES_DIR}/${filename}`, image.blob);
 
   // Dispatch first to preserve chronological action order (see DESIGN NOTE above)
   // Raw WebXR position — the reducer applies WebXR→NUE conversion
   store.dispatch(
     add2dImage({
-      imageFile: `frames/${filename}`,
+      imageFile: `${SESSION_IMAGES_DIR}/${filename}`,
       position: [image.position.x, image.position.y, image.position.z],
       rotation: [
         image.rotation.x,
@@ -1179,6 +1191,12 @@ function handleImageCaptured(image: CapturedImage): void {
       ],
       screenRotation: image.screenRotation,
       capturedAt: image.timestamp,
+      // Persist the encoded pixel dimensions so the frame-tile visualizer can
+      // render each tile at its true aspect ratio (D1 of the 2026-06-13
+      // frame-tile feedback). Field-by-field rebuild per the payload-rebuild
+      // field-drop audit — undefined for captures that lack dimensions.
+      width: image.width,
+      height: image.height,
     })
   );
 

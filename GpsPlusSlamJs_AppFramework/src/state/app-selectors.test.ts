@@ -230,6 +230,8 @@ describe('app-level selectors', () => {
         rotation: normalizeQuaternion(webxrQuaternionToNUE(webxrRotation)),
         screenRotation: 90,
         capturedAt: 1_700_000_000_000,
+        width: 1080,
+        height: 1920,
       };
 
       const state = makeStateWithPoints([nueEntry]);
@@ -249,6 +251,10 @@ describe('app-level selectors', () => {
       expect(tile.rotation[3]).toBeCloseTo(webxrRotation[3]);
       expect(tile.screenRotation).toBe(90);
       expect(tile.capturedAt).toBe(1_700_000_000_000);
+      // Pose-invariant pixel dimensions pass through unchanged (D1 frame-tile
+      // aspect-ratio fix): the visualizer needs them to size tiles correctly.
+      expect(tile.width).toBe(1080);
+      expect(tile.height).toBe(1920);
     });
 
     it('projects exactly the known ArImageCapture fields (field-drop audit F4)', () => {
@@ -263,6 +269,8 @@ describe('app-level selectors', () => {
         rotation: normalizeQuaternion(webxrQuaternionToNUE([0, 0, 0, 1])),
         screenRotation: 0,
         capturedAt: 1_700_000_000_000,
+        width: 1080,
+        height: 1920,
       };
       const tile = selectFrameTilesInWebXR(makeStateWithPoints([nueEntry]))[0];
       expect(tile).toBeDefined();
@@ -274,6 +282,8 @@ describe('app-level selectors', () => {
           'position',
           'rotation',
           'screenRotation',
+          'width',
+          'height',
         ].sort()
       );
     });

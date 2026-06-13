@@ -4,10 +4,11 @@
 
 3D-scene visualizer for captured camera frames. Each entry surfaced
 by the framework's `selectFrameTilesInWebXR` selector (one per
-accepted `gpsData/add2dImage` action) becomes a textured square in
+accepted `gpsData/add2dImage` action) becomes a textured plane in
 the WebXR scene, anchored at the WebXR pose recorded at capture
-time. (Step 5.7a-2 deleted the legacy `framesInScene` mirror — the
-selector is now the sole source.)
+time and sized to the frame's true aspect ratio. (Step 5.7a-2 deleted
+the legacy `framesInScene` mirror — the selector is now the sole
+source.)
 
 Part of F3 of
 [2026-05-26-tracking-quality-regression-and-replay-gaps-user-feedback.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-05-26-tracking-quality-regression-and-replay-gaps-user-feedback.md).
@@ -16,22 +17,39 @@ Part of F3 of
 
 ```ts
 class FrameTileVisualizer {
-  constructor(scene: THREE.Scene, options?: { sizeMeters?: number });
+  // `arSpaceNode` is the AR-odometry-NUE node that receives the alignment
+  // matrix (`arWorldGroup` live / `replaySceneState.arWorldGroup` replay) —
+  // NOT the scene root. The visualizer creates a child `WEBXR_TO_NUE` basis
+  // node and parents tiles under it.
+  constructor(arSpaceNode: THREE.Object3D, options?: { sizeMeters?: number });
   // `FrameTile` is a local alias for the framework's `ArImageCapture`
   // (the shape `selectFrameTilesInWebXR` produces).
   addTile(frame: FrameTile, texture: THREE.Texture): void;
-  clear(): void;
-  dispose(): void;
+  clear(): void; // remove all tiles, keep the basis node (reused after store-swap)
+  dispose(): void; // clear() + detach the basis node from arSpaceNode
   getCount(): number;
 }
 ```
 
 ## Design notes
 
-- **Scene is injected** (no `getScene()` call). Same P3 rule as
-  `syncGpsAnchoredMeshes` and `ref-point-visualizer`.
+- **AR-space node is injected** (no `getArWorldGroup()` call). Same P3
+  rule as `syncGpsAnchoredMeshes`, `ref-point-visualizer`, and
+  `OccupancyCubesVisualizer`.
 - **Shared geometry** — one `PlaneGeometry(1, 1)` at module scope,
   reused by every tile. Per-tile size comes from `mesh.scale`.
+- **Aspect-correct sizing (Finding 1 / D1 of
+  [2026-06-13-frame-tile-rendering-bugs-user-feedback.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-13-frame-tile-rendering-bugs-user-feedback.md)).**
+  The shared geometry is square, so a non-square JPEG would be **stretched**
+  if scaled uniformly. `addTile` instead scales **non-uniformly** from the
+  frame's persisted `width`/`height`: the **longer** edge = `sizeMeters`, the
+  shorter edge = `sizeMeters × shorter/longer` (`tileScaleXY`). A frame with
+  missing or non-positive dimensions (legacy recordings) falls back to a
+  square `sizeMeters × sizeMeters` tile. Z scale is cosmetic (the plane lies
+  in XY) and left at `sizeMeters`. This replaces the earlier — incorrect —
+  claim that "texture aspect ratio is preserved by the texture's own
+  coordinates": a `THREE.Texture` maps its `[0,1]` UVs across the whole plane,
+  so nothing preserves aspect; the geometry footprint must carry it.
 - **Per-tile material + texture** — captured frames cannot share a
   texture, so each tile owns its `MeshBasicMaterial({ map: texture })`.
   Materials and textures are disposed by `clear()` / `dispose()`. The
@@ -44,7 +62,19 @@ class FrameTileVisualizer {
 - **Append-only by `imageFile` key.** A second `addTile` call with
   the same `imageFile` is a no-op, mirroring the slice's append-only
   semantics; frames are never re-published.
-- **Coordinate space.** WebXR pose is applied directly because the
-  scene is the live WebXR scene. The library's `webxrToNUE`
-  conversion is only relevant to the serialized `odometryPath`
-  inside `gpsDataSlice` and does not apply here.
+- **Coordinate space.** `selectFrameTilesInWebXR` emits **raw WebXR**
+  poses (it runs `nueToWebXR` over the NUE-stored `odometryPath`). Those
+  poses are applied as each tile's _local_ transform under an internal
+  `WEBXR_TO_NUE` **basis node** (named `frame-tile-basis`,
+  `matrixAutoUpdate = false`), which is itself a child of the injected
+  AR-space node (`arWorldGroup`). So a tile's world pose =
+  `alignment × WEBXR_TO_NUE × pose` — the camera's chain. This mirrors
+  `webxr-session`'s `basisChangeNode` and `OccupancyCubesVisualizer`.
+  - Parenting at the **scene root** instead (the pre-2026-06-13 bug)
+    leaves tiles East/North axis-swapped (missing `WEBXR_TO_NUE`) and
+    detached from the alignment matrix. The decisive regression guard is
+    the world-pose test under a _non-trivial_ alignment in
+    `frame-tile-visualizer.test.ts` — an identity fixture passes even
+    with the bug present. See
+    [2026-06-12-followup-frame-tile-visualizer-frame-check.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-12-followup-frame-tile-visualizer-frame-check.md)
+    and the hit-test-reticle / occupancy-cube entries in lessons-learned.

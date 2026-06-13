@@ -714,6 +714,26 @@ describe('camera-blit-capture', () => {
         expect(blitCapture.resizeIfNeeded(100, 0)).toBe(false);
       });
     });
+
+    describe('getWidth / getHeight', () => {
+      /**
+       * Why this test matters (frame-tile aspect-ratio fix, D1 of
+       * 2026-06-13-frame-tile-rendering-bugs-user-feedback.md):
+       * the render-target size equals the encoded JPEG's pixel size, so
+       * webxr-session reads these getters to persist each captured frame's
+       * true width/height for aspect-correct rendering. They must report the
+       * construction size and then track resizeIfNeeded.
+       */
+      it('reports the construction dimensions and tracks resizeIfNeeded', () => {
+        blitCapture = new CameraBlitCapture({ width: 320, height: 240 });
+        expect(blitCapture.getWidth()).toBe(320);
+        expect(blitCapture.getHeight()).toBe(240);
+
+        blitCapture.resizeIfNeeded(160, 90);
+        expect(blitCapture.getWidth()).toBe(160);
+        expect(blitCapture.getHeight()).toBe(90);
+      });
+    });
   });
 
   describe('computeCaptureSize', () => {

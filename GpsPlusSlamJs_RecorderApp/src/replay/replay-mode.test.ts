@@ -437,10 +437,11 @@ describe('replay-mode', () => {
 
   // --- F3.5c: frame-tile visualizer wiring ---
 
-  it('wires frame-tile subscribers against the replay scene (F3.5c)', async () => {
+  it('wires frame-tile subscribers against the replay AR-world group (F3.5c)', async () => {
     // Why (F3.5): add2dImage actions from the recording must surface as
-    // textured planes in the replay scene. The wiring must use the scene
-    // returned by initReplayScene and the store the engine dispatches to.
+    // textured planes in the replay scene. The visualizer must be parented
+    // under arWorldGroup (NOT the scene root) so the raw-WebXR tile poses
+    // ride the alignment × WEBXR_TO_NUE chain — see the frame-check doc.
     const { wireFrameTileSubscribers } =
       await import('../visualization/wire-frame-tile-subscribers');
     const { createZipFrameBlobSource } =
@@ -451,7 +452,7 @@ describe('replay-mode', () => {
 
     expect(createZipFrameBlobSource).toHaveBeenCalledWith(fakeZipData);
     expect(mockFrameTileVisualizerCtor).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'mock-scene' })
+      expect.objectContaining({ name: 'mock-arWorldGroup' })
     );
     expect(wireFrameTileSubscribers).toHaveBeenCalledTimes(1);
     const opts = vi.mocked(wireFrameTileSubscribers).mock.calls[0][0];

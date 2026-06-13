@@ -118,7 +118,9 @@ type ProjectedFrameTileKey =
   | 'position'
   | 'rotation'
   | 'screenRotation'
-  | 'capturedAt';
+  | 'capturedAt'
+  | 'width'
+  | 'height';
 
 /**
  * Compile-time guard (field-drop audit F4): if `ArImageCapture` (a library
@@ -144,6 +146,11 @@ export const selectFrameTilesInWebXR = createSelector(
         rotation: nueQuaternionToWebXR(p.rotation),
         screenRotation: p.screenRotation,
         capturedAt: p.capturedAt,
+        // Pose-invariant pixel dimensions pass straight through (no coordinate
+        // conversion) so the frame-tile visualizer can size tiles to the true
+        // image aspect ratio (D1 of the 2026-06-13 frame-tile feedback).
+        width: p.width,
+        height: p.height,
       })
     );
   }

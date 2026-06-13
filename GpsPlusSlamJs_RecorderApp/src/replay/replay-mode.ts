@@ -147,7 +147,12 @@ export async function startReplayMode(
   let frameTileVisualizer: FrameTileVisualizer | null = null;
   try {
     const blobSource = await createZipFrameBlobSource(zipData);
-    frameTileVisualizer = new FrameTileVisualizer(replaySceneState.scene);
+    // Parent under arWorldGroup (NOT the scene root): frame tiles are
+    // raw-WebXR poses and must ride the alignment × WEBXR_TO_NUE chain,
+    // exactly like the occupancy cubes below. See the frame-check doc.
+    frameTileVisualizer = new FrameTileVisualizer(
+      replaySceneState.arWorldGroup
+    );
     const storeRef = createStoreRef(store);
     unsubscribeFrameTiles = wireFrameTileSubscribers({
       storeRef,

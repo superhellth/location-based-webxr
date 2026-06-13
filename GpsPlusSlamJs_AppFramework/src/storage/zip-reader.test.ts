@@ -56,7 +56,7 @@ describe('zip-reader', () => {
         .filter((e) => !e.directory)
         .map((e) => e.filename);
       const actionFiles = fileNames.filter((f) => f.startsWith('actions/'));
-      const frameFiles = fileNames.filter((f) => f.startsWith('frames/'));
+      const frameFiles = fileNames.filter((f) => f.startsWith('images/')); // renamed from frames/ (Q5)
       expect(actionFiles.length).toBe(testZip.totalActionCount);
       expect(frameFiles.length).toBe(testZip.frameCount);
       expect(fileNames).toContain('session.json');

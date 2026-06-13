@@ -6,17 +6,18 @@ Captures periodic JPEG screenshots from the WebGL canvas during AR recording. Us
 
 ## Public API
 
-| Export                   | Type                 | Description                                                                                                                                                                    |
-| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `MIN_VALID_IMAGE_BYTES`  | `number` (5000)      | Blob size threshold for suspicious image detection                                                                                                                             |
-| `ARPose`                 | interface            | Camera position + orientation (duplicated from webxr-session to avoid cycles)                                                                                                  |
-| `ImageCaptureConfig`     | interface            | Configuration: `intervalMs`, `quality`, `captureTimeoutMs`, `resolutionDivisor`                                                                                                |
-| `DEFAULT_CAPTURE_CONFIG` | `ImageCaptureConfig` | Defaults: 2000ms interval, 0.7 quality, 5000ms timeout, 1× resolution                                                                                                          |
-| `CapturedImage`          | interface            | Blob + timestamp + frameIndex + position + rotation + screenRotation (every persistable field is forwarded by RecorderApp `handleImageCaptured`; thread new fields through it) |
-| `ImageCaptureCallbacks`  | interface            | Hooks for pose, rotation, onCaptured, onCaptureFailed, onSuspiciousImage, captureFrame                                                                                         |
-| `ImageCaptureManager`    | class                | Manages periodic capture lifecycle                                                                                                                                             |
-| `startImageCapture(…)`   | function             | Convenience factory: creates + starts an `ImageCaptureManager`                                                                                                                 |
-| `stopImageCapture()`     | function             | Stops the active manager                                                                                                                                                       |
+| Export                   | Type                 | Description                                                                                                                                                                                                                    |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MIN_VALID_IMAGE_BYTES`  | `number` (5000)      | Blob size threshold for suspicious image detection                                                                                                                                                                             |
+| `ARPose`                 | interface            | Camera position + orientation (duplicated from webxr-session to avoid cycles)                                                                                                                                                  |
+| `ImageCaptureConfig`     | interface            | Configuration: `intervalMs`, `quality`, `captureTimeoutMs`, `resolutionDivisor`                                                                                                                                                |
+| `DEFAULT_CAPTURE_CONFIG` | `ImageCaptureConfig` | Defaults: 2000ms interval, 0.7 quality, 5000ms timeout, 1× resolution                                                                                                                                                          |
+| `CapturedImage`          | interface            | Blob + timestamp + frameIndex + position + rotation + screenRotation + optional `width`/`height` (encoded pixel size). Every persistable field is forwarded by RecorderApp `handleImageCaptured`; thread new fields through it |
+| `CapturedFrame`          | interface            | `{ blob, width, height }` returned by the `captureFrame` (blit) callback — the encoded JPEG plus its render-target pixel dimensions, so the aspect ratio is known without decoding the blob                                    |
+| `ImageCaptureCallbacks`  | interface            | Hooks for pose, rotation, onCaptured, onCaptureFailed, onSuspiciousImage, captureFrame                                                                                                                                         |
+| `ImageCaptureManager`    | class                | Manages periodic capture lifecycle                                                                                                                                                                                             |
+| `startImageCapture(…)`   | function             | Convenience factory: creates + starts an `ImageCaptureManager`                                                                                                                                                                 |
+| `stopImageCapture()`     | function             | Stops the active manager                                                                                                                                                                                                       |
 
 ### ImageCaptureManager key methods
 
@@ -33,6 +34,7 @@ Captures periodic JPEG screenshots from the WebGL canvas during AR recording. Us
 4. **Suspicious image detection**: If blob size < `MIN_VALID_IMAGE_BYTES` (5000), `onSuspiciousImage` is called. The image is still stored for debugging.
 5. **Custom capture function**: When `captureFrame` callback is provided, it's used instead of `canvas.toBlob()`. This supports the "blit" technique for WebXR opaque textures.
 6. **Epoch-ms timestamp from frame time**: `CapturedImage.timestamp` is `performance.timeOrigin + time`, where `time` is the XR frame `DOMHighResTimeStamp` passed to `onFrame()`. This keeps it in the exact same epoch-ms time domain as the same-frame AR pose and the other per-frame streams (notably depth samples, which use the identical conversion), avoiding the sub-frame drift that `Date.now()` would introduce.
+7. **Encoded pixel dimensions**: `CapturedImage.width`/`height` are the dimensions the blob was actually encoded at — the blit render-target size (`captureFrame` path) or the canvas backing-store size (`canvas.toBlob` fallback). Both equal the decoded JPEG's own width/height, so no decode is needed to learn the aspect ratio. They are only attached when positive; a degenerate `0` is dropped so it can never poison the persisted aspect ratio. These flow into `ArImageCapture.width`/`height` for aspect-correct frame-tile rendering (D1 of `2026-06-13-frame-tile-rendering-bugs-user-feedback.md`).
 
 ## Examples
 
@@ -56,5 +58,5 @@ stopImageCapture();
 
 ## Tests
 
-- Unit tests: `image-capture.test.ts` (30 tests)
-- Covers: interval timing, JPEG quality, frameIndex increment, pose data, suspicious image detection, toBlob null handling, custom captureFrame, captureInProgress safety timeout (3 tests), stop() cleanup of safety timeout and captureInProgress (1 test)
+- Unit tests: `image-capture.test.ts` (32 tests)
+- Covers: interval timing, JPEG quality, frameIndex increment, pose data, encoded width/height on both the `captureFrame` (blit dims) and `canvas.toBlob` (canvas dims) paths, suspicious image detection, toBlob null handling, custom captureFrame, captureInProgress safety timeout (3 tests), stop() cleanup of safety timeout and captureInProgress (1 test)

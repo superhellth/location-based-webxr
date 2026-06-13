@@ -74,6 +74,31 @@ export interface CapturedImage {
   readonly rotation: WebXRQuaternion;
   /** Device screen orientation (0, 90, 180, 270) */
   readonly screenRotation: number;
+  /**
+   * Width of the encoded JPEG in pixels — the blit/canvas dimensions the blob
+   * was produced from, so it equals the decoded image's width. Persisted as
+   * `ArImageCapture.width` so consumers (the 3D frame-tile visualizer) can
+   * render each frame at its true aspect ratio. Always present from the
+   * capture pipeline; optional so the field can be threaded without forcing
+   * every test/caller to supply it.
+   */
+  readonly width?: number;
+  /** Height of the encoded JPEG in pixels. See {@link CapturedImage.width}. */
+  readonly height?: number;
+}
+
+/**
+ * A captured frame blob together with the pixel dimensions it was encoded at.
+ * Returned by the optional `captureFrame` (blit) callback so the pose-invariant
+ * image size can be persisted as first-class metadata (frame-tile aspect-ratio
+ * fix, D1 of 2026-06-13-frame-tile-rendering-bugs-user-feedback.md). The
+ * dimensions are the blit render-target size — identical to the JPEG's own
+ * width/height — so no decode is needed to learn the aspect ratio.
+ */
+export interface CapturedFrame {
+  readonly blob: Blob;
+  readonly width: number;
+  readonly height: number;
 }
 
 /**
@@ -101,10 +126,12 @@ export interface ImageCaptureCallbacks {
    * be read directly via canvas.toBlob() (which returns black pixels).
    *
    * @param quality - JPEG quality 0.0-1.0
-   * @returns Promise resolving to a JPEG Blob, or null if capture fails
+   * @returns Promise resolving to the JPEG blob plus the pixel dimensions it
+   *   was encoded at, or null if capture fails. The dimensions flow into the
+   *   persisted `ArImageCapture.width`/`height` for aspect-correct rendering.
    * @see docs/2026-02-06-bug-camera-frames-black.md
    */
-  captureFrame?: (quality: number) => Promise<Blob | null>;
+  captureFrame?: (quality: number) => Promise<CapturedFrame | null>;
 }
 
 /**
@@ -228,9 +255,11 @@ export class ImageCaptureManager {
     if (this.callbacks.captureFrame) {
       this.callbacks
         .captureFrame(this.config.quality)
-        .then((blob) => {
+        .then((frame) => {
           this.handleCapturedBlob(
-            blob,
+            frame?.blob ?? null,
+            frame?.width,
+            frame?.height,
             timestamp,
             frameIndex,
             pose,
@@ -243,11 +272,15 @@ export class ImageCaptureManager {
           this.callbacks.onCaptureFailed?.();
         });
     } else {
-      // Legacy path: capture using async toBlob
+      // Legacy path: capture using async toBlob. The canvas backing-store
+      // dimensions are exactly what toBlob encodes, so they are the image's
+      // true pixel size.
       this.canvas.toBlob(
         (blob) => {
           this.handleCapturedBlob(
             blob,
+            this.canvas.width,
+            this.canvas.height,
             timestamp,
             frameIndex,
             pose,
@@ -277,6 +310,8 @@ export class ImageCaptureManager {
    */
   private handleCapturedBlob(
     blob: Blob | null,
+    width: number | undefined,
+    height: number | undefined,
     timestamp: number,
     frameIndex: number,
     pose: ARPose,
@@ -301,7 +336,10 @@ export class ImageCaptureManager {
       // Still proceed with saving the image for debugging purposes
     }
 
-    // Notify caller (frameCount already incremented above)
+    // Notify caller (frameCount already incremented above). width/height are
+    // the encoded pixel dimensions (blit render target or canvas backing
+    // store) — only attached when known/positive so a degenerate 0 never
+    // poisons the persisted aspect ratio.
     this.callbacks.onCaptured({
       blob,
       timestamp,
@@ -309,6 +347,8 @@ export class ImageCaptureManager {
       position: pose.position,
       rotation: pose.orientation,
       screenRotation,
+      ...(width && width > 0 ? { width } : {}),
+      ...(height && height > 0 ? { height } : {}),
     });
   }
 }

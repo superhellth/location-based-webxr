@@ -255,6 +255,7 @@ vi.mock('./storage/ref-point-importer', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/storage/file-system-utils', () => ({
   formatTimestamp: vi.fn(),
+  SESSION_IMAGES_DIR: 'images',
 }));
 vi.mock('gps-plus-slam-app-framework/utils/fused-path', () => ({
   computeFusedPath: vi.fn(),
@@ -406,8 +407,11 @@ vi.mock('./storage/folder-manager', () => ({
   }),
 }));
 
-// Import after all mocks are set up
+// Import after all mocks are set up. The occupancy-grid provider is imported
+// REAL (not mocked) so we can assert main.ts publishes/clears the live grid
+// through it — the shared accessor the COLMAP contributor reads (Iter 2.5).
 import { handleEnterARForTesting, resetMainState } from './main';
+import { getOccupancyGrid } from './state/occupancy-grid-provider';
 import {
   setDepthCaptureCallback,
   setImageCaptureCallback,
@@ -468,6 +472,22 @@ describe('Occupancy-grid cube wiring in live AR', () => {
     resetMainState();
     expect(occupancyGridDisposers[0]).toHaveBeenCalledTimes(1);
     expect(mockVisualizerInstance.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Why this test matters (Iter 2.5): the COLMAP contributor and future grid
+   * consumers read the live grid through `getOccupancyGrid()`. main.ts must
+   * publish the SAME instance it feeds the visualizer when entering AR, and
+   * clear it back to null on session-swap/teardown so a stale grid is never
+   * exported (e.g. during replay, which keeps its own grid).
+   */
+  it('publishes the live grid via the provider on Enter AR and clears it on reset', async () => {
+    await handleEnterARForTesting();
+    // Same instance the visualizer/subscribers were fed.
+    expect(getOccupancyGrid()).toBe(mockOccupancyGridInstance);
+
+    resetMainState();
+    expect(getOccupancyGrid()).toBeNull();
   });
 
   /**
@@ -564,7 +584,7 @@ describe('Occupancy-grid cube wiring in live AR', () => {
    * This test populates every CapturedImage field and asserts each persistable
    * one reaches the dispatched add2dImage payload. Note the two fields that are
    * NOT in the payload by design: `blob` is routed through store.writeFrame and
-   * `frameIndex` is encoded into the `frames/…` filename. A new CapturedImage
+   * `frameIndex` is encoded into the `images/…` filename. A new CapturedImage
    * field MUST be threaded through handleImageCaptured and asserted here.
    */
   it('forwards every persistable CapturedImage field into the add2dImage payload', async () => {
@@ -585,7 +605,7 @@ describe('Occupancy-grid cube wiring in live AR', () => {
 
     expect(add2dImage).toHaveBeenCalledTimes(1);
     expect(add2dImage).toHaveBeenCalledWith({
-      imageFile: 'frames/frame-000007.jpg', // frameIndex encoded into the filename
+      imageFile: 'images/frame-000007.jpg', // frameIndex encoded into the filename (renamed from frames/, Q5)
       position: [1.5, -2.5, 3.5], // WebXRVec3 → tuple (reducer converts to NUE)
       rotation: [0.1, 0.2, 0.3, 0.9], // WebXRQuaternion → tuple
       screenRotation: 90,

@@ -74,6 +74,40 @@ describe('createZipFrameBlobSource', () => {
     expect(await b?.text()).toBe('BBBB');
     expect(await a2?.text()).toBe('AAA');
   });
+
+  // Why (Q5 rename): NEW recordings store images under `images/` and persist
+  // `imageFile: images/…`. A direct lookup by the stored path must resolve.
+  it('resolves new-layout images/ entries by their stored path', async () => {
+    const zip = await buildZip([
+      { name: 'images/frame-000001.jpg', bytes: bytes('new-jpeg') },
+    ]);
+    const source = await createZipFrameBlobSource(zip);
+    const blob = await source('images/frame-000001.jpg');
+    expect(await blob?.text()).toBe('new-jpeg');
+  });
+
+  // Why (Q5 safety net): if a ZIP's stored `imageFile` prefix disagrees with
+  // its entry prefix (e.g. a hand-merged/migrated ZIP), the source falls back
+  // to the swapped frames/↔images/ prefix so the frame still resolves.
+  it('falls back across the frames/↔images/ prefix on mismatch', async () => {
+    // Entry stored under legacy frames/, looked up with the new images/ prefix.
+    const legacyZip = await buildZip([
+      { name: 'frames/frame-000001.jpg', bytes: bytes('legacy') },
+    ]);
+    const legacySource = await createZipFrameBlobSource(legacyZip);
+    expect(await (await legacySource('images/frame-000001.jpg'))?.text()).toBe(
+      'legacy'
+    );
+
+    // Entry stored under new images/, looked up with the legacy frames/ prefix.
+    const newZip = await buildZip([
+      { name: 'images/frame-000001.jpg', bytes: bytes('fresh') },
+    ]);
+    const newSource = await createZipFrameBlobSource(newZip);
+    expect(await (await newSource('frames/frame-000001.jpg'))?.text()).toBe(
+      'fresh'
+    );
+  });
 });
 
 // Surface that we actually depend on `TextReader` import path correctness.

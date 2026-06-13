@@ -13,7 +13,7 @@
  *       │   ├── actions/
  *       │   │   ├── 000001.json
  *       │   │   └── ...
- *       │   └── frames/
+ *       │   └── images/        (legacy recordings: frames/)
  *       │       ├── frame-000001.jpg
  *       │       └── ...
  *       └── ...
@@ -27,6 +27,7 @@ import {
   formatTimestamp,
   formatActionFilename,
   formatFrameFilename,
+  SESSION_IMAGES_DIR,
 } from './file-system-utils';
 
 const log = createLogger('OPFS');
@@ -201,7 +202,7 @@ export function getAppRootHandle(): FileSystemDirectoryHandle | null {
  * Creates the directory structure:
  * - /gps-plus-slam/sessions/recording-{timestamp}/
  * - /gps-plus-slam/sessions/recording-{timestamp}/actions/
- * - /gps-plus-slam/sessions/recording-{timestamp}/frames/
+ * - /gps-plus-slam/sessions/recording-{timestamp}/images/ (legacy: frames/)
  *
  * @param timestamp - Session start time (used for folder naming)
  * @param _contextTag - Opaque tag; not used by the flat layout but accepted
@@ -227,9 +228,10 @@ export async function createSession(
   actionsHandle = await currentSessionHandle.getDirectoryHandle('actions', {
     create: true,
   });
-  framesHandle = await currentSessionHandle.getDirectoryHandle('frames', {
-    create: true,
-  });
+  framesHandle = await currentSessionHandle.getDirectoryHandle(
+    SESSION_IMAGES_DIR,
+    { create: true }
+  );
 
   log.info('Session created:', sessionName);
 

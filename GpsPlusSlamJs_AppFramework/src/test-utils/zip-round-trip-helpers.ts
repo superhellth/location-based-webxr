@@ -37,6 +37,7 @@ import {
   type SessionMetadata,
 } from '../storage/opfs-storage';
 import { exportSessionAsZip } from '../storage/zip-export';
+import { SESSION_IMAGES_DIR } from '../storage/file-system-utils';
 import { type RecordedAction } from '../storage/zip-reader';
 import type { LatLong, Vector3, Quaternion } from 'gps-plus-slam-js';
 
@@ -153,7 +154,7 @@ export async function produceTestZip(
     // --- add2dImage BEFORE setZeroPos (dropped during replay: state is null) ---
     for (let i = 0; i < options.imagesBeforeSetZero; i++) {
       const payload = {
-        imageFile: `frames/frame-${String(actionIndex + 1).padStart(6, '0')}.jpg`,
+        imageFile: `${SESSION_IMAGES_DIR}/frame-${String(actionIndex + 1).padStart(6, '0')}.jpg`,
         position: [i * 0.5, 0, 0] as Vector3,
         rotation: [0, 0, 0, 1] as Quaternion,
         screenRotation: 0,
@@ -203,7 +204,7 @@ export async function produceTestZip(
     for (let i = 0; i < options.imagesAfterSetZero; i++) {
       const imgIdx = postZeroImageOffset + i + 1;
       const payload = {
-        imageFile: `frames/frame-${String(imgIdx).padStart(6, '0')}.jpg`,
+        imageFile: `${SESSION_IMAGES_DIR}/frame-${String(imgIdx).padStart(6, '0')}.jpg`,
         position: [(i + 1) * 1.0, (i + 1) * 0.5, 0] as Vector3,
         rotation: [0, 0, 0, 1] as Quaternion,
         screenRotation: i % 4,

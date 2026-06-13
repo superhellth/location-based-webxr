@@ -385,6 +385,21 @@ export class CameraBlitCapture {
   }
 
   /**
+   * Current render-target width in pixels. This is exactly the width of the
+   * JPEG produced by {@link captureToBlob} (the encode canvas is sized to the
+   * render target), so callers can persist it as the captured image's true
+   * pixel width without decoding the blob.
+   */
+  getWidth(): number {
+    return this.width;
+  }
+
+  /** Current render-target height in pixels. See {@link getWidth}. */
+  getHeight(): number {
+    return this.height;
+  }
+
+  /**
    * Dispose GPU resources. Call when AR session ends.
    */
   dispose(): void {

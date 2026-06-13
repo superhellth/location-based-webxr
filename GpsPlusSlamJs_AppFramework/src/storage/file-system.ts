@@ -26,7 +26,7 @@ import {
   resetSessionHandles,
   type SessionMetadata,
 } from './opfs-storage';
-import { formatTimestamp } from './file-system-utils';
+import { formatTimestamp, SESSION_IMAGES_DIR } from './file-system-utils';
 
 const log = createLogger('Storage');
 
@@ -224,9 +224,10 @@ export async function startSession(
     const actionsHandle = await sessionHandle.getDirectoryHandle('actions', {
       create: true,
     });
-    const framesHandle = await sessionHandle.getDirectoryHandle('frames', {
-      create: true,
-    });
+    const framesHandle = await sessionHandle.getDirectoryHandle(
+      SESSION_IMAGES_DIR,
+      { create: true }
+    );
 
     // Bridge: set opfs-storage's handles so write operations work
     opfsSetSessionHandles(sessionHandle, actionsHandle, framesHandle);

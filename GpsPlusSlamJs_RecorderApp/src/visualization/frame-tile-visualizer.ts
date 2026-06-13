@@ -13,15 +13,23 @@
  * replay.
  *
  * Coordinate space: `selectFrameTilesInWebXR` converts the library's
- * NUE-stored `odometryPath.points` back to WebXR for the visualizer.
- * The WebXR scene the visualizer attaches to is in the same frame, so
- * the pose is applied directly. (Step 5.7a-2 deleted the legacy
- * `framesInScene` slice + `add-2d-image-listener` mirror — the
- * selector is now the sole source.)
+ * NUE-stored `odometryPath.points` to **raw WebXR**. Those poses must
+ * therefore ride the camera's `alignment × WEBXR_TO_NUE` chain, so the
+ * visualizer parents every tile under an internal basis node that holds
+ * the constant `WEBXR_TO_NUE` matrix (mirroring `webxr-session`'s
+ * `basisChangeNode`), itself a child of the injected **AR-space node**
+ * (`arWorldGroup`, which receives the alignment matrix). Parenting at
+ * the scene root instead leaves tiles East/North axis-swapped and
+ * detached from alignment — see
+ * `GpsPlusSlamJs_Docs/docs/2026-06-12-followup-frame-tile-visualizer-frame-check.md`
+ * and the hit-test-reticle / occupancy-cube entries in lessons-learned.
+ * (Step 5.7a-2 deleted the legacy `framesInScene` slice +
+ * `add-2d-image-listener` mirror — the selector is now the sole source.)
  *
- * Scene is injected explicitly (no `getScene()` call) so the class
- * stays unit-testable and obeys the P3 rule used by
- * `syncGpsAnchoredMeshes` and `ref-point-visualizer`.
+ * The AR-space node is injected explicitly (no `getArWorldGroup()` call)
+ * so the class stays unit-testable and obeys the P3 rule used by
+ * `syncGpsAnchoredMeshes`, `ref-point-visualizer`, and
+ * `OccupancyCubesVisualizer`.
  *
  * Texture decoding is **out of scope** for this class — callers
  * (`wireFrameTileSubscribers`, F3.4) own blob → `THREE.Texture`
@@ -31,6 +39,10 @@
 
 import * as THREE from 'three';
 import type { ArImageCapture } from 'gps-plus-slam-app-framework/core';
+// Deep subpath on purpose (same rationale as occupancy-cubes-visualizer):
+// the /ar barrel eagerly evaluates heavy module-level deps; webxr-nue-basis
+// depends only on three.
+import { WEBXR_TO_NUE } from 'gps-plus-slam-app-framework/ar/webxr-nue-basis';
 
 /**
  * Pose-carrying frame descriptor consumed by the visualizer. Matches
@@ -47,34 +59,67 @@ const SHARED_GEOMETRY = new THREE.PlaneGeometry(1, 1);
 
 export interface FrameTileVisualizerOptions {
   /**
-   * Edge length of the textured plane in meters. Tiles are square at
-   * the configured size; texture aspect ratio is preserved by the
-   * texture's own coordinates, not by the geometry. Defaults to 0.2 m
-   * (20 cm) — visible without dominating the scene at typical
-   * walking-pace capture cadence.
+   * Length of the tile's **longer** edge in meters. The shared unit
+   * `PlaneGeometry(1, 1)` is scaled **non-uniformly** to the frame's
+   * `width`/`height` aspect ratio so the tile footprint matches the true
+   * image shape (the longer edge equals this value, the shorter edge is
+   * `sizeMeters × shorter/longer`). Frames without persisted dimensions
+   * (legacy recordings) fall back to a square `sizeMeters × sizeMeters`
+   * tile. Defaults to 0.2 m (20 cm) — visible without dominating the scene
+   * at typical walking-pace capture cadence.
    */
   readonly sizeMeters?: number;
 }
 
 const DEFAULT_SIZE = 0.2;
 const NAME_PREFIX = 'frame-tile';
+/** Name of the internal `WEBXR_TO_NUE` basis node tiles hang off. */
+const BASIS_NODE_NAME = 'frame-tile-basis';
 
 export class FrameTileVisualizer {
-  private readonly scene: THREE.Scene;
+  private readonly arSpaceNode: THREE.Object3D;
   private readonly sizeMeters: number;
   private readonly tiles = new Map<string, THREE.Mesh>();
+  /**
+   * Static basis-change node carrying the constant `WEBXR_TO_NUE` matrix,
+   * parented under the AR-space node. Tiles (raw WebXR poses) are added
+   * here so each tile's world pose = `alignment × WEBXR_TO_NUE × pose`,
+   * the same chain as the camera (mirrors `webxr-session`'s
+   * `basisChangeNode`).
+   */
+  private readonly basisNode: THREE.Group;
+  private disposed = false;
 
-  constructor(scene: THREE.Scene, options: FrameTileVisualizerOptions = {}) {
-    this.scene = scene;
+  /**
+   * @param arSpaceNode - the node whose local space is AR-odometry NUE
+   *   and which receives the alignment matrix (`arWorldGroup` live,
+   *   `replaySceneState.arWorldGroup` in replay) — NOT the scene root.
+   */
+  constructor(
+    arSpaceNode: THREE.Object3D,
+    options: FrameTileVisualizerOptions = {}
+  ) {
+    this.arSpaceNode = arSpaceNode;
     this.sizeMeters = options.sizeMeters ?? DEFAULT_SIZE;
+
+    this.basisNode = new THREE.Group();
+    this.basisNode.name = BASIS_NODE_NAME;
+    // matrixAutoUpdate=false so three never overwrites the basis matrix
+    // from position/quaternion/scale decomposition.
+    this.basisNode.matrixAutoUpdate = false;
+    this.basisNode.matrix.copy(WEBXR_TO_NUE);
+    this.arSpaceNode.add(this.basisNode);
   }
 
   /**
    * Add a textured tile for `frame`. Keyed by `frame.imageFile`; a
    * second call with the same `imageFile` is a no-op (append-only
-   * mirror of the slice — frames are never re-published).
+   * mirror of the slice — frames are never re-published). The pose is
+   * applied as the tile's *local* transform under the basis node; the
+   * basis node supplies the WebXR→NUE conversion.
    */
   addTile(frame: FrameTile, texture: THREE.Texture): void {
+    if (this.disposed) return;
     if (this.tiles.has(frame.imageFile)) return;
     const material = new THREE.MeshBasicMaterial({
       map: texture,
@@ -84,7 +129,15 @@ export class FrameTileVisualizer {
       depthTest: true,
     });
     const mesh = new THREE.Mesh(SHARED_GEOMETRY, material);
-    mesh.scale.setScalar(this.sizeMeters);
+    // Non-uniform scale to the frame's aspect ratio so a non-square JPEG is
+    // not stretched onto a square plane (Finding 1 / D1). The longer edge is
+    // sizeMeters; a frame without persisted dimensions falls back to square.
+    const { x: scaleX, y: scaleY } = tileScaleXY(
+      this.sizeMeters,
+      frame.width,
+      frame.height
+    );
+    mesh.scale.set(scaleX, scaleY, this.sizeMeters);
     mesh.name = `${NAME_PREFIX}-${frame.imageFile}`;
     mesh.position.set(frame.position[0], frame.position[1], frame.position[2]);
     mesh.quaternion.set(
@@ -93,32 +146,63 @@ export class FrameTileVisualizer {
       frame.rotation[2],
       frame.rotation[3]
     );
-    this.scene.add(mesh);
+    this.basisNode.add(mesh);
     this.tiles.set(frame.imageFile, mesh);
   }
 
   /**
-   * Remove every tile from the scene and dispose its per-tile
-   * texture + material. The shared geometry is *not* disposed: it
-   * lives for the lifetime of the module (matching the resource
-   * model in `syncGpsAnchoredMeshes`).
+   * Remove every tile and dispose its per-tile texture + material,
+   * keeping the basis node so the visualizer can be reused after a
+   * store-swap (the wirer calls `clear()` then keeps adding tiles). The
+   * shared geometry is *not* disposed: it lives for the lifetime of the
+   * module (matching the resource model in `syncGpsAnchoredMeshes`).
    */
   clear(): void {
     for (const mesh of this.tiles.values()) {
-      this.scene.remove(mesh);
+      this.basisNode.remove(mesh);
       disposeTileMaterial(mesh);
     }
     this.tiles.clear();
   }
 
-  /** Identical to `clear()`; kept for parity with other visualizers. */
+  /**
+   * End-of-life teardown: clear all tiles and detach the basis node from
+   * the AR-space node so re-entering AR doesn't leak an empty group each
+   * cycle. Mirrors `OccupancyCubesVisualizer.dispose()`.
+   */
   dispose(): void {
+    if (this.disposed) return;
     this.clear();
+    this.arSpaceNode.remove(this.basisNode);
+    this.disposed = true;
   }
 
   getCount(): number {
     return this.tiles.size;
   }
+}
+
+/**
+ * Per-tile X/Y scale for the shared unit plane so the tile reproduces the
+ * source image's aspect ratio. The longer edge is `sizeMeters`; the shorter
+ * edge is scaled down by the aspect ratio. Falls back to a square
+ * (`sizeMeters × sizeMeters`) when dimensions are missing or non-positive
+ * (legacy recordings / degenerate input) so a tile can never collapse or
+ * distort. Z is handled by the caller (the plane lies in XY; Z scale is
+ * cosmetic).
+ */
+function tileScaleXY(
+  sizeMeters: number,
+  width: number | undefined,
+  height: number | undefined
+): { x: number; y: number } {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return { x: sizeMeters, y: sizeMeters };
+  }
+  const aspect = width / height;
+  return aspect >= 1
+    ? { x: sizeMeters, y: sizeMeters / aspect } // landscape: width is the long edge
+    : { x: sizeMeters * aspect, y: sizeMeters }; // portrait: height is the long edge
 }
 
 function disposeTileMaterial(mesh: THREE.Mesh): void {

@@ -10,7 +10,7 @@
  *   actions/000001.json  — Redux action JSON files (1-based, zero-padded)
  *   actions/000002.json
  *   ...
- *   frames/frame-000001.jpg  — captured image frames (optional)
+ *   images/frame-000001.jpg  — captured image frames (optional; legacy: frames/)
  *   session.json             — session metadata (optional, see F1 bug)
  */
 

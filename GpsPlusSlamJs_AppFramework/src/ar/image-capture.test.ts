@@ -22,6 +22,7 @@ import {
   type ImageCaptureConfig,
   type ImageCaptureCallbacks,
   type CapturedImage,
+  type CapturedFrame,
   DEFAULT_CAPTURE_CONFIG,
   MIN_VALID_IMAGE_BYTES,
 } from './image-capture';
@@ -225,6 +226,12 @@ describe('image-capture', () => {
             position: { x: 1, y: 2, z: 3 },
             rotation: { x: 0, y: 0, z: 0, w: 1 },
             screenRotation: 0,
+            // Legacy canvas.toBlob path: the captured image carries the canvas
+            // backing-store dimensions (mock canvas is 1920×1080), which are
+            // the encoded JPEG's true pixel size. Persisted for aspect-correct
+            // frame-tile rendering (D1).
+            width: 1920,
+            height: 1080,
           })
         );
       });
@@ -518,7 +525,11 @@ describe('image-capture', () => {
         const fakeBlob = new Blob(['blit capture data'], {
           type: 'image/jpeg',
         });
-        const captureFrame = vi.fn().mockResolvedValue(fakeBlob);
+        // The blit pipeline returns the encoded blob plus its render-target
+        // pixel dimensions (CapturedFrame), not a bare Blob.
+        const captureFrame = vi
+          .fn()
+          .mockResolvedValue({ blob: fakeBlob, width: 800, height: 600 });
 
         const callbacksWithCapture: ImageCaptureCallbacks = {
           ...mockCallbacks,
@@ -538,10 +549,11 @@ describe('image-capture', () => {
         // canvas.toBlob should NOT be called when captureFrame is provided
         expect(mockCanvas.toBlob).not.toHaveBeenCalled();
 
-        // onCaptured should receive the blob from captureFrame
+        // onCaptured should receive the blob AND the blit dimensions from
+        // captureFrame (not the canvas size) — these are the JPEG's true pixels.
         await vi.waitFor(() => {
           expect(mockCallbacks.onCaptured).toHaveBeenCalledWith(
-            expect.objectContaining({ blob: fakeBlob })
+            expect.objectContaining({ blob: fakeBlob, width: 800, height: 600 })
           );
         });
       });
@@ -579,10 +591,11 @@ describe('image-capture', () => {
        * once a capture is in progress, no overlapping captures should occur.
        */
       it('should not overlap captures when captureFrame is async', async () => {
-        let resolveCapture: ((blob: Blob | null) => void) | null = null;
+        let resolveCapture: ((frame: CapturedFrame | null) => void) | null =
+          null;
         const captureFrame = vi.fn().mockImplementation(
           () =>
-            new Promise<Blob | null>((resolve) => {
+            new Promise<CapturedFrame | null>((resolve) => {
               resolveCapture = resolve;
             })
         );
@@ -601,7 +614,11 @@ describe('image-capture', () => {
         expect(captureFrame).toHaveBeenCalledTimes(1);
 
         // Resolve first capture
-        resolveCapture!(new Blob(['data'], { type: 'image/jpeg' }));
+        resolveCapture!({
+          blob: new Blob(['data'], { type: 'image/jpeg' }),
+          width: 800,
+          height: 600,
+        });
         await vi.waitFor(() => {
           expect(mockCallbacks.onCaptured).toHaveBeenCalledTimes(1);
         });
@@ -614,7 +631,9 @@ describe('image-capture', () => {
        */
       it('should detect suspicious images from captureFrame', async () => {
         const tinyBlob = new Blob(['tiny'], { type: 'image/jpeg' });
-        const captureFrame = vi.fn().mockResolvedValue(tinyBlob);
+        const captureFrame = vi
+          .fn()
+          .mockResolvedValue({ blob: tinyBlob, width: 4, height: 4 });
         const onSuspiciousImage = vi.fn();
 
         const callbacksWithCapture: ImageCaptureCallbacks = {
@@ -709,10 +728,10 @@ describe('image-capture', () => {
       it('should cancel timeout when capture resolves normally', async () => {
         vi.useFakeTimers();
 
-        let resolveCapture: ((blob: Blob | null) => void) | undefined;
+        let resolveCapture: ((frame: CapturedFrame | null) => void) | undefined;
         const captureFrame = vi.fn(
           () =>
-            new Promise<Blob | null>((resolve) => {
+            new Promise<CapturedFrame | null>((resolve) => {
               resolveCapture = resolve;
             })
         );
@@ -732,7 +751,11 @@ describe('image-capture', () => {
         expect(captureFrame).toHaveBeenCalledTimes(1);
 
         // Resolve before timeout
-        resolveCapture!(new Blob(['data'], { type: 'image/jpeg' }));
+        resolveCapture!({
+          blob: new Blob(['data'], { type: 'image/jpeg' }),
+          width: 800,
+          height: 600,
+        });
         await vi.advanceTimersByTimeAsync(10);
 
         expect(mockCallbacks.onCaptured).toHaveBeenCalledTimes(1);
