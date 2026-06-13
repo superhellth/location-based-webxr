@@ -988,7 +988,23 @@ async function handleEnterAR(): Promise<void> {
       alignmentLerper = createAlignmentLerper(arWorldGroup);
 
       cameraFollower = createCameraFollower(arScene);
-      createGpsCompassCubes(cameraFollower.object3D);
+
+      // Live debug-overlay visibility (recording-options `visualization`, read
+      // ONCE here at Enter-AR — toggling mid-session applies on the next
+      // Enter-AR, not retroactively; replay is never gated). Finding B / DB-2 of
+      // GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md.
+      const viz = recordingOptions.visualization;
+
+      // Compass cubes — recorder-side skip. Nothing non-visual depends on them.
+      if (viz.compassCubes) {
+        createGpsCompassCubes(cameraFollower.object3D);
+      }
+
+      // GPS+VIO alignment spheres — NOT skipped (their snapshot positions feed
+      // the session-summary map at stop), only hidden via the framework
+      // visibility API. Live only; replay keeps them visible because clearAll
+      // resets the shared singleton's visibility on each store swap.
+      gpsEventVisualizer.setVisible(viz.gpsAlignmentMarkers);
 
       // F3.5d — wire the frame-tile visualizer into the live AR scene so
       // captured frames appear as textured planes during recording, using
@@ -1005,20 +1021,26 @@ async function handleEnterAR(): Promise<void> {
         frameTileVisualizer?.dispose();
         frameTileVisualizer = null;
 
-        // Parent under arWorldGroup (NOT the scene root): the selector
-        // emits raw-WebXR poses, so tiles must ride the camera's
-        // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
-        frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
-        unsubscribeFrameTiles = wireFrameTileSubscribers({
-          storeRef,
-          visualizer: frameTileVisualizer,
-          blobSource: (imageFile) =>
-            Promise.resolve(liveFrameBlobs.get(imageFile) ?? null),
-          decodeTexture: decodeFrameTexture,
-          onError: (err, imageFile) => {
-            log.warn(`Frame tile decode failed for "${imageFile}"`, err);
-          },
-        });
+        // Gate creation on the toggle (teardown above stays unconditional so
+        // turning the overlay off cleanly removes a prior cycle's tiles). The
+        // live frame-blob cache is populated in handleImageCaptured,
+        // independent of this wiring, so skipping it never affects capture.
+        if (viz.frameTiles) {
+          // Parent under arWorldGroup (NOT the scene root): the selector
+          // emits raw-WebXR poses, so tiles must ride the camera's
+          // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
+          frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
+          unsubscribeFrameTiles = wireFrameTileSubscribers({
+            storeRef,
+            visualizer: frameTileVisualizer,
+            blobSource: (imageFile) =>
+              Promise.resolve(liveFrameBlobs.get(imageFile) ?? null),
+            decodeTexture: decodeFrameTexture,
+            onError: (err, imageFile) => {
+              log.warn(`Frame tile decode failed for "${imageFile}"`, err);
+            },
+          });
+        }
       } catch (err) {
         log.warn(
           'Frame tile visualizer wiring skipped; recording continues without frame tiles',
@@ -1056,11 +1078,24 @@ async function handleEnterAR(): Promise<void> {
         // one-off reference. Mirrors main.ts's `occupancyGrid` var exactly; the
         // teardown paths below clear it back to null (COLMAP export plan Q2).
         setOccupancyGrid(occupancyGrid);
-        occupancyCubesVisualizer = new OccupancyCubesVisualizer(arWorldGroup);
+
+        // The occupancyCubes toggle gates ONLY the rendered debug cubes — the
+        // grid itself is always built and fed, because COLMAP export and other
+        // non-visualizer consumers read it via getOccupancyGrid(). When the
+        // overlay is off we wire a no-op sink so the grid still folds in every
+        // depth sample without allocating the cube InstancedMesh.
+        const occupancyVisualizerSink: {
+          refresh(grid: OccupancyGrid): void;
+          clear(): void;
+        } = viz.occupancyCubes
+          ? (occupancyCubesVisualizer = new OccupancyCubesVisualizer(
+              arWorldGroup
+            ))
+          : { refresh: () => {}, clear: () => {} };
         unsubscribeOccupancyGrid = wireOccupancyGridSubscribers({
           storeRef,
           grid: occupancyGrid,
-          visualizer: occupancyCubesVisualizer,
+          visualizer: occupancyVisualizerSink,
           onError: (err) => {
             log.warn('Occupancy grid update failed', err);
           },

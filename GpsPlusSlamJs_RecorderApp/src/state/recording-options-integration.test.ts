@@ -71,6 +71,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       store.dispatch(
@@ -97,6 +98,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       store.dispatch(
@@ -309,6 +311,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       store.dispatch(
@@ -366,6 +369,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       store.dispatch(
@@ -422,6 +426,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
       };
 
       store.dispatch(

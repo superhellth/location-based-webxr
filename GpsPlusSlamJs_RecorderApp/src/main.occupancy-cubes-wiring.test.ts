@@ -291,6 +291,12 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
     depth: { enabled: false, intervalMs: 1000 },
     occupancy: { cellSizeM: 0.15 },
+    visualization: {
+      frameTiles: true,
+      occupancyCubes: true,
+      gpsAlignmentMarkers: true,
+      compassCubes: true,
+    },
   }),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
@@ -326,7 +332,7 @@ vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
   refPointVisualizer: {},
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
-  gpsEventVisualizer: {},
+  gpsEventVisualizer: { setVisible: vi.fn(), clearAll: vi.fn() },
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
   MapOverlay: vi.fn().mockImplementation(() => ({

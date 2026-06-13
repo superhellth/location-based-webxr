@@ -366,6 +366,7 @@ const defaultOptions: RecordingOptions = {
   depth: { enabled: false, intervalMs: 1000, gridSize: 3, rgb: true },
   arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
   occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+  visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
 };
 
 function createMockDeps(
@@ -639,6 +640,7 @@ describe('handleStartRecording', () => {
       depth: { enabled: false, intervalMs: 1000, gridSize: 3, rgb: true },
       arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
       occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+      visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
     };
     deps = createMockDeps({ getRecordingOptions: () => opts });
     handlers = createRecordingSessionHandlers(deps);
@@ -674,6 +676,7 @@ describe('handleStartRecording', () => {
       depth: { enabled: true, intervalMs: 500, gridSize: 3, rgb: false },
       arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
       occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+      visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
     };
     deps = createMockDeps({ getRecordingOptions: () => opts });
     handlers = createRecordingSessionHandlers(deps);

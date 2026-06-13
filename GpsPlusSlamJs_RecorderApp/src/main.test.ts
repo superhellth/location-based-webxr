@@ -394,6 +394,13 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
       enableCameraTextureAcquisition: true,
       applyChromiumProjectionLayerWorkaround: false,
     },
+    occupancy: { cellSizeM: 0.15 },
+    visualization: {
+      frameTiles: true,
+      occupancyCubes: true,
+      gpsAlignmentMarkers: true,
+      compassCubes: true,
+    },
   }),
 }));
 

@@ -1,38 +1,121 @@
 // @vitest-environment jsdom
 /**
- * Integration tests for Issue 8: CameraFollower wiring in live AR mode (main.ts).
+ * Integration tests for the four live debug-overlay toggles in handleEnterAR
+ * (main.ts) — Finding B / Slice 4 of
+ * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md.
  *
  * Why these tests matter:
- * These tests verify that handleEnterAR creates a CameraFollower and compass cubes,
- * wires the follower update into the per-frame callback, and passes the follower
- * as mapParent when creating the MapOverlay. Without these, a regression could
- * silently break the GPS-aligned map / compass cubes in live AR.
+ * The `visualization` recording-options group must gate ONLY what is drawn live
+ * during recording, read once at Enter-AR, without ever touching capture. Each
+ * toggle has a different gate mechanism, asserted here:
+ *  - frameTiles    → the FrameTileVisualizer + wiring are created only when on.
+ *  - compassCubes  → createGpsCompassCubes is called only when on.
+ *  - gpsAlignmentMarkers → gpsEventVisualizer.setVisible(flag) is always called
+ *    with the flag (markers stay wired so their snapshot positions feed the
+ *    session-summary map; they are only hidden).
+ *  - occupancyCubes → the cube InstancedMesh visualizer is created only when on,
+ *    but the OccupancyGrid is ALWAYS built and published (COLMAP export reads it
+ *    via getOccupancyGrid()), so when off the wirer gets a no-op visualizer sink.
+ *
+ * Mock harness mirrors main.occupancy-cubes-wiring.test.ts. The recording
+ * options are a single hoisted object returned by loadRecordingOptions; because
+ * main() runs at import and assigns it by reference to the module's
+ * `recordingOptions`, mutating its `visualization` flags per test changes what
+ * handleEnterAR reads.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// ---------- hoisted mocks (need to be available before vi.mock factories) ----------
-
-const { mockCreateCameraFollower, mockFollower, mockCreateGpsCompassCubes } =
-  vi.hoisted(() => {
-    const mockFollower = {
-      object3D: { name: 'camera-follower' }, // matches SCENE_NODE.CAMERA_FOLLOWER
-      update: vi.fn(),
-      dispose: vi.fn(),
-    };
-    return {
-      mockCreateCameraFollower: vi.fn().mockReturnValue(mockFollower),
-      mockFollower,
-      mockCreateGpsCompassCubes: vi.fn(),
-    };
-  });
+// ---------- hoisted mocks ----------
 
 const {
-  mockGetArWorldGroup,
-  mockGetScene,
-  mockGetCamera,
-  mockSetFrameCallback,
+  mockFrameTileVisualizerCtor,
+  mockWireFrameTileSubscribers,
+  frameTileDisposers,
+  mockOccupancyGridCtor,
+  mockOccupancyGridInstance,
+  mockOccupancyVisualizerCtor,
+  mockOccupancyVisualizerInstance,
+  mockWireOccupancyGridSubscribers,
+  occupancyDisposers,
+  mockCreateGpsCompassCubes,
+  mockGpsEventVisualizer,
+  mockRecordingOptions,
 } = vi.hoisted(() => {
+  const mockFrameTileVisualizerInstance = {
+    addTile: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+    getCount: vi.fn().mockReturnValue(0),
+  };
+  const mockOccupancyGridInstance = { addSample: vi.fn(), clear: vi.fn() };
+  const mockOccupancyVisualizerInstance = {
+    refresh: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+  };
+  const frameTileDisposers: Array<() => void> = [];
+  const occupancyDisposers: Array<() => void> = [];
+  return {
+    // Constructors must be `function` (arrow fns are not constructable).
+    mockFrameTileVisualizerCtor: vi.fn(function () {
+      return mockFrameTileVisualizerInstance;
+    }),
+    mockFrameTileVisualizerInstance,
+    mockWireFrameTileSubscribers: vi.fn((_options: unknown) => {
+      const dispose = vi.fn();
+      frameTileDisposers.push(dispose);
+      return dispose;
+    }),
+    frameTileDisposers,
+    mockOccupancyGridCtor: vi.fn(function () {
+      return mockOccupancyGridInstance;
+    }),
+    mockOccupancyGridInstance,
+    mockOccupancyVisualizerCtor: vi.fn(function () {
+      return mockOccupancyVisualizerInstance;
+    }),
+    mockOccupancyVisualizerInstance,
+    mockWireOccupancyGridSubscribers: vi.fn(
+      (options: {
+        visualizer: { refresh(g: unknown): void; clear(): void };
+      }) => {
+        const dispose = vi.fn();
+        occupancyDisposers.push(dispose);
+        // Record the visualizer sink so tests can assert which one was wired.
+        (
+          mockWireOccupancyGridSubscribers as unknown as {
+            lastVisualizer?: unknown;
+          }
+        ).lastVisualizer = options.visualizer;
+        return dispose;
+      }
+    ),
+    occupancyDisposers,
+    mockCreateGpsCompassCubes: vi.fn(),
+    mockGpsEventVisualizer: {
+      setVisible: vi.fn(),
+      clearAll: vi.fn(),
+      getCounts: vi.fn().mockReturnValue({ raw: 0, fused: 0, snapshots: 0 }),
+      setZeroRef: vi.fn(),
+      addGpsEvent: vi.fn(),
+      getRawMarkerWorldSizes: vi.fn().mockReturnValue([]),
+    },
+    mockRecordingOptions: {
+      images: { enabled: false, intervalMs: 1000, quality: 0.8 },
+      depth: { enabled: false, intervalMs: 1000 },
+      occupancy: { cellSizeM: 0.15 },
+      visualization: {
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      },
+    },
+  };
+});
+
+const { mockGetArWorldGroup, mockGetScene, mockGetCamera } = vi.hoisted(() => {
   const mockArWorldGroup = { name: 'ar-world' };
   const mockScene = { name: 'scene' };
   const mockCamera = { name: 'camera' };
@@ -40,34 +123,45 @@ const {
     mockGetArWorldGroup: vi.fn().mockReturnValue(mockArWorldGroup),
     mockGetScene: vi.fn().mockReturnValue(mockScene),
     mockGetCamera: vi.fn().mockReturnValue(mockCamera),
-    mockSetFrameCallback: vi.fn(),
   };
 });
 
-// Tracking-quality subscriber spy. Each call returns a distinct dispose spy so
-// tests can assert prior subscriptions are disposed before a new one is wired.
-const { mockSubscribeHudToTrackingQuality, trackingQualityDisposers } =
-  vi.hoisted(() => {
-    const trackingQualityDisposers: Array<() => void> = [];
-    return {
-      trackingQualityDisposers,
-      mockSubscribeHudToTrackingQuality: vi.fn(() => {
-        const dispose = vi.fn();
-        trackingQualityDisposers.push(dispose);
-        return dispose;
-      }),
-    };
-  });
+// ---------- mocks for the gated modules ----------
 
-// ---------- mocks for all main.ts dependencies ----------
-
-vi.mock('gps-plus-slam-app-framework/visualization/camera-follower', () => ({
-  createCameraFollower: mockCreateCameraFollower,
+vi.mock('./visualization/frame-tile-visualizer', () => ({
+  FrameTileVisualizer: mockFrameTileVisualizerCtor,
+}));
+vi.mock('./visualization/frame-texture-decoder', () => ({
+  decodeFrameTexture: vi.fn(),
+}));
+vi.mock('./visualization/wire-frame-tile-subscribers', () => ({
+  wireFrameTileSubscribers: mockWireFrameTileSubscribers,
+}));
+vi.mock('gps-plus-slam-app-framework/ar/occupancy-grid', () => ({
+  OccupancyGrid: mockOccupancyGridCtor,
+}));
+vi.mock('./visualization/occupancy-cubes-visualizer', () => ({
+  OccupancyCubesVisualizer: mockOccupancyVisualizerCtor,
+}));
+vi.mock('./visualization/wire-occupancy-grid-subscribers', () => ({
+  wireOccupancyGridSubscribers: mockWireOccupancyGridSubscribers,
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/gps-compass-cubes', () => ({
   createGpsCompassCubes: mockCreateGpsCompassCubes,
 }));
+vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
+  gpsEventVisualizer: mockGpsEventVisualizer,
+}));
 
+// ---------- remaining main.ts dependency stubs (occupancy-test precedent) ----------
+
+vi.mock('gps-plus-slam-app-framework/visualization/camera-follower', () => ({
+  createCameraFollower: vi.fn().mockReturnValue({
+    object3D: { name: 'camera-follower' },
+    update: vi.fn(),
+    dispose: vi.fn(),
+  }),
+}));
 vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   initAR: vi.fn().mockResolvedValue(undefined),
   isWebXRSupported: vi.fn().mockResolvedValue(true),
@@ -79,7 +173,7 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setFrameCallback: mockSetFrameCallback,
+  setFrameCallback: vi.fn(),
   setTrackingLostCallback: vi.fn(),
   setTrackingCallbacks: vi.fn(),
   setTrackingRecoveredCallback: vi.fn(),
@@ -90,9 +184,6 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   getImageCaptureFrameCount: vi.fn().mockReturnValue(0),
   getDepthSampleCount: vi.fn().mockReturnValue(0),
 }));
-
-// ---------- lightweight stubs for the rest of main.ts imports ----------
-
 vi.mock('./utils/sentry', () => ({ initSentry: vi.fn() }));
 vi.mock('gps-plus-slam-js', () => ({
   odometryTrackingRestarted: vi.fn((payload: unknown) => ({
@@ -246,6 +337,7 @@ vi.mock('./state/recorder-store', () => ({
     dispatch: vi.fn(),
     getState: vi.fn().mockReturnValue({}),
     subscribe: vi.fn().mockReturnValue(() => {}),
+    writeFrame: vi.fn().mockResolvedValue(undefined),
   }),
   startSession: vi.fn(),
   endSession: vi.fn(),
@@ -263,17 +355,7 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
   extractOdomRotation: vi.fn().mockReturnValue([0, 0, 0, 1]),
 }));
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
-  loadRecordingOptions: vi.fn().mockReturnValue({
-    images: { enabled: false, intervalMs: 1000, quality: 0.8 },
-    depth: { enabled: false, intervalMs: 1000 },
-    occupancy: { cellSizeM: 0.15 },
-    visualization: {
-      frameTiles: true,
-      occupancyCubes: true,
-      gpsAlignmentMarkers: true,
-      compassCubes: true,
-    },
-  }),
+  loadRecordingOptions: vi.fn().mockReturnValue(mockRecordingOptions),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
   startGpsWatch: vi.fn(),
@@ -306,9 +388,6 @@ vi.mock('gps-plus-slam-app-framework/sensors/permission-checker', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
   refPointVisualizer: {},
-}));
-vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
-  gpsEventVisualizer: { setVisible: vi.fn(), clearAll: vi.fn() },
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
   MapOverlay: vi.fn().mockImplementation(() => ({
@@ -345,11 +424,8 @@ vi.mock('gps-plus-slam-app-framework/ar/capture-failure-tracker', () => ({
 vi.mock('gps-plus-slam-app-framework', () => ({
   selectTrackingQuality: vi.fn().mockReturnValue(null),
 }));
-// Spy on the HUD tracking-quality subscriber so we can assert the dispose
-// handle returned by `subscribeHudToTrackingQuality` is honored across
-// enter-AR cycles and on resetMainState (subscription-leak regression).
 vi.mock('./ui/hud-tracking-quality-subscriber', () => ({
-  subscribeHudToTrackingQuality: mockSubscribeHudToTrackingQuality,
+  subscribeHudToTrackingQuality: vi.fn(() => vi.fn()),
 }));
 vi.mock('./replay/replay-handlers', () => ({
   createReplayHandlers: vi.fn().mockReturnValue({
@@ -375,6 +451,9 @@ vi.mock('./recording/recording-session-handlers', () => ({
     handleStartRecording: vi.fn(),
     handleStopRecording: vi.fn(),
     recordCaptureFailure: vi.fn(),
+    recordCaptureSuccess: vi.fn(),
+    recordWriteSuccess: vi.fn(),
+    recordWriteFailure: vi.fn(),
     reset: vi.fn(),
   }),
 }));
@@ -390,157 +469,132 @@ vi.mock('./storage/folder-manager', () => ({
   }),
 }));
 
-// Import after all mocks are set up
+// Import after mocks. The occupancy-grid provider is REAL so we can assert the
+// grid is published even when the cubes overlay is off.
 import { handleEnterARForTesting, resetMainState } from './main';
+import { getOccupancyGrid } from './state/occupancy-grid-provider';
 
-describe('Issue 8: CameraFollower wiring in live AR', () => {
+describe('Visualization overlay toggles in live AR (Finding B)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    trackingQualityDisposers.length = 0;
     resetMainState();
-
-    // Set up minimal DOM expected by main.ts module init
+    vi.clearAllMocks();
+    frameTileDisposers.length = 0;
+    occupancyDisposers.length = 0;
+    // Reset to the additive default (all overlays ON) before each test.
+    mockRecordingOptions.visualization = {
+      frameTiles: true,
+      occupancyCubes: true,
+      gpsAlignmentMarkers: true,
+      compassCubes: true,
+    };
     document.body.innerHTML = `
       <div id="app"></div>
-      <div id="setup-modal">
-        <h1 id="setup-title">Recorder</h1>
-      </div>
+      <div id="setup-modal"><h1 id="setup-title">Recorder</h1></div>
       <div id="controls"></div>
       <div id="replay-controls" class="hidden"></div>
       <div id="ref-point-picker-modal"></div>
     `;
   });
 
-  /**
-   * Why this test matters:
-   * Issue 8 requires a CameraFollower at the scene root (not arWorldGroup)
-   * so compass cubes stay GPS-aligned regardless of alignment matrix changes.
-   * If the follower is not created during AR init, compass directions will
-   * rotate with the alignment matrix (the discovered bug).
-   */
-  it('creates CameraFollower with scene root after AR init', async () => {
-    await handleEnterARForTesting();
+  describe('all overlays ON (default — purely additive)', () => {
+    it('wires every overlay', async () => {
+      await handleEnterARForTesting();
 
-    expect(mockCreateCameraFollower).toHaveBeenCalledTimes(1);
-    expect(mockCreateCameraFollower).toHaveBeenCalledWith(mockGetScene());
+      expect(mockFrameTileVisualizerCtor).toHaveBeenCalledTimes(1);
+      expect(mockWireFrameTileSubscribers).toHaveBeenCalledTimes(1);
+      expect(mockOccupancyVisualizerCtor).toHaveBeenCalledTimes(1);
+      expect(mockCreateGpsCompassCubes).toHaveBeenCalledTimes(1);
+      expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(true);
+    });
   });
 
-  /**
-   * Why this test matters:
-   * Compass cubes provide cardinal direction indicators. They must be children
-   * of the follower so they track the camera's position but stay GPS-aligned.
-   */
-  it('creates GpsCompassCubes on the follower after AR init', async () => {
-    await handleEnterARForTesting();
+  describe('frameTiles toggle', () => {
+    it('does NOT create the frame-tile visualizer or wiring when off', async () => {
+      mockRecordingOptions.visualization.frameTiles = false;
+      await handleEnterARForTesting();
 
-    expect(mockCreateGpsCompassCubes).toHaveBeenCalledTimes(1);
-    expect(mockCreateGpsCompassCubes).toHaveBeenCalledWith(
-      mockFollower.object3D
-    );
+      expect(mockFrameTileVisualizerCtor).not.toHaveBeenCalled();
+      expect(mockWireFrameTileSubscribers).not.toHaveBeenCalled();
+      // Independent: the other overlays are unaffected.
+      expect(mockOccupancyVisualizerCtor).toHaveBeenCalledTimes(1);
+      expect(mockCreateGpsCompassCubes).toHaveBeenCalledTimes(1);
+    });
+
+    it('creates the frame-tile visualizer + wiring when on', async () => {
+      mockRecordingOptions.visualization.frameTiles = true;
+      await handleEnterARForTesting();
+
+      expect(mockFrameTileVisualizerCtor).toHaveBeenCalledTimes(1);
+      expect(mockWireFrameTileSubscribers).toHaveBeenCalledTimes(1);
+    });
   });
 
-  /**
-   * Why this test matters:
-   * The follower must be updated every XR frame so the map tracks the camera
-   * smoothly. If the frame callback doesn't call follower.update(), the map
-   * will remain at origin instead of following the user.
-   */
-  it('frame callback updates the CameraFollower', async () => {
-    await handleEnterARForTesting();
+  describe('compassCubes toggle', () => {
+    it('does NOT call createGpsCompassCubes when off', async () => {
+      mockRecordingOptions.visualization.compassCubes = false;
+      await handleEnterARForTesting();
 
-    // setFrameCallback should have been called with a function
-    expect(mockSetFrameCallback).toHaveBeenCalledTimes(1);
-    const frameCallback = mockSetFrameCallback.mock.calls[0][0];
-    expect(typeof frameCallback).toBe('function');
+      expect(mockCreateGpsCompassCubes).not.toHaveBeenCalled();
+    });
 
-    // Invoke the callback — it should call follower.update()
-    (frameCallback as () => void)();
+    it('calls createGpsCompassCubes when on', async () => {
+      mockRecordingOptions.visualization.compassCubes = true;
+      await handleEnterARForTesting();
 
-    expect(mockFollower.update).toHaveBeenCalledTimes(1);
-    // Should pass camera and a positive dt (no arWorldGroup needed)
-    const [camera, dt] = mockFollower.update.mock.calls[0];
-    expect(camera).toBe(mockGetCamera());
-    expect(dt).toBeGreaterThanOrEqual(0);
+      expect(mockCreateGpsCompassCubes).toHaveBeenCalledTimes(1);
+    });
   });
 
-  /**
-   * Why this test matters:
-   * If arWorldGroup or scene is null (unexpected state), the follower should
-   * not be created and the frame callback should still function (no crash).
-   */
-  it('skips follower creation when arWorldGroup is null', async () => {
-    mockGetArWorldGroup.mockReturnValueOnce(null);
+  describe('gpsAlignmentMarkers toggle', () => {
+    it('calls setVisible(false) when off (markers stay wired, only hidden)', async () => {
+      mockRecordingOptions.visualization.gpsAlignmentMarkers = false;
+      await handleEnterARForTesting();
 
-    await handleEnterARForTesting();
+      expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(false);
+    });
 
-    expect(mockCreateCameraFollower).not.toHaveBeenCalled();
-    expect(mockCreateGpsCompassCubes).not.toHaveBeenCalled();
+    it('calls setVisible(true) when on', async () => {
+      mockRecordingOptions.visualization.gpsAlignmentMarkers = true;
+      await handleEnterARForTesting();
+
+      expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(true);
+    });
   });
 
-  it('skips follower creation when scene is null', async () => {
-    mockGetScene.mockReturnValueOnce(null);
+  describe('occupancyCubes toggle', () => {
+    it('still builds + publishes the grid when off (COLMAP reads it) but skips the cube visualizer', async () => {
+      mockRecordingOptions.visualization.occupancyCubes = false;
+      await handleEnterARForTesting();
 
-    await handleEnterARForTesting();
+      // The grid is built and published regardless of the cubes toggle — the
+      // COLMAP export and other non-visualizer consumers read it.
+      expect(mockOccupancyGridCtor).toHaveBeenCalledTimes(1);
+      expect(getOccupancyGrid()).toBe(mockOccupancyGridInstance);
+      // ...and the depth-sample wiring still runs so the grid populates.
+      expect(mockWireOccupancyGridSubscribers).toHaveBeenCalledTimes(1);
+      // But the rendered cube InstancedMesh is NOT allocated.
+      expect(mockOccupancyVisualizerCtor).not.toHaveBeenCalled();
+      // The wirer received a no-op sink, not the real visualizer instance.
+      const wired = (
+        mockWireOccupancyGridSubscribers as unknown as {
+          lastVisualizer?: unknown;
+        }
+      ).lastVisualizer;
+      expect(wired).not.toBe(mockOccupancyVisualizerInstance);
+    });
 
-    expect(mockCreateCameraFollower).not.toHaveBeenCalled();
-    expect(mockCreateGpsCompassCubes).not.toHaveBeenCalled();
-  });
-});
+    it('builds the cube visualizer and wires it when on', async () => {
+      mockRecordingOptions.visualization.occupancyCubes = true;
+      await handleEnterARForTesting();
 
-/**
- * Tracking-quality HUD subscription lifecycle.
- *
- * Why these tests matter:
- * `subscribeHudToTrackingQuality` returns a dispose function that detaches both
- * the per-store subscription and the store-swap listener. `handleEnterAR` can
- * run multiple times per page load (back to setup → Enter AR again). If the
- * dispose handle is ignored, every cycle appends another `storeRef` + `store`
- * subscriber that is never cleaned up — leaking memory and firing redundant HUD
- * updates. These tests pin the dispose-before-resubscribe and reset behavior.
- */
-describe('Tracking-quality HUD subscription cleanup', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    trackingQualityDisposers.length = 0;
-    resetMainState();
-
-    document.body.innerHTML = `
-      <div id="app"></div>
-      <div id="setup-modal">
-        <h1 id="setup-title">Recorder</h1>
-      </div>
-      <div id="controls"></div>
-      <div id="replay-controls" class="hidden"></div>
-      <div id="ref-point-picker-modal"></div>
-    `;
-  });
-
-  it('subscribes the HUD to tracking quality on AR entry', async () => {
-    await handleEnterARForTesting();
-
-    expect(mockSubscribeHudToTrackingQuality).toHaveBeenCalledTimes(1);
-    expect(trackingQualityDisposers).toHaveLength(1);
-    // The single live subscription must still be active (not disposed).
-    expect(trackingQualityDisposers[0]).not.toHaveBeenCalled();
-  });
-
-  it('disposes the previous subscription before re-subscribing on a second AR entry', async () => {
-    await handleEnterARForTesting();
-    await handleEnterARForTesting();
-
-    expect(mockSubscribeHudToTrackingQuality).toHaveBeenCalledTimes(2);
-    expect(trackingQualityDisposers).toHaveLength(2);
-    // First subscription was torn down; only the latest stays active.
-    expect(trackingQualityDisposers[0]).toHaveBeenCalledTimes(1);
-    expect(trackingQualityDisposers[1]).not.toHaveBeenCalled();
-  });
-
-  it('disposes the live subscription on resetMainState', async () => {
-    await handleEnterARForTesting();
-    expect(trackingQualityDisposers[0]).not.toHaveBeenCalled();
-
-    resetMainState();
-
-    expect(trackingQualityDisposers[0]).toHaveBeenCalledTimes(1);
+      expect(mockOccupancyGridCtor).toHaveBeenCalledTimes(1);
+      expect(mockOccupancyVisualizerCtor).toHaveBeenCalledTimes(1);
+      const wired = (
+        mockWireOccupancyGridSubscribers as unknown as {
+          lastVisualizer?: unknown;
+        }
+      ).lastVisualizer;
+      expect(wired).toBe(mockOccupancyVisualizerInstance);
+    });
   });
 });

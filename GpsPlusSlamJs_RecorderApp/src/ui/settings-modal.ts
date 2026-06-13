@@ -56,6 +56,10 @@ let arCameraTextureEnabledCheckbox: HTMLInputElement | null = null;
 let arChromiumProjectionLayerWorkaroundCheckbox: HTMLInputElement | null = null;
 let occupancyCellSizeSlider: HTMLInputElement | null = null;
 let occupancyCellSizeValue: HTMLElement | null = null;
+let vizFrameTilesCheckbox: HTMLInputElement | null = null;
+let vizOccupancyCubesCheckbox: HTMLInputElement | null = null;
+let vizGpsAlignmentMarkersCheckbox: HTMLInputElement | null = null;
+let vizCompassCubesCheckbox: HTMLInputElement | null = null;
 
 // --- Initialization ---
 
@@ -140,6 +144,18 @@ export function initSettingsModal(
     'occupancy-cell-size'
   ) as HTMLInputElement;
   occupancyCellSizeValue = document.getElementById('occupancy-cell-size-value');
+  vizFrameTilesCheckbox = document.getElementById(
+    'viz-frame-tiles'
+  ) as HTMLInputElement;
+  vizOccupancyCubesCheckbox = document.getElementById(
+    'viz-occupancy-cubes'
+  ) as HTMLInputElement;
+  vizGpsAlignmentMarkersCheckbox = document.getElementById(
+    'viz-gps-alignment-markers'
+  ) as HTMLInputElement;
+  vizCompassCubesCheckbox = document.getElementById(
+    'viz-compass-cubes'
+  ) as HTMLInputElement;
 
   // Wire up events
   btnSettings?.addEventListener('click', showSettingsModal);
@@ -278,6 +294,35 @@ export function initSettingsModal(
       }
     }
   );
+
+  // Live debug-overlay toggles (Finding B). Each gates only what is drawn live
+  // during recording; replay is unaffected. Read once at the next Enter-AR.
+  vizFrameTilesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizFrameTilesCheckbox) {
+      workingOptions.visualization.frameTiles = vizFrameTilesCheckbox.checked;
+    }
+  });
+
+  vizOccupancyCubesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizOccupancyCubesCheckbox) {
+      workingOptions.visualization.occupancyCubes =
+        vizOccupancyCubesCheckbox.checked;
+    }
+  });
+
+  vizGpsAlignmentMarkersCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizGpsAlignmentMarkersCheckbox) {
+      workingOptions.visualization.gpsAlignmentMarkers =
+        vizGpsAlignmentMarkersCheckbox.checked;
+    }
+  });
+
+  vizCompassCubesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizCompassCubesCheckbox) {
+      workingOptions.visualization.compassCubes =
+        vizCompassCubesCheckbox.checked;
+    }
+  });
 
   // Populate build version label (one-time, build info is constant)
   const buildLabel = document.getElementById('build-version-label');
@@ -468,6 +513,21 @@ function populateForm(options: RecordingOptions): void {
   }
   if (occupancyCellSizeValue) {
     occupancyCellSizeValue.textContent = `${Math.round(options.occupancy.cellSizeM * 100)} cm`;
+  }
+
+  // Live debug-overlay toggles (Finding B)
+  if (vizFrameTilesCheckbox) {
+    vizFrameTilesCheckbox.checked = options.visualization.frameTiles;
+  }
+  if (vizOccupancyCubesCheckbox) {
+    vizOccupancyCubesCheckbox.checked = options.visualization.occupancyCubes;
+  }
+  if (vizGpsAlignmentMarkersCheckbox) {
+    vizGpsAlignmentMarkersCheckbox.checked =
+      options.visualization.gpsAlignmentMarkers;
+  }
+  if (vizCompassCubesCheckbox) {
+    vizCompassCubesCheckbox.checked = options.visualization.compassCubes;
   }
 
   // Update enabled/disabled state of controls

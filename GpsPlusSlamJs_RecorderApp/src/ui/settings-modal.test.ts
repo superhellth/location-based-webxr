@@ -162,6 +162,18 @@ describe('settings-modal', () => {
       expect(html).toContain('id="btn-ar-minimal-baseline"');
     });
 
+    it('includes the four live debug-overlay toggles (Finding B)', () => {
+      // Why this test matters: the `visualization` group must be operable from
+      // the settings modal — one checkbox per live overlay, with the DB-3
+      // section heading + note so users know it is live-only.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('Show during recording (3D debug overlays)');
+      expect(html).toContain('id="viz-frame-tiles"');
+      expect(html).toContain('id="viz-occupancy-cubes"');
+      expect(html).toContain('id="viz-gps-alignment-markers"');
+      expect(html).toContain('id="viz-compass-cubes"');
+    });
+
     it('includes "Clear Reference Point Cache" button', () => {
       // Why this test matters:
       // The cache reset button must be present in production HTML so users
@@ -521,6 +533,66 @@ describe('settings-modal', () => {
         | Record<string, unknown>
         | undefined;
       expect(flags?.enableCss3dRenderer).toBe(false);
+    });
+  });
+
+  describe('live debug-overlay toggles (Finding B)', () => {
+    // Why these tests matter: each toggle gates a live overlay (frame tiles,
+    // occupancy cubes, GPS+VIO alignment spheres, compass cubes). All four
+    // default ON (purely additive). The settings UI must round-trip each:
+    // populate from saved options and persist a change back to storage.
+    const TOGGLE_IDS = [
+      ['viz-frame-tiles', 'frameTiles'],
+      ['viz-occupancy-cubes', 'occupancyCubes'],
+      ['viz-gps-alignment-markers', 'gpsAlignmentMarkers'],
+      ['viz-compass-cubes', 'compassCubes'],
+    ] as const;
+
+    it('all four default to checked (ON) — purely additive', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      for (const [id] of TOGGLE_IDS) {
+        const cb = document.getElementById(id) as HTMLInputElement | null;
+        expect(cb, id).not.toBeNull();
+        expect(cb!.checked, id).toBe(true);
+      }
+    });
+
+    it.each(TOGGLE_IDS)(
+      'persists %s → visualization.%s when unchecked',
+      (id, key) => {
+        initSettingsModal();
+        showSettingsModal();
+
+        const cb = document.getElementById(id) as HTMLInputElement;
+        expect(cb.checked).toBe(true);
+        cb.checked = false;
+        cb.dispatchEvent(new Event('change'));
+
+        document.getElementById('btn-settings-save')?.click();
+
+        expect(loadRecordingOptions().visualization[key]).toBe(false);
+        // The other overlays remain ON — toggles are independent.
+        for (const [otherId, otherKey] of TOGGLE_IDS) {
+          if (otherKey === key) continue;
+          expect(loadRecordingOptions().visualization[otherKey], otherId).toBe(
+            true
+          );
+        }
+      }
+    );
+
+    it.each(TOGGLE_IDS)('populates %s from a saved OFF value', (id, key) => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ visualization: { [key]: false } })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const cb = document.getElementById(id) as HTMLInputElement | null;
+      expect(cb?.checked).toBe(false);
     });
   });
 

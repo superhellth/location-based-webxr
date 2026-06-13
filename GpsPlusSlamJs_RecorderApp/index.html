@@ -966,6 +966,66 @@ No errors</pre
             </div>
           </div>
 
+          <!-- Live Debug Overlays Section (Finding B / DB-2, DB-3) -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">👁️</span>
+              <span class="font-medium text-white"
+                >Show during recording (3D debug overlays)</span
+              >
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
+              <p class="text-[11px] text-gray-400">
+                These only change what's drawn live, not the recording. Replay
+                always shows captured frames.
+              </p>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-frame-tiles"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >Captured camera frames (3D tiles)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-occupancy-cubes"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >Occupancy cubes (depth voxels)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-gps-alignment-markers"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >GPS+VIO alignment markers (raw/fused spheres)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-compass-cubes"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >Compass orientation cubes</span
+                >
+              </label>
+            </div>
+          </div>
+
           <!-- Performance Note -->
           <p class="text-xs text-gray-400 mb-4">
             ⚠️ Higher frequencies may impact performance on some devices.
