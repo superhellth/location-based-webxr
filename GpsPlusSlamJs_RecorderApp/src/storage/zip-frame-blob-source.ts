@@ -18,8 +18,30 @@ import {
   Uint8ArrayReader,
   ZipReader,
 } from '@zip.js/zip.js';
+import {
+  SESSION_IMAGES_DIR,
+  LEGACY_SESSION_IMAGES_DIR,
+} from 'gps-plus-slam-app-framework/storage/file-system-utils';
 
 export type FrameBlobSource = (imageFile: string) => Promise<Blob | null>;
+
+/**
+ * The image dir was renamed `frames/` → `images/` (COLMAP export plan Q5). A
+ * given ZIP is internally self-consistent (old ZIPs store `frames/…` in both
+ * the entry and the persisted `imageFile`; new ones store `images/…`), so a
+ * lookup by the stored path normally resolves directly. This swaps the dir
+ * prefix as a safety net for any cross-format mismatch (e.g. a hand-merged or
+ * migrated ZIP whose `imageFile` and entries disagree).
+ */
+function swapImagesDirPrefix(path: string): string | null {
+  if (path.startsWith(`${SESSION_IMAGES_DIR}/`)) {
+    return `${LEGACY_SESSION_IMAGES_DIR}/${path.slice(SESSION_IMAGES_DIR.length + 1)}`;
+  }
+  if (path.startsWith(`${LEGACY_SESSION_IMAGES_DIR}/`)) {
+    return `${SESSION_IMAGES_DIR}/${path.slice(LEGACY_SESSION_IMAGES_DIR.length + 1)}`;
+  }
+  return null;
+}
 
 /**
  * Build a frame blob source backed by the given recording zip bytes.
@@ -39,7 +61,12 @@ export async function createZipFrameBlobSource(
   }
 
   return async (imageFile: string): Promise<Blob | null> => {
-    const entry = byPath.get(imageFile);
+    let entry = byPath.get(imageFile);
+    if (!entry) {
+      // Safety net for a frames/↔images/ prefix mismatch (Q5 rename).
+      const swapped = swapImagesDirPrefix(imageFile);
+      if (swapped) entry = byPath.get(swapped);
+    }
     if (!entry || entry.directory) return null;
     return entry.getData(new BlobWriter('image/jpeg'));
   };

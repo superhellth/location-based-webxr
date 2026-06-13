@@ -150,6 +150,7 @@ import { OccupancyGrid } from 'gps-plus-slam-app-framework/ar/occupancy-grid';
 import { OccupancyCubesVisualizer } from './visualization/occupancy-cubes-visualizer';
 import { wireOccupancyGridSubscribers } from './visualization/wire-occupancy-grid-subscribers';
 import { setOccupancyGrid } from './state/occupancy-grid-provider';
+import { SESSION_IMAGES_DIR } from 'gps-plus-slam-app-framework/storage/file-system-utils';
 
 import {
   initReplayUI,
@@ -1174,13 +1175,13 @@ function handleImageCaptured(image: CapturedImage): void {
   // F3.5d — cache the blob BEFORE dispatch so the frame-tile listener
   // (F3.2) and visualizer (F3.5d wire-up) can resolve it synchronously
   // when they react to the add2dImage action.
-  liveFrameBlobs.set(`frames/${filename}`, image.blob);
+  liveFrameBlobs.set(`${SESSION_IMAGES_DIR}/${filename}`, image.blob);
 
   // Dispatch first to preserve chronological action order (see DESIGN NOTE above)
   // Raw WebXR position — the reducer applies WebXR→NUE conversion
   store.dispatch(
     add2dImage({
-      imageFile: `frames/${filename}`,
+      imageFile: `${SESSION_IMAGES_DIR}/${filename}`,
       position: [image.position.x, image.position.y, image.position.z],
       rotation: [
         image.rotation.x,

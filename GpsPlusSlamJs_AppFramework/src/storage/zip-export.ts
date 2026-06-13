@@ -167,7 +167,7 @@ async function streamDirectoryToZip(
  * The ZIP structure mirrors the OPFS session structure:
  * - session.json (at root)
  * - actions/000001.json, actions/000002.json, ...
- * - frames/frame-000001.jpg, frames/frame-000002.jpg, ...
+ * - images/frame-000001.jpg, images/frame-000002.jpg, ... (legacy: frames/)
  * - refPoints/{h3}.json (only observations from this session, scenario layout only)
  *
  * Uses "store" mode (compression level 0) for fast packaging.

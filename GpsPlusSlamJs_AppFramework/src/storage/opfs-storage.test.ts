@@ -94,8 +94,8 @@ describe('opfs-storage', () => {
       expect(result.sessionName).toMatch(/^recording-2026-01-26_10-30-00utc$/);
     });
 
-    it('creates session folder with actions/ and frames/ subdirectories', async () => {
-      // Why: Session must have actions/ and frames/ subdirectories for write ops
+    it('creates session folder with actions/ and images/ subdirectories', async () => {
+      // Why: Session must have actions/ and images/ subdirectories for write ops
       const timestamp = new Date('2026-01-26T10:30:00Z');
       await createSession(timestamp);
 
@@ -105,7 +105,7 @@ describe('opfs-storage', () => {
       const actionsDir = await sessionHandle!.getDirectoryHandle('actions');
       expect(actionsDir).toBeDefined();
 
-      const framesDir = await sessionHandle!.getDirectoryHandle('frames');
+      const framesDir = await sessionHandle!.getDirectoryHandle('images'); // renamed from frames/ (Q5)
       expect(framesDir).toBeDefined();
     });
 
@@ -238,7 +238,7 @@ describe('opfs-storage', () => {
       const sessionHandle =
         getSessionHandle() as unknown as MockOPFSDirectoryHandle;
       const framesDir = (await sessionHandle.getDirectoryHandle(
-        'frames'
+        'images' // renamed from frames/ (Q5)
       )) as unknown as MockOPFSDirectoryHandle;
 
       const content = framesDir.getStoredContent('frame-000001.jpg');
@@ -255,7 +255,7 @@ describe('opfs-storage', () => {
       const sessionHandle =
         getSessionHandle() as unknown as MockOPFSDirectoryHandle;
       const framesDir = (await sessionHandle.getDirectoryHandle(
-        'frames'
+        'images' // renamed from frames/ (Q5)
       )) as unknown as MockOPFSDirectoryHandle;
 
       const stored = framesDir.getStoredContent('frame-000005.jpg');
@@ -276,7 +276,7 @@ describe('opfs-storage', () => {
       const sessionHandle =
         getSessionHandle() as unknown as MockOPFSDirectoryHandle;
       const framesDir = (await sessionHandle.getDirectoryHandle(
-        'frames'
+        'images' // renamed from frames/ (Q5)
       )) as unknown as MockOPFSDirectoryHandle;
 
       const fileHandle = await framesDir.getFileHandle('frame-000001.jpg', {

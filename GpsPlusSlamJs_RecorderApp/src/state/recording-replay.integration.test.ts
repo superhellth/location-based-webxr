@@ -260,8 +260,8 @@ describe('Recording Replay Integration', () => {
       }
 
       const withFramePath = points.filter((pt) =>
-        pt.imageFile.startsWith('frames/')
-      );
+        pt.imageFile.startsWith('images/')
+      ); // renamed from frames/ (Q5)
       expect(withFramePath.length).toBe(points.length);
     });
 

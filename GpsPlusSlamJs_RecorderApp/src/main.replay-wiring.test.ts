@@ -175,6 +175,7 @@ vi.mock('./storage/ref-point-importer', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/storage/file-system-utils', () => ({
   formatTimestamp: vi.fn(),
+  SESSION_IMAGES_DIR: 'images',
 }));
 vi.mock('gps-plus-slam-app-framework/utils/fused-path', () => ({
   computeFusedPath: vi.fn(),
