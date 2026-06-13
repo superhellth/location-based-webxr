@@ -40,6 +40,8 @@ UI component for the settings modal dialog. Allows users to configure recording 
 | `images-quality-value`            | span     | Display for quality value                      |
 | `images-resolution-divisor`       | range    | Resolution divisor slider (1=full … 8)         |
 | `images-resolution-divisor-value` | span     | Display: "1× (full)", "÷2 (half)", etc         |
+| `occupancy-cell-size`             | range    | Voxel size slider — **cm** (1–20)              |
+| `occupancy-cell-size-value`       | span     | Display: "15 cm"                               |
 | `build-version-label`             | span/div | One-line build label for bug reports           |
 
 ## Invariants & Assumptions
@@ -49,6 +51,7 @@ UI component for the settings modal dialog. Allows users to configure recording 
 - Sliders are disabled when their parent toggle is unchecked
 - Working copy is created on show, cleared on hide
 - Callback is invoked only after successful save
+- The voxel-size slider operates in **centimetres** for readability, but the stored option (`occupancy.cellSizeM`) is **metres** — the input handler divides by 100 and `populateForm` multiplies by 100. A unit mismatch here would feed the grid a 100× wrong cell size, so both directions are unit-tested. Changing it takes effect on the next Enter-AR / replay load (the grid reads it at construction), not mid-session. See [recording-options.ts.md](../../../GpsPlusSlamJs_AppFramework/src/state/recording-options.ts.md).
 - Build version label (`#build-version-label`) is populated during `initSettingsModal()` from `getBuildInfo()`. If metadata is unavailable, the modal logs a warning and shows `Build unavailable` instead of throwing.
 
 ## Examples

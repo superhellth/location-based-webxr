@@ -12,6 +12,7 @@ import {
   cloneRecordingOptions,
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
+  OCCUPANCY_CONSTRAINTS,
   type RecordingOptions,
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
@@ -53,6 +54,8 @@ let arDepthSensingEnabledCheckbox: HTMLInputElement | null = null;
 let arCss3dEnabledCheckbox: HTMLInputElement | null = null;
 let arCameraTextureEnabledCheckbox: HTMLInputElement | null = null;
 let arChromiumProjectionLayerWorkaroundCheckbox: HTMLInputElement | null = null;
+let occupancyCellSizeSlider: HTMLInputElement | null = null;
+let occupancyCellSizeValue: HTMLElement | null = null;
 
 // --- Initialization ---
 
@@ -133,6 +136,10 @@ export function initSettingsModal(
   arChromiumProjectionLayerWorkaroundCheckbox = document.getElementById(
     'ar-chromium-projection-layer-workaround'
   ) as HTMLInputElement;
+  occupancyCellSizeSlider = document.getElementById(
+    'occupancy-cell-size'
+  ) as HTMLInputElement;
+  occupancyCellSizeValue = document.getElementById('occupancy-cell-size-value');
 
   // Wire up events
   btnSettings?.addEventListener('click', showSettingsModal);
@@ -193,6 +200,16 @@ export function initSettingsModal(
       const value = parseInt(imagesResolutionDivisorSlider.value, 10);
       workingOptions.images.resolutionDivisor = value;
       imagesResolutionDivisorValue.textContent = formatResolutionDivisor(value);
+    }
+  });
+
+  // Voxel size slider operates in centimetres for readability; the stored
+  // option (`occupancy.cellSizeM`) is in metres, so divide by 100 on the way in.
+  occupancyCellSizeSlider?.addEventListener('input', () => {
+    if (workingOptions && occupancyCellSizeSlider && occupancyCellSizeValue) {
+      const cm = parseInt(occupancyCellSizeSlider.value, 10);
+      workingOptions.occupancy.cellSizeM = cm / 100;
+      occupancyCellSizeValue.textContent = `${cm} cm`;
     }
   });
 
@@ -432,6 +449,25 @@ function populateForm(options: RecordingOptions): void {
   if (arChromiumProjectionLayerWorkaroundCheckbox) {
     arChromiumProjectionLayerWorkaroundCheckbox.checked =
       options.arCrashIsolation.applyChromiumProjectionLayerWorkaround;
+  }
+
+  // Occupancy voxel size — slider min/max/step are in cm (constraints are in m).
+  if (occupancyCellSizeSlider) {
+    occupancyCellSizeSlider.min = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.min * 100
+    );
+    occupancyCellSizeSlider.max = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.max * 100
+    );
+    occupancyCellSizeSlider.step = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.step * 100
+    );
+    occupancyCellSizeSlider.value = String(
+      Math.round(options.occupancy.cellSizeM * 100)
+    );
+  }
+  if (occupancyCellSizeValue) {
+    occupancyCellSizeValue.textContent = `${Math.round(options.occupancy.cellSizeM * 100)} cm`;
   }
 
   // Update enabled/disabled state of controls

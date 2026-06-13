@@ -1045,7 +1045,12 @@ async function handleEnterAR(): Promise<void> {
         occupancyGrid = null;
         setOccupancyGrid(null);
 
-        occupancyGrid = new OccupancyGrid();
+        // Voxel size is a user setting (recording-options `occupancy.cellSizeM`,
+        // clamped 1–20 cm); read it at construction so a changed value applies
+        // on the next Enter-AR. Same source main.ts uses for arCrashIsolation.
+        occupancyGrid = new OccupancyGrid({
+          cellSizeM: recordingOptions.occupancy.cellSizeM,
+        });
         // Publish the single live grid so non-visualizer consumers (the COLMAP
         // ZIP contributor, future floor/nav-mesh builders) can read it without a
         // one-off reference. Mirrors main.ts's `occupancyGrid` var exactly; the

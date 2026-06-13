@@ -140,6 +140,14 @@ describe('settings-modal', () => {
       expect(html).toContain('id="images-resolution-divisor"');
     });
 
+    it('includes the occupancy voxel-size slider and value display', () => {
+      // 2026-06-13 occupancy-grid-settings review, item 1: the voxel size
+      // (occupancy.cellSizeM) must be user-configurable from this modal.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-cell-size"');
+      expect(html).toContain('id="occupancy-cell-size-value"');
+    });
+
     it('includes AR crash isolation controls', () => {
       // Why this test matters:
       // The full Phase 1 diagnostic set must be present in production HTML so
@@ -277,6 +285,22 @@ describe('settings-modal', () => {
         'depth-enabled'
       ) as HTMLInputElement;
       expect(depthEnabled.checked).toBe(true);
+    });
+
+    it('populates the voxel-size slider from saved options (metres → cm)', () => {
+      // Stored 0.03 m must render as 3 on the cm slider.
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { cellSizeM: 0.03 } })
+      );
+
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('occupancy-cell-size-value');
+      expect(slider.value).toBe('3');
+      expect(valueDisplay?.textContent).toBe('3 cm');
     });
 
     it('populates AR crash isolation checkbox from saved options', () => {
@@ -455,6 +479,24 @@ describe('settings-modal', () => {
       depthEnabled.checked = true;
       depthEnabled.dispatchEvent(new Event('change'));
       expect(depthRgb.disabled).toBe(false);
+    });
+
+    it('persists the occupancy voxel size (cm slider → metres in storage)', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      // default 15 cm
+      expect(slider.value).toBe('15');
+
+      slider.value = '10';
+      slider.dispatchEvent(new Event('input'));
+
+      document.getElementById('btn-settings-save')?.click();
+
+      expect(loadRecordingOptions().occupancy.cellSizeM).toBeCloseTo(0.1);
     });
 
     it('persists the CSS3D crash-isolation flag', () => {
@@ -683,6 +725,26 @@ describe('settings-modal', () => {
       slider.dispatchEvent(new Event('input'));
 
       expect(valueDisplay?.textContent).toBe('1× (full)');
+    });
+
+    /**
+     * Why this test matters (occupancy-grid-settings review, item 1): the
+     * voxel-size slider is shown in centimetres for readability but the stored
+     * option is in metres. Moving the slider must (a) update the cm label and
+     * (b) write metres into the working option (cm / 100) — a unit mismatch
+     * would silently feed the grid a 100× wrong cell size.
+     */
+    it('updates voxel size display in cm and stores metres', () => {
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('occupancy-cell-size-value');
+
+      slider.value = '5';
+      slider.dispatchEvent(new Event('input'));
+
+      expect(valueDisplay?.textContent).toBe('5 cm');
+      expect(getWorkingOptions()?.occupancy.cellSizeM).toBeCloseTo(0.05);
     });
   });
 

@@ -15,12 +15,14 @@ import {
   resetRecordingOptions,
   validateDepthOptions,
   validateImageOptions,
+  validateOccupancyOptions,
   validateRecordingOptions,
   cloneRecordingOptions,
   DEFAULT_RECORDING_OPTIONS,
   STORAGE_KEY,
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
+  OCCUPANCY_CONSTRAINTS,
   type RecordingOptions,
 } from './recording-options';
 
@@ -208,10 +210,70 @@ describe('recording-options', () => {
     });
   });
 
+  describe('validateOccupancyOptions', () => {
+    /**
+     * Why these tests matter: `cellSizeM` is exposed as a recorder setting
+     * (2026-06-13 occupancy-grid-settings-and-mesh-review.md, item 1) and
+     * feeds straight into `new OccupancyGrid({ cellSizeM })`. The grid throws
+     * a RangeError on a non-finite or ≤0 cell size, so validation MUST clamp
+     * to the 1–20 cm window and reject NaN/garbage rather than passing it on.
+     */
+    it('returns defaults when given empty object', () => {
+      const result = validateOccupancyOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.occupancy);
+    });
+
+    it('preserves a valid in-range cell size', () => {
+      expect(validateOccupancyOptions({ cellSizeM: 0.05 }).cellSizeM).toBe(
+        0.05
+      );
+    });
+
+    it('clamps cellSizeM below minimum to minimum (sub-cm footgun guard)', () => {
+      // 0.5 cm — the example value from the review; below the 1 cm floor.
+      const result = validateOccupancyOptions({ cellSizeM: 0.005 });
+      expect(result.cellSizeM).toBe(OCCUPANCY_CONSTRAINTS.cellSizeM.min);
+    });
+
+    it('clamps cellSizeM above maximum to maximum', () => {
+      const result = validateOccupancyOptions({ cellSizeM: 1 });
+      expect(result.cellSizeM).toBe(OCCUPANCY_CONSTRAINTS.cellSizeM.max);
+    });
+
+    it('falls back to default for non-number cellSizeM', () => {
+      const result = validateOccupancyOptions({
+        cellSizeM: 'big' as unknown as number,
+      });
+      expect(result.cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+    });
+
+    it('falls back to default for NaN/Infinity (would crash OccupancyGrid)', () => {
+      // clamp(NaN, …) is NaN (NaN is typeof "number"); the explicit
+      // Number.isFinite guard must catch it before it reaches the grid.
+      expect(validateOccupancyOptions({ cellSizeM: NaN }).cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+      expect(validateOccupancyOptions({ cellSizeM: Infinity }).cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+    });
+  });
+
   describe('validateRecordingOptions', () => {
     it('returns defaults when given empty object', () => {
       const result = validateRecordingOptions({});
       expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('merges partial occupancy options with defaults', () => {
+      const result = validateRecordingOptions({
+        occupancy: { cellSizeM: 0.02 },
+      });
+      expect(result.occupancy.cellSizeM).toBe(0.02);
+      // Other groups untouched
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
     });
 
     it('includes default AR crash isolation flags', () => {
@@ -276,6 +338,7 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       };
       localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(stored));
 
@@ -296,6 +359,8 @@ describe('recording-options', () => {
         DEFAULT_RECORDING_OPTIONS.depth.intervalMs
       );
       expect(result.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+      // Pre-occupancy persisted blobs gain the default voxel size, not undefined.
+      expect(result.occupancy).toEqual(DEFAULT_RECORDING_OPTIONS.occupancy);
     });
 
     it('merges partial stored AR isolation options with defaults', () => {
@@ -357,6 +422,7 @@ describe('recording-options', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       };
 
       saveRecordingOptions(options);
@@ -377,6 +443,7 @@ describe('recording-options', () => {
           resolutionDivisor: 0,
         }, // invalid
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       };
 
       saveRecordingOptions(options);
@@ -506,6 +573,10 @@ describe('recording-options', () => {
     it('has resolutionDivisor defaulting to 1 (full resolution)', () => {
       expect(DEFAULT_RECORDING_OPTIONS.images.resolutionDivisor).toBe(1);
     });
+
+    it('has occupancy cell size defaulting to 0.15 m (OccupancyGrid parity)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM).toBe(0.15);
+    });
   });
 
   describe('constraints', () => {
@@ -524,6 +595,21 @@ describe('recording-options', () => {
       );
       expect(IMAGE_CONSTRAINTS.quality.min).toBeLessThan(
         IMAGE_CONSTRAINTS.quality.max
+      );
+    });
+
+    it('OCCUPANCY_CONSTRAINTS spans 1–20 cm and brackets the default', () => {
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.min).toBe(0.01);
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.max).toBe(0.2);
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.min).toBeLessThan(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.max
+      );
+      const { cellSizeM } = DEFAULT_RECORDING_OPTIONS.occupancy;
+      expect(cellSizeM).toBeGreaterThanOrEqual(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.min
+      );
+      expect(cellSizeM).toBeLessThanOrEqual(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.max
       );
     });
 
@@ -567,6 +653,7 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { cellSizeM: 0.1 },
       };
 
       saveRecordingOptions(customOptions);
@@ -585,6 +672,7 @@ describe('recording-options', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       };
 
       saveRecordingOptions(options1);
@@ -612,6 +700,7 @@ describe('recording-options', () => {
           resolutionDivisor: 4,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       });
 
       // Reset
@@ -667,6 +756,7 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
       };
       localStorageMock.setItem(CUSTOM_KEY, JSON.stringify(custom));
 

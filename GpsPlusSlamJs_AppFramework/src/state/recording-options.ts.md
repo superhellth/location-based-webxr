@@ -10,9 +10,10 @@ User-configurable recording options for controlling high-frequency data streams 
 
 | Type                  | Description                                                                       |
 | --------------------- | --------------------------------------------------------------------------------- |
-| `DepthCaptureOptions` | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`                    |
+| `DepthCaptureOptions` | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`, `rgb`             |
 | `ImageCaptureOptions` | Config for image capture: `enabled`, `intervalMs`, `quality`, `resolutionDivisor` |
-| `RecordingOptions`    | Combined config with `depth` and `images` sections                                |
+| `OccupancyOptions`    | Config for the derived occupancy grid: `cellSizeM` (voxel edge length, metres)    |
+| `RecordingOptions`    | Combined config with `depth`, `images`, `arCrashIsolation`, `occupancy` sections  |
 
 ### Functions
 
@@ -24,6 +25,7 @@ User-configurable recording options for controlling high-frequency data streams 
 | `cloneRecordingOptions(options)`      | `RecordingOptions`               | `RecordingOptions`    | Deep copy                                              |
 | `validateDepthOptions(partial)`       | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions` | Validates and clamps values                            |
 | `validateImageOptions(partial)`       | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions` | Validates and clamps values                            |
+| `validateOccupancyOptions(partial)`   | `Partial<OccupancyOptions>`      | `OccupancyOptions`    | Clamps `cellSizeM`; rejects NaN/Infinity to default    |
 | `validateRecordingOptions(partial)`   | `Partial<RecordingOptions>`      | `RecordingOptions`    | Validates full options object                          |
 
 ### Constants
@@ -34,6 +36,7 @@ User-configurable recording options for controlling high-frequency data streams 
 | `DEFAULT_RECORDING_OPTIONS` | Default values (all enabled)                         |
 | `DEPTH_CONSTRAINTS`         | Min/max/step for depth options                       |
 | `IMAGE_CONSTRAINTS`         | Min/max/step for image options                       |
+| `OCCUPANCY_CONSTRAINTS`     | Min/max/step for `cellSizeM` (metres)                |
 
 ## Invariants & Assumptions
 
@@ -47,9 +50,12 @@ User-configurable recording options for controlling high-frequency data streams 
 ```typescript
 {
   depth: { enabled: true, intervalMs: 1000, gridSize: 16, rgb: true },
-  images: { enabled: true, intervalMs: 2000, quality: 0.7, resolutionDivisor: 1 }
+  images: { enabled: true, intervalMs: 2000, quality: 0.7, resolutionDivisor: 1 },
+  occupancy: { cellSizeM: 0.15 }
 }
 ```
+
+`occupancy.cellSizeM` (default **0.15 m**, matching `OccupancyGrid`'s own default) is the voxel edge length for the derived occupancy grid. It does **not** change what is recorded — it governs the grid built from the recorded depth points (debug cubes + COLMAP `points3D`), so it applies on replay too, letting the same recording be re-quantized at a different resolution. The recorder surfaces it as a cm slider in the settings modal; it is read once at grid construction (Enter-AR / replay load). See [2026-06-13-occupancy-grid-settings-and-mesh-review.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-13-occupancy-grid-settings-and-mesh-review.md) (item 1) and [occupancy-grid.ts.md](../ar/occupancy-grid.ts.md).
 
 `depth.gridSize` default is 16 (16×16 = 256 points per sample) so the AR-space occupancy grid populates fast enough for on-device verification (2026-06-11 port plan §1). The depth options reach the sampler via `startDepthCapture(config)` → `DepthSampler.updateConfig` — before that plumbing existed they were dead knobs. `depth.rgb` (default **true**) toggles the Iter-8 RGB voxel coloring (one small per-sample camera-color blit+readback); non-boolean persisted values fall back to the default, so pre-Iter-8 stored options keep the feature on.
 
@@ -62,6 +68,9 @@ User-configurable recording options for controlling high-frequency data streams 
 | `images.intervalMs`        | 1000 | 10000 |
 | `images.quality`           | 0.3  | 1.0   |
 | `images.resolutionDivisor` | 1    | 8     |
+| `occupancy.cellSizeM` (m)  | 0.01 | 0.20  |
+
+`occupancy.cellSizeM` is clamped to 1–20 cm: cell count scales as 1/cellSize³, so sub-cm voxels are both a memory/perf cliff and below the depth-sensor noise floor. A non-finite stored value (NaN/Infinity) falls back to the default rather than being clamped, because `OccupancyGrid` throws a `RangeError` on a non-finite cell size.
 
 ## Examples
 

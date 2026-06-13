@@ -290,6 +290,7 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
     depth: { enabled: false, intervalMs: 1000 },
+    occupancy: { cellSizeM: 0.15 },
   }),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
@@ -446,6 +447,9 @@ describe('Occupancy-grid cube wiring in live AR', () => {
     await handleEnterARForTesting();
 
     expect(mockOccupancyGridCtor).toHaveBeenCalledTimes(1);
+    // Voxel size flows from the recorder setting (occupancy.cellSizeM) into the
+    // grid constructor — 2026-06-13 occupancy-grid-settings review, item 1.
+    expect(mockOccupancyGridCtor).toHaveBeenCalledWith({ cellSizeM: 0.15 });
     expect(mockVisualizerCtor).toHaveBeenCalledTimes(1);
     // The visualizer must hang off arWorldGroup, NOT the scene root: the
     // grid's cells are raw-WebXR coordinates that only register with the

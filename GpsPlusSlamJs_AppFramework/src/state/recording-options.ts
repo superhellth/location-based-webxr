@@ -21,6 +21,7 @@ export interface RecordingOptionsInput {
   depth?: Partial<DepthCaptureOptions>;
   images?: Partial<ImageCaptureOptions>;
   arCrashIsolation?: Partial<ArCrashIsolationOptions>;
+  occupancy?: Partial<OccupancyOptions>;
 }
 
 /**
@@ -90,6 +91,25 @@ export interface ImageCaptureOptions {
 }
 
 /**
+ * Configuration for the derived AR-space occupancy grid (the voxelization of
+ * the depth samples, port plan 2026-06-11). These settings do NOT change what
+ * is recorded — they govern the grid derived from the recorded depth points,
+ * so they also apply when replaying an existing recording, letting the same
+ * session be re-quantized at a different resolution.
+ */
+export interface OccupancyOptions {
+  /**
+   * Voxel edge length in metres. Drives the occupancy-grid quantization, the
+   * debug cubes, and the COLMAP `points3D` density. Default 0.15 (15 cm, Unity
+   * parity). Smaller = finer detail but cell count scales as 1/cellSize³, so the
+   * range is deliberately clamped (see `OCCUPANCY_CONSTRAINTS`). Read once when
+   * the grid is constructed (Enter-AR / replay load), so a change takes effect
+   * on the next session rather than mid-session.
+   */
+  cellSizeM: number;
+}
+
+/**
  * User-configurable recording options.
  * Persisted to localStorage for cross-session consistency.
  */
@@ -100,6 +120,8 @@ export interface RecordingOptions {
   images: ImageCaptureOptions;
   /** Diagnostic flags for pre-recording AR crash isolation */
   arCrashIsolation: ArCrashIsolationOptions;
+  /** Derived occupancy-grid configuration (voxel size) */
+  occupancy: OccupancyOptions;
 }
 
 // --- Constants ---
@@ -137,6 +159,9 @@ export const DEFAULT_RECORDING_OPTIONS: RecordingOptions = {
     enableCameraTextureAcquisition: true,
     applyChromiumProjectionLayerWorkaround: true,
   },
+  occupancy: {
+    cellSizeM: 0.15, // 15 cm voxels — matches OccupancyGrid's own default (Unity parity)
+  },
 };
 
 /** Validation constraints for depth options */
@@ -153,6 +178,19 @@ export const IMAGE_CONSTRAINTS = {
   intervalMs: { min: 1000, max: 10000, step: 500 },
   quality: { min: 0.3, max: 1.0, step: 0.1 },
   resolutionDivisor: { min: 1, max: 8, step: 1 },
+} as const;
+
+/**
+ * Validation constraints for occupancy options.
+ *
+ * `cellSizeM` is clamped to 1–20 cm. The floor exists because cell count (and
+ * therefore the cube `InstancedMesh`, the grid `Map`, and the COLMAP
+ * `points3D` row count) scales as 1/cellSize³ — sub-centimetre voxels are both
+ * a memory/perf cliff on a phone and below the depth sensor's noise floor.
+ * Step is 1 cm (the settings slider operates in cm).
+ */
+export const OCCUPANCY_CONSTRAINTS = {
+  cellSizeM: { min: 0.01, max: 0.2, step: 0.01 },
 } as const;
 
 /**
@@ -263,6 +301,31 @@ export function validateImageOptions(
 }
 
 /**
+ * Validate and normalize occupancy options.
+ * Invalid values are clamped to valid ranges.
+ *
+ * Note the explicit `Number.isFinite` guard: `OccupancyGrid` throws a
+ * `RangeError` on a non-finite cell size, and `clamp(NaN, …)` would otherwise
+ * pass `NaN` straight through (it is `typeof 'number'`). Falling back to the
+ * default keeps a corrupted stored value from crashing grid construction.
+ */
+export function validateOccupancyOptions(
+  options: Partial<OccupancyOptions>
+): OccupancyOptions {
+  const defaults = DEFAULT_RECORDING_OPTIONS.occupancy;
+  return {
+    cellSizeM: clamp(
+      typeof options.cellSizeM === 'number' &&
+        Number.isFinite(options.cellSizeM)
+        ? options.cellSizeM
+        : defaults.cellSizeM,
+      OCCUPANCY_CONSTRAINTS.cellSizeM.min,
+      OCCUPANCY_CONSTRAINTS.cellSizeM.max
+    ),
+  };
+}
+
+/**
  * Validate and normalize a full RecordingOptions object.
  * Merges with defaults and clamps invalid values.
  */
@@ -275,6 +338,7 @@ export function validateRecordingOptions(
     arCrashIsolation: validateArCrashIsolationOptions(
       options.arCrashIsolation ?? {}
     ),
+    occupancy: validateOccupancyOptions(options.occupancy ?? {}),
   };
 }
 
@@ -349,5 +413,6 @@ export function cloneRecordingOptions(
     depth: { ...options.depth },
     images: { ...options.images },
     arCrashIsolation: { ...options.arCrashIsolation },
+    occupancy: { ...options.occupancy },
   };
 }
