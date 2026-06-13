@@ -42,6 +42,14 @@ interface CellRecord {
   /** Number of depth points observed in this cell. */
   count: number;
   /**
+   * Per-axis sum of the EXACT unprojected points (raw WebXR) observed in this
+   * cell. `posSum / count` is the running-average surface point — what the
+   * COLMAP export and the debug cubes draw, instead of the 15 cm-lattice
+   * `getCellCenter` (COLMAP export follow-up, Item A). Every observation has a
+   * position, so the divisor is `count` (unlike `colorSum`/`colorCount`).
+   */
+  posSum: [number, number, number];
+  /**
    * Number of observations that carried a color (≤ count — color-less
    * observations from old recordings or with the rgb option off must not
    * dilute the average toward black, Iter 8).
@@ -113,7 +121,8 @@ export class OccupancyGrid {
     const cameraCell = this.cellForPosition(sample.cameraPos);
     // Pass 1: carve free space along every ray, collecting endpoint cells
     // (with the observing point's color, if any — Iter 8).
-    const endpoints: Array<{ cell: GridCell; rgb?: RgbTuple }> = [];
+    const endpoints: Array<{ cell: GridCell; world: Vector3; rgb?: RgbTuple }> =
+      [];
     for (const point of sample.points) {
       const world = unprojector.unproject(point);
       if (!world) {
@@ -123,11 +132,11 @@ export class OccupancyGrid {
       if (!cellsEqual(cameraCell, cell)) {
         this.carve(cameraCell, cell);
       }
-      endpoints.push({ cell, rgb: point.rgb });
+      endpoints.push({ cell, world, rgb: point.rgb });
     }
     // Pass 2: count endpoints occupied, after all carving for this sample.
     for (const endpoint of endpoints) {
-      this.increment(endpoint.cell, endpoint.rgb);
+      this.increment(endpoint.cell, endpoint.world, endpoint.rgb);
     }
     return endpoints.length;
   }
@@ -159,6 +168,27 @@ export class OccupancyGrid {
       cell[0] * this.cellSizeM,
       cell[1] * this.cellSizeM,
       cell[2] * this.cellSizeM,
+    ];
+  }
+
+  /**
+   * Running-average of the EXACT unprojected surface points observed in this
+   * cell (raw WebXR space), or null for an unknown cell. Unlike
+   * {@link getCellCenter} (the geometric 15 cm-lattice center) this hugs the
+   * real measured surface and noise-averages across viewpoints — used by the
+   * COLMAP `points3D` export and the debug cubes (follow-up Item A). Being a
+   * centroid of points that fell in the cell, it always lies within
+   * `cellSizeM/2` of the cell center per axis.
+   */
+  getCellPoint(cell: GridCell): Vector3 | null {
+    const record = this.cells.get(cellKey(cell));
+    if (!record || record.count === 0) {
+      return null;
+    }
+    return [
+      record.posSum[0] / record.count,
+      record.posSum[1] / record.count,
+      record.posSum[2] / record.count,
     ];
   }
 
@@ -237,14 +267,25 @@ export class OccupancyGrid {
     );
   }
 
-  private increment(cell: GridCell, rgb?: RgbTuple): void {
+  private increment(cell: GridCell, world: Vector3, rgb?: RgbTuple): void {
     const key = cellKey(cell);
     let record = this.cells.get(key);
     if (!record) {
-      record = { cell, count: 0, colorCount: 0, colorSum: [0, 0, 0] };
+      record = {
+        cell,
+        count: 0,
+        posSum: [0, 0, 0],
+        colorCount: 0,
+        colorSum: [0, 0, 0],
+      };
       this.cells.set(key, record);
     }
     record.count++;
+    // Every observation carries a finite position (the unprojector guarantees
+    // it), so it always feeds the running-average surface point.
+    record.posSum[0] += world[0];
+    record.posSum[1] += world[1];
+    record.posSum[2] += world[2];
     // Only finite triples enter the average — bad persisted data degrades
     // to a color-less observation instead of poisoning the cell.
     if (rgb && isFiniteTriple(rgb)) {
