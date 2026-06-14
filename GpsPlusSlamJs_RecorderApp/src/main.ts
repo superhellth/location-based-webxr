@@ -163,8 +163,11 @@ import {
   discoverScenariosFromZipMetadata,
 } from './ui/session-browser';
 import type { SessionEntry } from './ui/session-browser';
-import { createMapBrowser } from './ui/map-browser';
-import type { RecordingCoverage } from './ui/recording-index';
+import { createMapBrowser, type MapBrowserInstance } from './ui/map-browser';
+import {
+  buildRecordingIndex,
+  type RecordingCoverage,
+} from './ui/recording-index';
 import { gpsPathToCoverageCells } from 'gps-plus-slam-app-framework/geo';
 import { createReplayHandlers } from './replay/replay-handlers';
 import { createRefPointHandlers } from './ref-points/ref-point-handlers';
@@ -300,11 +303,56 @@ const refPointHandlers = createRefPointHandlers({
 
 // Folder manager — encapsulates folder selection, save location, scenario management
 // (Finding #7 decomposition Step 4: extracted from main.ts to storage/folder-manager.ts)
+// --- Map-centric recording browser (Step 4C) ---
+
+let mapBrowser: MapBrowserInstance | null = null;
+
+/** Remove the map browser and its full-bleed container, if present. */
+function teardownMapBrowser(): void {
+  mapBrowser?.destroy();
+  mapBrowser = null;
+  document.getElementById('map-browser-root')?.remove();
+}
+
+/**
+ * Build the coverage index for an opened replay folder and present the
+ * map-centric browser as the primary replay selector (D3a). Picking a tour on
+ * the map starts a single-tour replay (D3) and tears the browser down.
+ */
+async function launchMapBrowser(
+  folderHandle: FileSystemDirectoryHandle
+): Promise<void> {
+  const recordings = await buildRecordingIndex(folderHandle);
+  if (recordings.length === 0) {
+    // Nothing to browse spatially — leave the modal list as the fallback.
+    return;
+  }
+
+  teardownMapBrowser();
+  const container = document.createElement('div');
+  container.id = 'map-browser-root';
+  container.className = 'fixed inset-0 z-[80]';
+  document.body.appendChild(container);
+
+  mapBrowser = createMapBrowser(container, {
+    recordings,
+    onPlayTour: (recording) => {
+      teardownMapBrowser();
+      void replayHandlers.startReplayForEntry(recording.entry);
+    },
+    onClose: teardownMapBrowser,
+  });
+  if (!mapBrowser) {
+    container.remove();
+  }
+}
+
 const folderManager = createFolderManager({
   getStore: () => store,
   getIsReplayMode: () => replayHandlers.getIsReplayMode(),
   setReplayZipScenariosCache: (cache) =>
     replayHandlers.setReplayZipScenariosCache(cache),
+  onReplayFolderScanned: (folderHandle) => launchMapBrowser(folderHandle),
   showError,
   updateStatus,
   populateScenarios,

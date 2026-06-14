@@ -255,6 +255,20 @@ describe('createFolderManager', () => {
       expect(selectReadFolder).not.toHaveBeenCalled();
     });
 
+    it('should not launch the map browser in recording mode', async () => {
+      // Why: the map-centric browser is a replay-mode selector only (Step 4C).
+      const onReplayFolderScanned =
+        vi.fn<NonNullable<FolderManagerDeps['onReplayFolderScanned']>>();
+      const { manager } = createFolderManagerWithDefaults({
+        getIsReplayMode: vi.fn(() => false),
+        onReplayFolderScanned,
+      });
+
+      await manager.handleOpenFolder();
+
+      expect(onReplayFolderScanned).not.toHaveBeenCalled();
+    });
+
     it('should return early when user cancels folder picker', async () => {
       // Why: User cancellation is not an error — no side effects expected
       vi.mocked(selectReadFolder).mockResolvedValue({
@@ -419,6 +433,36 @@ describe('createFolderManager', () => {
       expect(deps.discoverScenariosFromZipMetadata).toHaveBeenCalledWith(
         mockFolderHandle
       );
+    });
+
+    it('should hand the folder to onReplayFolderScanned (map browser launch)', async () => {
+      // Why: Step 4C — after a successful replay-mode scan, the folder is handed
+      // to the map-centric browser so it can build its coverage index and become
+      // the primary replay selector.
+      const onReplayFolderScanned =
+        vi.fn<NonNullable<FolderManagerDeps['onReplayFolderScanned']>>();
+      const { manager } = createFolderManagerWithDefaults({
+        getIsReplayMode: vi.fn(() => true),
+        onReplayFolderScanned,
+      });
+
+      await manager.handleOpenFolder();
+
+      expect(onReplayFolderScanned).toHaveBeenCalledWith(mockFolderHandle);
+    });
+
+    it('should not break the scan when onReplayFolderScanned throws', async () => {
+      // Why: a map-browser launch failure must not abort the modal flow.
+      const onReplayFolderScanned = vi
+        .fn<NonNullable<FolderManagerDeps['onReplayFolderScanned']>>()
+        .mockRejectedValue(new Error('boom'));
+      const { manager, deps } = createFolderManagerWithDefaults({
+        getIsReplayMode: vi.fn(() => true),
+        onReplayFolderScanned,
+      });
+
+      await expect(manager.handleOpenFolder()).resolves.toBeUndefined();
+      expect(deps.populateReplayScenarios).toHaveBeenCalled();
     });
 
     it('should cache zip scenario mapping via deps', async () => {

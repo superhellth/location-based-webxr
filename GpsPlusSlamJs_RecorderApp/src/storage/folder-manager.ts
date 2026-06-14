@@ -89,6 +89,14 @@ export interface FolderManagerDeps {
   }>;
   /** UI: populate replay scenario list. */
   populateReplayScenarios: (scenarios: string[]) => void;
+  /**
+   * Optional: called after a folder is successfully scanned in replay mode,
+   * with the folder handle. The map-centric browser (Step 4C) uses this to build
+   * its coverage index and present itself as the primary replay selector.
+   */
+  onReplayFolderScanned?: (
+    folderHandle: FileSystemDirectoryHandle
+  ) => void | Promise<void>;
   /** UI: update folder-status display text. */
   updateFolderStatus: (text: string) => void;
   /** UI: update save-status display text. */
@@ -178,6 +186,13 @@ export function createFolderManager(deps: FolderManagerDeps): FolderManager {
         const msg = `✅ ${result.folderName} (${allScenarios.length} scenario${allScenarios.length !== 1 ? 's' : ''})`;
         log.info(msg);
         deps.updateFolderStatus(msg);
+        // Step 4C: hand the folder to the map-centric browser, which becomes the
+        // primary replay selector. Failures here must not break the modal flow.
+        try {
+          await deps.onReplayFolderScanned?.(folderHandle);
+        } catch (err) {
+          log.error('Failed to open map browser for folder:', err);
+        }
       } catch (err) {
         log.error('Failed to list scenarios from folder:', err);
         deps.updateFolderStatus('❌ Failed to read scenarios');

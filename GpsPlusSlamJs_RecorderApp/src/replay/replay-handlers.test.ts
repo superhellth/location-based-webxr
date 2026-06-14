@@ -647,6 +647,62 @@ describe('handleStartReplay', () => {
 });
 
 // ============================================================================
+// startReplayForEntry (map-browser single-tour playback, Step 4C)
+// ============================================================================
+
+describe('startReplayForEntry', () => {
+  let handlers: ReplayHandlers;
+  let mockSetStore: ReturnType<typeof vi.fn<(store: RecorderStore) => void>>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSetStore = vi.fn<(store: RecorderStore) => void>();
+    handlers = createReplayHandlers({ setStore: mockSetStore });
+
+    const app = document.createElement('div');
+    app.id = 'app';
+    document.body.appendChild(app);
+    const modal = document.createElement('div');
+    modal.id = 'setup-modal';
+    document.body.appendChild(modal);
+  });
+
+  afterEach(() => {
+    document.getElementById('app')?.remove();
+    document.getElementById('setup-modal')?.remove();
+    // Leave a clean mock slate: these tests start a replay (calling shared UI
+    // mocks like updatePlayPauseButton), and the next describe's "no-op" test
+    // asserts those mocks were not called.
+    vi.clearAllMocks();
+  });
+
+  // Why: the map browser plays the tour the user picked directly, without going
+  // through the scenario dropdown / session-list selection. It must start a
+  // replay of exactly that entry's zip.
+  it('starts a replay for the given entry without prior selection', async () => {
+    const session = createMockSessionEntry('picked-on-map.zip');
+
+    await handlers.startReplayForEntry(session, 2);
+
+    expect(mockStartReplayMode).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      expect.objectContaining({ container: document.getElementById('app') })
+    );
+    // R6: the module store is swapped to the replay store.
+    expect(mockSetStore).toHaveBeenCalledWith(mockReplayStore);
+  });
+
+  // Why: speedFactor defaults to 1 so the map browser can call it with one arg.
+  it('defaults the speed factor to 1', async () => {
+    const session = createMockSessionEntry('picked.zip');
+
+    await handlers.startReplayForEntry(session);
+
+    expect(mockReplayController.play).toHaveBeenCalledWith(1);
+  });
+});
+
+// ============================================================================
 // handleReplayPlayPause
 // ============================================================================
 
