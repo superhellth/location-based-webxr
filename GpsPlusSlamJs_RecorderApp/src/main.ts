@@ -168,6 +168,10 @@ import {
   streamRecordingIndex,
   type RecordingCoverage,
 } from './ui/recording-index';
+import {
+  backfillCoverageIntoZips,
+  type BackfillCandidate,
+} from './storage/coverage-backfill';
 import { gpsPathToCoverageCells } from 'gps-plus-slam-app-framework/geo';
 import { createReplayHandlers } from './replay/replay-handlers';
 import { createRefPointHandlers } from './ref-points/ref-point-handlers';
@@ -339,12 +343,38 @@ async function launchMapBrowser(
   const abort = new AbortController();
   mapBrowserAbort = abort;
 
+  // Legacy recordings that carry coverage worth embedding into their zips — the
+  // one-time backfill candidates (B1), accumulated as the index streams in.
+  const backfillCandidates: BackfillCandidate[] = [];
+
   const browser = createMapBrowser(container, {
     onPlayTour: (recording) => {
       teardownMapBrowser();
       void replayHandlers.startReplayForEntry(recording.entry);
     },
     onClose: teardownMapBrowser,
+    onBackfill: async () => {
+      const result = await backfillCoverageIntoZips(
+        folderHandle,
+        backfillCandidates,
+        { signal: abort.signal }
+      );
+      if (result.permissionDenied) {
+        showError(
+          "Couldn't get write access — recordings will be re-indexed each open."
+        );
+      } else if (result.failed > 0) {
+        showToast(
+          `Embedded coverage into ${result.embedded} recordings (${result.failed} failed)`,
+          { severity: 'warning' }
+        );
+      } else if (result.embedded > 0) {
+        showToast(
+          `Embedded coverage into ${result.embedded} recordings — future loads will be instant`
+        );
+      }
+      return result;
+    },
   });
   if (!browser) {
     teardownMapBrowser();
@@ -363,7 +393,16 @@ async function launchMapBrowser(
         }
         browser.setIndexingProgress(0, total);
       },
-      onRecording: (rec) => browser.addRecording(rec),
+      onRecording: (rec) => {
+        browser.addRecording(rec);
+        if (rec.backfilled && rec.cells.length > 0) {
+          backfillCandidates.push({
+            fileHandle: rec.entry.fileHandle,
+            filename: rec.entry.filename,
+            cells: rec.cells,
+          });
+        }
+      },
       onProgress: ({ done, total }) => browser.setIndexingProgress(done, total),
       signal: abort.signal,
     });
@@ -1642,6 +1681,61 @@ if (
       instance.addRecording(fixtureToRecordingCoverage(item, done));
       instance.setIndexingProgress(done, total);
       return true;
+    },
+    /**
+     * Slice B (B1) — mount the browser with backfillable (legacy) recordings and
+     * a **deferred** `onBackfill` so Playwright can observe the transitional
+     * "Embedding…" state, then release the promise with `outcome` to assert the
+     * final state. Marks indexing complete so the CTA appears immediately.
+     * `window.__mapBrowserBackfillCalls` counts invocations;
+     * `window.__releaseBackfill()` resolves the in-flight backfill.
+     */
+    mountMapBrowserBackfill: (
+      fixture: Array<{
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      }>,
+      outcome: {
+        embedded: number;
+        skipped: number;
+        failed: number;
+        permissionDenied: boolean;
+      }
+    ) => {
+      const container = ensureMapBrowserRoot();
+      window.__mapBrowserPlayed = [];
+      window.__mapBrowserBackfillCalls = 0;
+      let release: (() => void) | undefined;
+      window.__releaseBackfill = () => release?.();
+      const instance = createMapBrowser(container, {
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+        onBackfill: () => {
+          window.__mapBrowserBackfillCalls =
+            (window.__mapBrowserBackfillCalls ?? 0) + 1;
+          return new Promise((resolve) => {
+            release = () => resolve(outcome);
+          });
+        },
+      });
+      window.__mapBrowserInstance = instance ?? undefined;
+      if (instance) {
+        fixture.forEach((f, i) => {
+          // Mark as legacy/backfilled so it counts toward the CTA.
+          instance.addRecording({
+            ...fixtureToRecordingCoverage(f, i),
+            backfilled: true,
+          });
+        });
+        // Mark indexing complete so the CTA appears.
+        instance.setIndexingProgress(fixture.length, fixture.length);
+      }
+      return instance !== null;
     },
   };
 }

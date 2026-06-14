@@ -160,7 +160,9 @@ export async function waitForTestHooks(page) {
       window.testHooks?.mountMapBrowser &&
       // Progressive map-browser streaming (Slice A)
       window.testHooks?.mountMapBrowserEmpty &&
-      window.testHooks?.streamMapBrowserRecording,
+      window.testHooks?.streamMapBrowserRecording &&
+      // Coverage backfill CTA (Slice B / B1)
+      window.testHooks?.mountMapBrowserBackfill,
     { timeout: TEST_HOOKS_TIMEOUT_MS }
   );
 }

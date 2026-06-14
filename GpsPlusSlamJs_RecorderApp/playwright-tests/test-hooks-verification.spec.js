@@ -249,6 +249,8 @@ test.describe('Test Hooks Match Real Behavior', () => {
       // Progressive map-browser streaming (Slice A)
       'mountMapBrowserEmpty',
       'streamMapBrowserRecording',
+      // Coverage backfill CTA (Slice B / B1)
+      'mountMapBrowserBackfill',
     ];
 
     // Verify no hook is missing from our wait condition

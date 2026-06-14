@@ -31,6 +31,7 @@ import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
 import { VIS_COLORS } from 'gps-plus-slam-app-framework/visualization/vis-colors';
 import { addOsmTileLayer, FIT_BOUNDS_PADDING } from './map-osm-base';
 import type { RecordingCoverage } from './recording-index';
+import type { BackfillResult } from '../storage/coverage-backfill';
 import {
   buildTileIndex,
   leafletZoomToH3Res,
@@ -61,6 +62,14 @@ export interface MapBrowserOptions {
   readonly onPlayTour: (recording: RecordingCoverage) => void;
   /** Invoked when the user closes the browser (optional). */
   readonly onClose?: () => void;
+  /**
+   * Invoked when the user opts in to the one-time in-zip coverage backfill
+   * (Slice B). When provided AND there are backfillable (legacy, with coverage)
+   * recordings, a "Speed up future loads" button appears once indexing finishes.
+   * The click is the user gesture that the `readwrite` permission upgrade needs.
+   * Resolves with the outcome so the button can show its final state.
+   */
+  readonly onBackfill?: () => Promise<BackfillResult>;
 }
 
 /** Imperative handle for the browser, also used to drive it from e2e tests. */
@@ -158,6 +167,12 @@ export function createMapBrowser(
     progressPill.append(progressSpinner, progressText);
     container.appendChild(progressPill);
 
+    // --- Backfill ("Speed up future loads") CTA — bottom-center (B1) ---
+    const backfillBtn = document.createElement('button');
+    backfillBtn.setAttribute('data-testid', 'map-browser-backfill');
+    backfillBtn.className = `${OVERLAY_PANEL_CLASS} bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 hidden text-sm hover:bg-black/80 disabled:opacity-60 disabled:hover:bg-black/70`;
+    container.appendChild(backfillBtn);
+
     // --- Tour-list panel overlay (left, collapsible card) ---
     const listPanel = document.createElement('div');
     listPanel.className = `${OVERLAY_PANEL_CLASS} top-16 left-3 bottom-3 w-72 max-w-[80vw] flex flex-col`;
@@ -201,6 +216,13 @@ export function createMapBrowser(
     let hasFramedCoverage = false;
     let renderRafId: number | null = null;
     let progressHideTimer: ReturnType<typeof setTimeout> | null = null;
+    // Backfill CTA state (B1): how many legacy recordings carry coverage worth
+    // embedding, whether indexing has finished (the CTA only appears then), and
+    // whether a backfill is currently running.
+    let backfillableCount = 0;
+    let indexingComplete = false;
+    let backfillRunning = false;
+    let backfillHideTimer: ReturnType<typeof setTimeout> | null = null;
 
     function visibleRecordings(): RecordingCoverage[] {
       return filterRecordingsByName(recordings, nameQuery);
@@ -368,6 +390,65 @@ export function createMapBrowser(
         progressHideTimer = null;
         hideProgress();
       }, PROGRESS_DONE_LINGER_MS);
+
+      // Indexing finished — offer the one-time backfill if anything needs it.
+      if (done >= total) {
+        indexingComplete = true;
+        refreshBackfillButton();
+      }
+    }
+
+    /** Show/label or hide the backfill CTA based on current state. */
+    function refreshBackfillButton(): void {
+      if (backfillRunning) {
+        return; // don't override the transitional "Embedding…" state
+      }
+      const show =
+        indexingComplete && backfillableCount > 0 && !!options.onBackfill;
+      if (!show) {
+        backfillBtn.classList.add('hidden');
+        return;
+      }
+      backfillBtn.disabled = false;
+      backfillBtn.textContent = `Speed up future loads — embed coverage in ${backfillableCount} recording${
+        backfillableCount === 1 ? '' : 's'
+      }`;
+      backfillBtn.classList.remove('hidden');
+    }
+
+    async function runBackfill(): Promise<void> {
+      if (!options.onBackfill || backfillRunning) {
+        return;
+      }
+      backfillRunning = true;
+      backfillBtn.disabled = true;
+      backfillBtn.textContent = 'Embedding…';
+      try {
+        const result = await options.onBackfill();
+        backfillRunning = false;
+        if (result.permissionDenied) {
+          // Degrade: the in-memory index still works; let the user retry.
+          backfillBtn.disabled = false;
+          backfillBtn.textContent = 'Write access denied — tap to retry';
+          return;
+        }
+        // Done — recordings are now fast; show a brief confirmation then hide.
+        backfillableCount = 0;
+        backfillBtn.disabled = true;
+        backfillBtn.textContent =
+          result.failed > 0
+            ? `Embedded ${result.embedded}, ${result.failed} failed`
+            : `Embedded ${result.embedded} ✓`;
+        backfillHideTimer = setTimeout(() => {
+          backfillHideTimer = null;
+          backfillBtn.classList.add('hidden');
+        }, PROGRESS_DONE_LINGER_MS);
+      } catch (err) {
+        log.error('Coverage backfill failed', err);
+        backfillRunning = false;
+        backfillBtn.disabled = false;
+        backfillBtn.textContent = 'Upgrade failed — tap to retry';
+      }
     }
 
     function addRecording(recording: RecordingCoverage): void {
@@ -375,6 +456,10 @@ export function createMapBrowser(
         return;
       }
       recordings.push(recording);
+      // Track legacy recordings that carry coverage worth embedding (B1).
+      if (recording.backfilled && recording.cells.length > 0) {
+        backfillableCount += 1;
+      }
       // Frame to coverage once, when the first cells arrive (O1).
       if (!hasFramedCoverage && recording.cells.length > 0) {
         hasFramedCoverage = true;
@@ -393,6 +478,7 @@ export function createMapBrowser(
     });
     clearTileBtn.addEventListener('click', () => doSelectTile(null));
     closeBtn.addEventListener('click', () => options.onClose?.());
+    backfillBtn.addEventListener('click', () => void runBackfill());
     map.on('zoomend', () => {
       renderTiles();
       renderList();
@@ -430,6 +516,10 @@ export function createMapBrowser(
         if (progressHideTimer !== null) {
           clearTimeout(progressHideTimer);
           progressHideTimer = null;
+        }
+        if (backfillHideTimer !== null) {
+          clearTimeout(backfillHideTimer);
+          backfillHideTimer = null;
         }
         map.remove();
         container.replaceChildren();

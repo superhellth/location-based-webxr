@@ -10,11 +10,22 @@ See the plan: `GpsPlusSlamJs_Docs/docs/2026-06-14-map-centric-recording-browser-
 
 ## Public API
 
-- `MapBrowserOptions` — `{ recordings?: readonly RecordingCoverage[]; onPlayTour: (r) => void; onClose?: () => void }`. `recordings` is **optional** (defaults to empty) so the progressive flow can mount the browser before any coverage exists and stream it in.
+- `MapBrowserOptions` — `{ recordings?: readonly RecordingCoverage[]; onPlayTour: (r) => void; onClose?: () => void; onBackfill?: () => Promise<BackfillResult> }`. `recordings` is **optional** (defaults to empty) so the progressive flow can mount the browser before any coverage exists and stream it in. `onBackfill` opts the browser into the one-time in-zip coverage backfill (Slice B / B1).
 - `createMapBrowser(container, options): MapBrowserInstance | null` — mounts the browser inside `container` (which the app gives `fixed inset-0`). Returns `null` if Leaflet init fails.
 - `MapBrowserInstance` — `{ destroy(); getRes(); getRenderedTiles(); selectTile(cell | null); setNameQuery(query); addRecording(rec); setIndexingProgress(done, total) }`. The getters/`selectTile` exist primarily so e2e can drive tile selection without brittle SVG hit-testing.
   - `addRecording(rec)` — append a recording and re-render. Re-renders are **coalesced to one per animation frame** (`requestAnimationFrame`) so streaming a folder does not rebuild every Leaflet polygon per add.
-  - `setIndexingProgress(done, total)` — drive the progress pill (`data-testid=map-browser-progress`): a spinner + "Indexing done / total…" while `done < total`, then a brief "N recordings" confirmation that auto-hides after `PROGRESS_DONE_LINGER_MS` (the durable-end-state rule). `total <= 0` hides it immediately.
+  - `setIndexingProgress(done, total)` — drive the progress pill (`data-testid=map-browser-progress`): a spinner + "Indexing done / total…" while `done < total`, then a brief "N recordings" confirmation that auto-hides after `PROGRESS_DONE_LINGER_MS` (the durable-end-state rule). `total <= 0` hides it immediately. Reaching `done >= total` also marks indexing complete, which reveals the backfill CTA when applicable.
+
+## Backfill CTA (B1 — Slice B opt-in)
+
+When `onBackfill` is provided AND legacy recordings carrying coverage have streamed in (`backfilled && cells.length > 0`), a bottom-center **"Speed up future loads — embed coverage in N recordings"** button (`data-testid=map-browser-backfill`) appears **once indexing completes** (never before — the full set must be known). It is never automatic; the click is the user gesture the `readwrite` permission upgrade needs. Click flow (async-UX rule — transitional + durable final state):
+
+- disables + shows "Embedding…" while `onBackfill()` is in flight;
+- on `permissionDenied` → re-enables with "Write access denied — tap to retry" (degrade, allow retry);
+- on success → "Embedded N ✓" (or "Embedded N, M failed") then auto-hides after `PROGRESS_DONE_LINGER_MS`;
+- on throw → re-enables with "Upgrade failed — tap to retry".
+
+The actual rewrite + permission + per-file safety live in `storage/coverage-backfill.ts`; this component only renders the CTA and its states. The caller (`main.launchMapBrowser`) supplies `onBackfill`, accumulating candidates from the stream and surfacing a toast/error on completion.
 
 ## Layout (D3a — Google-Maps idiom, not a split/modal)
 
@@ -39,4 +50,5 @@ See the plan: `GpsPlusSlamJs_Docs/docs/2026-06-14-map-centric-recording-browser-
 - `playwright-tests/map-browser.spec.js`:
   - **Static mount** (`mountMapBrowser` hook): full-bleed layout (map fills the viewport; Leaflet container nested inside it), overlays float on top, name search filters the list (case-insensitive substring), tile selection narrows the list and toggles "Show all", picking a tour records single-tour playback, and close tears the browser down.
   - **Progressive streaming** (`mountMapBrowserEmpty` + `streamMapBrowserRecording` hooks): the map is interactive with a "0 / total" progress pill before any recording resolves; tiles and tour items grow as recordings stream in and progress counts up; the pill shows a brief confirmation and then hides once `done === total`.
+  - **Backfill CTA** (`mountMapBrowserBackfill` hook with a deferred `onBackfill`): the CTA appears after indexing with the candidate count; clicking shows the transitional "Embedding…" then, on release, the final "Embedded N" confirmation before auto-hiding (success) or a "Write access denied" retry label that stays visible (permission denied).
 - Pure tile/filter/zoom logic: `src/ui/map-browser-index.test.ts` + `.property.test.ts`.

@@ -257,3 +257,78 @@ test.describe('Map-Centric Recording Browser — progressive streaming', () => {
     ).toBeHidden();
   });
 });
+
+test.describe('Map-Centric Recording Browser — coverage backfill CTA (B1)', () => {
+  // Slice B: once indexing finishes and there are legacy recordings carrying
+  // coverage, an opt-in "Speed up future loads" button offers the one-time
+  // in-zip embed. The click is the user gesture for the permission upgrade.
+  const successOutcome = {
+    embedded: FIXTURE.length,
+    skipped: 0,
+    failed: 0,
+    permissionDenied: false,
+  };
+  const deniedOutcome = {
+    embedded: 0,
+    skipped: 0,
+    failed: 0,
+    permissionDenied: true,
+  };
+
+  async function mount(page, outcome) {
+    await page.goto('/');
+    await page.locator('#setup-modal').waitFor({ state: 'visible' });
+    await waitForTestHooksSubset(
+      page,
+      () => window.testHooks?.mountMapBrowserBackfill
+    );
+    const ok = await page.evaluate(
+      ({ fixture, out }) =>
+        window.testHooks.mountMapBrowserBackfill(fixture, out),
+      { fixture: FIXTURE, out: outcome }
+    );
+    expect(ok).toBe(true);
+    await page
+      .locator('[data-testid=map-browser]')
+      .waitFor({ state: 'visible' });
+  }
+
+  test('shows the CTA after indexing, embeds on click, then confirms and hides', async ({
+    page,
+  }) => {
+    await mount(page, successOutcome);
+    const cta = page.locator('[data-testid=map-browser-backfill]');
+    await expect(cta).toBeVisible();
+    await expect(cta).toContainText('Speed up future loads');
+    await expect(cta).toContainText(`${FIXTURE.length} recordings`);
+
+    await cta.click();
+    // Transitional in-progress state (async-UX rule).
+    await expect(cta).toContainText('Embedding…');
+
+    // Release the deferred backfill → final confirmation, then auto-hide.
+    await page.evaluate(() => window.__releaseBackfill());
+    await expect(cta).toContainText(`Embedded ${FIXTURE.length}`);
+    await expect(cta).toBeHidden();
+
+    const calls = await page.evaluate(() => window.__mapBrowserBackfillCalls);
+    expect(calls).toBe(1);
+  });
+
+  test('reverts to a retry label when write access is denied', async ({
+    page,
+  }) => {
+    await mount(page, deniedOutcome);
+    const cta = page.locator('[data-testid=map-browser-backfill]');
+    await expect(cta).toBeVisible();
+
+    await cta.click();
+    await expect(cta).toContainText('Embedding…');
+
+    await page.evaluate(() => window.__releaseBackfill());
+    // Failure path: the button stays visible with an actionable retry label.
+    await expect(cta).toContainText('Write access denied');
+    await expect(cta).toBeVisible();
+    await expect(cta).toBeEnabled();
+  });
+});

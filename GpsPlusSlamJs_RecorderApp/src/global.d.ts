@@ -108,6 +108,24 @@ declare global {
         done: number,
         total: number
       ) => boolean;
+      /**
+       * Slice B (B1) — mount the browser with backfillable recordings and a
+       * deferred onBackfill returning `outcome` once `window.__releaseBackfill`
+       * is called. Drives the "Speed up future loads" CTA e2e.
+       */
+      mountMapBrowserBackfill: (
+        fixture: Array<{
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        }>,
+        outcome: {
+          embedded: number;
+          skipped: number;
+          failed: number;
+          permissionDenied: boolean;
+        }
+      ) => boolean;
     };
 
     /**
@@ -127,6 +145,12 @@ declare global {
 
     /** Filenames the user "played" via the map browser, in click order (e2e). */
     __mapBrowserPlayed?: string[];
+
+    /** Count of backfill (onBackfill) invocations, for the B1 CTA e2e. */
+    __mapBrowserBackfillCalls?: number;
+
+    /** Resolve the deferred backfill mounted by `mountMapBrowserBackfill` (e2e). */
+    __releaseBackfill?: () => void;
 
     /**
      * Reference point picker API exposed for E2E testing.
