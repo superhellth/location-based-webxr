@@ -347,6 +347,44 @@ async function launchMapBrowser(
   }
 }
 
+/** Create (or reuse) the full-bleed root container for the map browser. */
+function ensureMapBrowserRoot(): HTMLElement {
+  let container = document.getElementById('map-browser-root');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'map-browser-root';
+    container.className = 'fixed inset-0 z-[80]';
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+/**
+ * Reduce a fixture tour (GPS path of `{lat,lng}`) to a `RecordingCoverage` so
+ * Playwright can mount/stream the browser without a real recordings folder.
+ */
+function fixtureToRecordingCoverage(
+  f: {
+    filename: string;
+    scenario: string;
+    path: Array<{ lat: number; lng: number }>;
+  },
+  index: number
+): RecordingCoverage {
+  const cells = gpsPathToCoverageCells(f.path);
+  return {
+    entry: {
+      filename: f.filename,
+      fileHandle: {} as FileSystemFileHandle,
+      date: new Date(Date.UTC(2026, 0, 1 + index)),
+      h3Cells: cells,
+    },
+    scenario: f.scenario,
+    cells,
+    backfilled: false,
+  };
+}
+
 const folderManager = createFolderManager({
   getStore: () => store,
   getIsReplayMode: () => replayHandlers.getIsReplayMode(),
@@ -1515,39 +1553,65 @@ if (
         path: Array<{ lat: number; lng: number }>;
       }>
     ) => {
-      let container = document.getElementById('map-browser-root');
-      if (!container) {
-        container = document.createElement('div');
-        container.id = 'map-browser-root';
-        container.className = 'fixed inset-0 z-[80]';
-        document.body.appendChild(container);
-      }
-      const recordings: RecordingCoverage[] = fixture.map((f, i) => {
-        const cells = gpsPathToCoverageCells(f.path);
-        return {
-          entry: {
-            filename: f.filename,
-            fileHandle: {} as FileSystemFileHandle,
-            date: new Date(Date.UTC(2026, 0, 1 + i)),
-            h3Cells: cells,
-          },
-          scenario: f.scenario,
-          cells,
-          backfilled: false,
-        };
-      });
+      const container = ensureMapBrowserRoot();
+      const recordings: RecordingCoverage[] = fixture.map((f, i) =>
+        fixtureToRecordingCoverage(f, i)
+      );
       window.__mapBrowserPlayed = [];
       const instance = createMapBrowser(container, {
         recordings,
         onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
         onClose: () => {
           instance?.destroy();
-          container?.remove();
+          container.remove();
           window.__mapBrowserInstance = undefined;
         },
       });
       window.__mapBrowserInstance = instance ?? undefined;
       return instance !== null;
+    },
+    /**
+     * Slice A — mount the browser EMPTY and prime the progress pill to
+     * `0 / total`, so the e2e test can then stream recordings in via
+     * {@link streamMapBrowserRecording} and assert progressive behaviour
+     * (map interactive before indexing, pill counts up then hides).
+     */
+    mountMapBrowserEmpty: (total: number) => {
+      const container = ensureMapBrowserRoot();
+      window.__mapBrowserPlayed = [];
+      const instance = createMapBrowser(container, {
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+      });
+      instance?.setIndexingProgress(0, total);
+      window.__mapBrowserInstance = instance ?? undefined;
+      return instance !== null;
+    },
+    /**
+     * Slice A — stream one fixture recording into the already-mounted browser
+     * and advance the progress pill to `done / total`. Mirrors what the real
+     * `streamRecordingIndex` → `addRecording`/`setIndexingProgress` wiring does.
+     */
+    streamMapBrowserRecording: (
+      item: {
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      },
+      done: number,
+      total: number
+    ) => {
+      const instance = window.__mapBrowserInstance;
+      if (!instance) {
+        return false;
+      }
+      instance.addRecording(fixtureToRecordingCoverage(item, done));
+      instance.setIndexingProgress(done, total);
+      return true;
     },
   };
 }

@@ -246,6 +246,9 @@ test.describe('Test Hooks Match Real Behavior', () => {
       'setFolderImportExpanded',
       // Map-centric recording browser (Step 4B)
       'mountMapBrowser',
+      // Progressive map-browser streaming (Slice A)
+      'mountMapBrowserEmpty',
+      'streamMapBrowserRecording',
     ];
 
     // Verify no hook is missing from our wait condition

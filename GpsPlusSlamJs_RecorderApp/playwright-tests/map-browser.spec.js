@@ -37,19 +37,21 @@ const FIXTURE = [
   },
 ];
 
-test.beforeEach(async ({ page }) => {
-  await page.goto('/');
-  await page.locator('#setup-modal').waitFor({ state: 'visible' });
-  await waitForTestHooksSubset(page, () => window.testHooks?.mountMapBrowser);
-  const ok = await page.evaluate(
-    (fixture) => window.testHooks.mountMapBrowser(fixture),
-    FIXTURE
-  );
-  expect(ok).toBe(true);
-  await page.locator('[data-testid=map-browser]').waitFor({ state: 'visible' });
-});
-
 test.describe('Map-Centric Recording Browser', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#setup-modal').waitFor({ state: 'visible' });
+    await waitForTestHooksSubset(page, () => window.testHooks?.mountMapBrowser);
+    const ok = await page.evaluate(
+      (fixture) => window.testHooks.mountMapBrowser(fixture),
+      FIXTURE
+    );
+    expect(ok).toBe(true);
+    await page
+      .locator('[data-testid=map-browser]')
+      .waitFor({ state: 'visible' });
+  });
+
   test('renders a full-bleed map filling the viewport (not a split/modal)', async ({
     page,
   }) => {
@@ -148,5 +150,110 @@ test.describe('Map-Centric Recording Browser', () => {
   test('close button tears down the browser', async ({ page }) => {
     await page.locator('[data-testid=map-browser-close]').click();
     await expect(page.locator('[data-testid=map-browser]')).toHaveCount(0);
+  });
+});
+
+test.describe('Map-Centric Recording Browser — progressive streaming', () => {
+  // Slice A: the map must mount immediately and stream tours onto it, with a
+  // progress pill that counts up and then hides — instead of blocking on a
+  // ~30s legacy backfill before anything is drawn.
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#setup-modal').waitFor({ state: 'visible' });
+    await waitForTestHooksSubset(
+      page,
+      () =>
+        window.testHooks?.mountMapBrowserEmpty &&
+        window.testHooks?.streamMapBrowserRecording
+    );
+    const ok = await page.evaluate(
+      (total) => window.testHooks.mountMapBrowserEmpty(total),
+      FIXTURE.length
+    );
+    expect(ok).toBe(true);
+    await page
+      .locator('[data-testid=map-browser]')
+      .waitFor({ state: 'visible' });
+  });
+
+  test('map is interactive and shows progress before any recording streams in', async ({
+    page,
+  }) => {
+    // Why: the whole point of Slice A — the user sees (and can pan/zoom) the map
+    // immediately, with a progress pill, rather than a 30s blank wait.
+    const viewport = page.viewportSize();
+    const mapBox = await page
+      .locator('[data-testid=map-browser-map]')
+      .boundingBox();
+    expect(mapBox).not.toBeNull();
+    expect(Math.abs(mapBox.width - viewport.width)).toBeLessThanOrEqual(2);
+
+    // Progress pill is visible and reads "0 / total" before anything resolves.
+    await expect(
+      page.locator('[data-testid=map-browser-progress]')
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-testid=map-browser-progress-text]')
+    ).toContainText(`0 / ${FIXTURE.length}`);
+
+    // No tours yet, no tiles yet.
+    await expect(
+      page.locator('[data-testid=map-browser-tour-item]')
+    ).toHaveCount(0);
+  });
+
+  test('tiles and tours grow as recordings stream in, and progress counts up', async ({
+    page,
+  }) => {
+    // Stream the first recording → one tour, progress 1 / total.
+    await page.evaluate(
+      ({ item, total }) =>
+        window.testHooks.streamMapBrowserRecording(item, 1, total),
+      { item: FIXTURE[0], total: FIXTURE.length }
+    );
+    await expect(
+      page.locator('[data-testid=map-browser-tour-item]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid=map-browser-progress-text]')
+    ).toContainText(`1 / ${FIXTURE.length}`);
+    const tilesAfterFirst = await page.evaluate(() =>
+      window.__mapBrowserInstance.getRenderedTiles()
+    );
+    expect(tilesAfterFirst.length).toBeGreaterThan(0);
+
+    // Stream the second (final) recording → two tours, progress completes.
+    await page.evaluate(
+      ({ item, total }) =>
+        window.testHooks.streamMapBrowserRecording(item, total, total),
+      { item: FIXTURE[1], total: FIXTURE.length }
+    );
+    await expect(
+      page.locator('[data-testid=map-browser-tour-item]')
+    ).toHaveCount(2);
+  });
+
+  test('progress pill hides once indexing completes', async ({ page }) => {
+    // Why: the durable-end-state rule — once done === total the pill shows a
+    // brief confirmation and then disappears, leaving the map unobstructed.
+    await page.evaluate(
+      ({ item, total }) =>
+        window.testHooks.streamMapBrowserRecording(item, 1, total),
+      { item: FIXTURE[0], total: FIXTURE.length }
+    );
+    await page.evaluate(
+      ({ item, total }) =>
+        window.testHooks.streamMapBrowserRecording(item, total, total),
+      { item: FIXTURE[1], total: FIXTURE.length }
+    );
+
+    // Brief confirmation names the durable result…
+    await expect(
+      page.locator('[data-testid=map-browser-progress-text]')
+    ).toContainText('recordings');
+    // …then the pill auto-hides.
+    await expect(
+      page.locator('[data-testid=map-browser-progress]')
+    ).toBeHidden();
   });
 });

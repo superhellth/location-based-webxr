@@ -15,6 +15,7 @@ import type { RefPointPickerResult } from './ui/ref-point-picker';
 import type { PermissionCheckResult } from 'gps-plus-slam-app-framework/sensors/permission-checker';
 import type { TrackingQualityReport } from 'gps-plus-slam-app-framework';
 import type { SessionSummaryData } from './ui/session-summary';
+import type { RecordingCoverage } from './ui/recording-index';
 
 declare global {
   var __BUILD_COMMIT__: string | undefined;
@@ -88,6 +89,25 @@ declare global {
           path: Array<{ lat: number; lng: number }>;
         }>
       ) => boolean;
+      /**
+       * Slice A — mount the browser empty and prime the progress pill to
+       * `0 / total`, then stream recordings via `streamMapBrowserRecording`.
+       */
+      mountMapBrowserEmpty: (total: number) => boolean;
+      /**
+       * Slice A — stream one fixture recording into the mounted browser and
+       * advance the progress pill to `done / total`. Returns `false` if no
+       * browser is mounted.
+       */
+      streamMapBrowserRecording: (
+        item: {
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        },
+        done: number,
+        total: number
+      ) => boolean;
     };
 
     /**
@@ -101,6 +121,8 @@ declare global {
       getRenderedTiles(): string[];
       selectTile(tileCell: string | null): void;
       setNameQuery(query: string): void;
+      addRecording(recording: RecordingCoverage): void;
+      setIndexingProgress(done: number, total: number): void;
     };
 
     /** Filenames the user "played" via the map browser, in click order (e2e). */

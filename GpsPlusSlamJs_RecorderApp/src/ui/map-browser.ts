@@ -42,6 +42,8 @@ import {
 const log = createLogger('MapBrowser');
 
 const RESIZE_DELAY_MS = 200;
+/** How long the "N recordings" confirmation lingers before the pill hides. */
+const PROGRESS_DONE_LINGER_MS = 1200;
 /** Zoom used when the map cannot frame coverage (no cells). Whole-world view. */
 const WORLD_ZOOM = 2;
 /** Accent colour for coverage tiles (reuses the fused-path palette entry). */
@@ -49,8 +51,12 @@ const TILE_COLOR = VIS_COLORS.FUSED_VIO.css;
 
 /** Options for {@link createMapBrowser}. */
 export interface MapBrowserOptions {
-  /** Recordings with their H3 coverage (from `buildRecordingIndex`). */
-  readonly recordings: readonly RecordingCoverage[];
+  /**
+   * Initial recordings with their H3 coverage (from `buildRecordingIndex`).
+   * Optional and defaults to empty: the progressive flow mounts the browser
+   * before any coverage exists and streams recordings in via `addRecording`.
+   */
+  readonly recordings?: readonly RecordingCoverage[];
   /** Invoked when the user picks a single tour to replay (D3 — one at a time). */
   readonly onPlayTour: (recording: RecordingCoverage) => void;
   /** Invoked when the user closes the browser (optional). */
@@ -69,6 +75,20 @@ export interface MapBrowserInstance {
   selectTile(tileCell: string | null): void;
   /** Set the name-search query (mirrors the search input). */
   setNameQuery(query: string): void;
+  /**
+   * Append a recording to the browser and re-render. Re-renders are coalesced
+   * (one per animation frame) so streaming a whole folder does not trigger a
+   * tile rebuild per recording. The map is framed to coverage exactly once —
+   * on the first recording that carries cells — and not moved thereafter (O1).
+   */
+  addRecording(recording: RecordingCoverage): void;
+  /**
+   * Drive the indexing progress pill. While `done < total` it shows a spinner +
+   * "Indexing done / total…"; once `done === total` it shows a brief
+   * confirmation and then auto-hides (the durable-end-state rule). `total <= 0`
+   * hides it immediately (nothing to index).
+   */
+  setIndexingProgress(done: number, total: number): void;
 }
 
 const OVERLAY_PANEL_CLASS =
@@ -124,6 +144,20 @@ export function createMapBrowser(
     closeBtn.title = 'Close map browser';
     container.appendChild(closeBtn);
 
+    // --- Indexing progress pill (top-center, under the search bar) — O4 ---
+    const progressPill = document.createElement('div');
+    progressPill.setAttribute('data-testid', 'map-browser-progress');
+    // Starts hidden; toggled between `hidden` and `flex` by setIndexingProgress.
+    progressPill.className = `${OVERLAY_PANEL_CLASS} top-16 left-1/2 -translate-x-1/2 px-3 py-1.5 hidden items-center gap-2 text-sm`;
+    const progressSpinner = document.createElement('span');
+    progressSpinner.setAttribute('aria-hidden', 'true');
+    progressSpinner.className =
+      'inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin';
+    const progressText = document.createElement('span');
+    progressText.setAttribute('data-testid', 'map-browser-progress-text');
+    progressPill.append(progressSpinner, progressText);
+    container.appendChild(progressPill);
+
     // --- Tour-list panel overlay (left, collapsible card) ---
     const listPanel = document.createElement('div');
     listPanel.className = `${OVERLAY_PANEL_CLASS} top-16 left-3 bottom-3 w-72 max-w-[80vw] flex flex-col`;
@@ -160,9 +194,16 @@ export function createMapBrowser(
     );
     const tilePolygons = new Map<string, L.Polygon>();
     let destroyed = false;
+    // Mutable so the progressive flow can stream recordings in after mount.
+    const recordings: RecordingCoverage[] = [...(options.recordings ?? [])];
+    // O1: frame to coverage exactly once (first recording with cells), then
+    // leave the camera alone so streaming does not yank the view around.
+    let hasFramedCoverage = false;
+    let renderRafId: number | null = null;
+    let progressHideTimer: ReturnType<typeof setTimeout> | null = null;
 
     function visibleRecordings(): RecordingCoverage[] {
-      return filterRecordingsByName(options.recordings, nameQuery);
+      return filterRecordingsByName(recordings, nameQuery);
     }
 
     /** Recordings shown in the list: the selected tile's, or all visible. */
@@ -174,18 +215,18 @@ export function createMapBrowser(
     }
 
     function renderList(): void {
-      const recordings = listedRecordings();
+      const listed = listedRecordings();
       listEl.replaceChildren();
 
       if (selectedTile !== null) {
-        listTitle.textContent = `Tile · ${recordings.length} tour${recordings.length === 1 ? '' : 's'}`;
+        listTitle.textContent = `Tile · ${listed.length} tour${listed.length === 1 ? '' : 's'}`;
         clearTileBtn.classList.remove('hidden');
       } else {
-        listTitle.textContent = `All tours · ${recordings.length}`;
+        listTitle.textContent = `All tours · ${listed.length}`;
         clearTileBtn.classList.add('hidden');
       }
 
-      if (recordings.length === 0) {
+      if (listed.length === 0) {
         const empty = document.createElement('p');
         empty.className = 'text-xs text-gray-300 px-2 py-2';
         empty.textContent =
@@ -196,7 +237,7 @@ export function createMapBrowser(
         return;
       }
 
-      for (const recording of recordings) {
+      for (const recording of listed) {
         const item = document.createElement('button');
         item.setAttribute('data-testid', 'map-browser-tour-item');
         item.setAttribute('data-filename', recording.entry.filename);
@@ -262,7 +303,7 @@ export function createMapBrowser(
 
     function fitToCoverage(): void {
       const bounds = L.latLngBounds([]);
-      for (const recording of options.recordings) {
+      for (const recording of recordings) {
         for (const cell of recording.cells) {
           const [lat, lng] = cellToLatLng(cell);
           bounds.extend([lat, lng]);
@@ -271,6 +312,75 @@ export function createMapBrowser(
       if (bounds.isValid()) {
         map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, maxZoom: 17 });
       }
+    }
+
+    /**
+     * Coalesce tile + list re-renders to one per animation frame. Streaming a
+     * whole folder calls this once per recording; without coalescing that would
+     * rebuild every Leaflet polygon on every add (the pure tile index is cheap,
+     * but the polygon churn is not).
+     */
+    function scheduleRender(): void {
+      if (renderRafId !== null || destroyed) {
+        return;
+      }
+      renderRafId = requestAnimationFrame(() => {
+        renderRafId = null;
+        if (destroyed) {
+          return;
+        }
+        renderTiles();
+        renderList();
+      });
+    }
+
+    function hideProgress(): void {
+      progressPill.classList.add('hidden');
+      progressPill.classList.remove('flex');
+    }
+
+    function showProgress(): void {
+      progressPill.classList.remove('hidden');
+      progressPill.classList.add('flex');
+    }
+
+    function setIndexingProgress(done: number, total: number): void {
+      if (progressHideTimer !== null) {
+        clearTimeout(progressHideTimer);
+        progressHideTimer = null;
+      }
+      if (total <= 0) {
+        hideProgress();
+        return;
+      }
+      if (done < total) {
+        progressSpinner.classList.remove('hidden');
+        progressText.textContent = `Indexing ${done} / ${total}…`;
+        showProgress();
+        return;
+      }
+      // Durable end state (CLAUDE.md async-UX rule): drop the spinner, show a
+      // brief confirmation, then hide.
+      progressSpinner.classList.add('hidden');
+      progressText.textContent = `${total} recording${total === 1 ? '' : 's'}`;
+      showProgress();
+      progressHideTimer = setTimeout(() => {
+        progressHideTimer = null;
+        hideProgress();
+      }, PROGRESS_DONE_LINGER_MS);
+    }
+
+    function addRecording(recording: RecordingCoverage): void {
+      if (destroyed) {
+        return;
+      }
+      recordings.push(recording);
+      // Frame to coverage once, when the first cells arrive (O1).
+      if (!hasFramedCoverage && recording.cells.length > 0) {
+        hasFramedCoverage = true;
+        fitToCoverage();
+      }
+      scheduleRender();
     }
 
     // --- Wire interactions ---
@@ -289,7 +399,12 @@ export function createMapBrowser(
     });
 
     // --- Initial paint ---
-    fitToCoverage();
+    // Frame to any coverage supplied at construction (the non-progressive path);
+    // record that we framed so streamed-in recordings don't re-fit (O1).
+    if (recordings.some((r) => r.cells.length > 0)) {
+      hasFramedCoverage = true;
+      fitToCoverage();
+    }
     renderTiles();
     renderList();
     const resizeTimeoutId = setTimeout(
@@ -298,7 +413,7 @@ export function createMapBrowser(
     );
 
     log.info('Map browser created', {
-      recordings: options.recordings.length,
+      recordings: recordings.length,
     });
 
     return {
@@ -308,6 +423,14 @@ export function createMapBrowser(
         }
         destroyed = true;
         clearTimeout(resizeTimeoutId);
+        if (renderRafId !== null) {
+          cancelAnimationFrame(renderRafId);
+          renderRafId = null;
+        }
+        if (progressHideTimer !== null) {
+          clearTimeout(progressHideTimer);
+          progressHideTimer = null;
+        }
         map.remove();
         container.replaceChildren();
         container.classList.remove('overflow-hidden');
@@ -321,6 +444,8 @@ export function createMapBrowser(
         searchInput.value = query;
         searchInput.dispatchEvent(new Event('input'));
       },
+      addRecording,
+      setIndexingProgress,
     };
   } catch (err) {
     log.error('Failed to create map browser', err);
