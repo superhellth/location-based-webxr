@@ -244,6 +244,8 @@ test.describe('Test Hooks Match Real Behavior', () => {
       'setSaveLocationSelected',
       // Optional folder-import collapse hook (D5)
       'setFolderImportExpanded',
+      // Map-centric recording browser (Step 4B)
+      'mountMapBrowser',
     ];
 
     // Verify no hook is missing from our wait condition

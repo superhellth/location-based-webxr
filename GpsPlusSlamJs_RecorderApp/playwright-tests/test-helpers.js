@@ -155,7 +155,9 @@ export async function waitForTestHooks(page) {
       window.testHooks?.setFolderSelected &&
       window.testHooks?.setSaveLocationSelected &&
       // Optional folder-import collapse hook (D5)
-      window.testHooks?.setFolderImportExpanded,
+      window.testHooks?.setFolderImportExpanded &&
+      // Map-centric recording browser (Step 4B)
+      window.testHooks?.mountMapBrowser,
     { timeout: TEST_HOOKS_TIMEOUT_MS }
   );
 }

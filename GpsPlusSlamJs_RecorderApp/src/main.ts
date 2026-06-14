@@ -163,6 +163,9 @@ import {
   discoverScenariosFromZipMetadata,
 } from './ui/session-browser';
 import type { SessionEntry } from './ui/session-browser';
+import { createMapBrowser } from './ui/map-browser';
+import type { RecordingCoverage } from './ui/recording-index';
+import { gpsPathToCoverageCells } from 'gps-plus-slam-app-framework/geo';
 import { createReplayHandlers } from './replay/replay-handlers';
 import { createRefPointHandlers } from './ref-points/ref-point-handlers';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
@@ -1449,6 +1452,55 @@ if (
     setFolderSelected,
     setSaveLocationSelected,
     setFolderImportExpanded,
+    /**
+     * Map-centric recording browser (Step 4B). Mounts the full-bleed browser
+     * with fixture tours (GPS paths → H3 coverage), so Playwright can exercise
+     * the layout, tiles, name search, and single-tour playback without a real
+     * recordings folder. `onPlayTour` records the picked filename to
+     * `window.__mapBrowserPlayed`; the instance is exposed for tile-selection
+     * assertions on `window.__mapBrowserInstance`.
+     */
+    mountMapBrowser: (
+      fixture: Array<{
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      }>
+    ) => {
+      let container = document.getElementById('map-browser-root');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'map-browser-root';
+        container.className = 'fixed inset-0 z-[80]';
+        document.body.appendChild(container);
+      }
+      const recordings: RecordingCoverage[] = fixture.map((f, i) => {
+        const cells = gpsPathToCoverageCells(f.path);
+        return {
+          entry: {
+            filename: f.filename,
+            fileHandle: {} as FileSystemFileHandle,
+            date: new Date(Date.UTC(2026, 0, 1 + i)),
+            h3Cells: cells,
+          },
+          scenario: f.scenario,
+          cells,
+          backfilled: false,
+        };
+      });
+      window.__mapBrowserPlayed = [];
+      const instance = createMapBrowser(container, {
+        recordings,
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container?.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+      });
+      window.__mapBrowserInstance = instance ?? undefined;
+      return instance !== null;
+    },
   };
 }
 

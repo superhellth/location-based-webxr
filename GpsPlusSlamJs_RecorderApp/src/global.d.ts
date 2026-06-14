@@ -75,7 +75,36 @@ declare global {
       setFolderSelected: (selected: boolean) => void;
       setFolderImportExpanded: (expanded: boolean, hint?: string) => void;
       setSaveLocationSelected: (selected: boolean) => void;
+      /**
+       * Step 4B — mount the map-centric recording browser with fixture tours
+       * (each `path` of `{lat,lng}` is reduced to H3 coverage cells). Returns
+       * `true` on success. See `window.__mapBrowserInstance` /
+       * `window.__mapBrowserPlayed` for the e2e assertion surface.
+       */
+      mountMapBrowser: (
+        fixture: Array<{
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        }>
+      ) => boolean;
     };
+
+    /**
+     * Imperative handle for the mounted map browser (Step 4B), exposed for
+     * Playwright tile-selection / rendered-tile assertions. Methods mirror
+     * `MapBrowserInstance` in `ui/map-browser.ts`.
+     */
+    __mapBrowserInstance?: {
+      destroy(): void;
+      getRes(): number;
+      getRenderedTiles(): string[];
+      selectTile(tileCell: string | null): void;
+      setNameQuery(query: string): void;
+    };
+
+    /** Filenames the user "played" via the map browser, in click order (e2e). */
+    __mapBrowserPlayed?: string[];
 
     /**
      * Reference point picker API exposed for E2E testing.
