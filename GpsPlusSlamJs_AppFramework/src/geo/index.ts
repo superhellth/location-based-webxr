@@ -7,6 +7,8 @@ export {
   type KnownGeoAnchor,
   approxDistanceMetres,
   gpsToH3,
+  gpsPathToCoverageCells,
+  clusterCellsByZoom,
   findNearbyGeoAnchor,
   h3CellsMatch,
   isH3Index,
