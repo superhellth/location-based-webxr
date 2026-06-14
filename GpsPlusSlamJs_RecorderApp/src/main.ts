@@ -165,7 +165,7 @@ import {
 import type { SessionEntry } from './ui/session-browser';
 import { createMapBrowser, type MapBrowserInstance } from './ui/map-browser';
 import {
-  buildRecordingIndex,
+  streamRecordingIndex,
   type RecordingCoverage,
 } from './ui/recording-index';
 import { gpsPathToCoverageCells } from 'gps-plus-slam-app-framework/geo';
@@ -306,44 +306,74 @@ const refPointHandlers = createRefPointHandlers({
 // --- Map-centric recording browser (Step 4C) ---
 
 let mapBrowser: MapBrowserInstance | null = null;
+/** Aborts the in-flight coverage stream when the browser is torn down. */
+let mapBrowserAbort: AbortController | null = null;
 
-/** Remove the map browser and its full-bleed container, if present. */
+/** Remove the map browser, abort any in-flight stream, and drop its container. */
 function teardownMapBrowser(): void {
+  mapBrowserAbort?.abort();
+  mapBrowserAbort = null;
   mapBrowser?.destroy();
   mapBrowser = null;
   document.getElementById('map-browser-root')?.remove();
 }
 
 /**
- * Build the coverage index for an opened replay folder and present the
- * map-centric browser as the primary replay selector (D3a). Picking a tour on
- * the map starts a single-tour replay (D3) and tears the browser down.
+ * Present the map-centric browser as the primary replay selector (D3a) for an
+ * opened replay folder. The map is mounted **immediately** (empty) and
+ * recordings are **streamed** onto it as each is indexed — metadata-present
+ * ones first/instantly, legacy ones as their GPS path is read — so the user
+ * sees and can use the map right away instead of blocking on the full index
+ * (Slice A). A progress pill counts up and then hides on completion.
+ *
+ * Picking a tour starts a single-tour replay (D3) and tears the browser down.
+ * The owned `AbortController` cancels the stream if the browser is closed or
+ * another folder is opened mid-index, so a torn-down map never receives tiles.
  */
 async function launchMapBrowser(
   folderHandle: FileSystemDirectoryHandle
 ): Promise<void> {
-  const recordings = await buildRecordingIndex(folderHandle);
-  if (recordings.length === 0) {
-    // Nothing to browse spatially — leave the modal list as the fallback.
-    return;
-  }
-
   teardownMapBrowser();
-  const container = document.createElement('div');
-  container.id = 'map-browser-root';
-  container.className = 'fixed inset-0 z-[80]';
-  document.body.appendChild(container);
 
-  mapBrowser = createMapBrowser(container, {
-    recordings,
+  const container = ensureMapBrowserRoot();
+  const abort = new AbortController();
+  mapBrowserAbort = abort;
+
+  const browser = createMapBrowser(container, {
     onPlayTour: (recording) => {
       teardownMapBrowser();
       void replayHandlers.startReplayForEntry(recording.entry);
     },
     onClose: teardownMapBrowser,
   });
-  if (!mapBrowser) {
-    container.remove();
+  if (!browser) {
+    teardownMapBrowser();
+    return;
+  }
+  mapBrowser = browser;
+
+  try {
+    await streamRecordingIndex(folderHandle, {
+      onTotal: (total) => {
+        if (total === 0) {
+          // Nothing to browse spatially — leave the modal list as the fallback
+          // (don't show an empty map).
+          teardownMapBrowser();
+          return;
+        }
+        browser.setIndexingProgress(0, total);
+      },
+      onRecording: (rec) => browser.addRecording(rec),
+      onProgress: ({ done, total }) => browser.setIndexingProgress(done, total),
+      signal: abort.signal,
+    });
+  } catch (err) {
+    // An aborted stream (browser closed / folder switched) is expected — only
+    // surface genuine failures.
+    if (!abort.signal.aborted) {
+      log.error('Map browser coverage stream failed', err);
+      showError('Failed to index recordings for the map — see logs.');
+    }
   }
 }
 
