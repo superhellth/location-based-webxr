@@ -110,6 +110,64 @@ describe('mapWithConcurrencyLimit', () => {
     expect(processed.length).toBeLessThan(items.length);
   });
 
+  it('rejects only after in-flight workers settle (error path mirrors abort)', async () => {
+    // Why: a junior-dev review flagged "leaked background work" on the error
+    // path. Promise.all rejects on the FIRST worker rejection, so the function
+    // used to throw while sibling workers were still mid-await — their results
+    // (and side effects) settled AFTER the caller had already observed the
+    // failure. The abort path drains in-flight work before settling; the error
+    // path must do the same, so that once `await` returns no worker is still
+    // running. This test asserts the in-flight worker settles BEFORE the
+    // function rejects.
+    const order: string[] = [];
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+
+    const promise = mapWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('boom');
+      }
+      await slow;
+      order.push('inflight-settled');
+      return x;
+    });
+
+    const settled = promise.then(
+      () => order.push('fn-resolved'),
+      () => order.push('fn-rejected')
+    );
+
+    // Let the failing worker throw and propagate. The in-flight worker is still
+    // blocked on `slow`; if the function already rejected here it abandoned it.
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSlow();
+    await settled;
+
+    expect(order).toEqual(['inflight-settled', 'fn-rejected']);
+  });
+
+  it('rejects with the first error when multiple mappers throw', async () => {
+    // Why: refutes the review's "unhandled rejection" concern and pins the
+    // semantics. The first error wins; a later sibling throw is consumed (no
+    // unhandled rejection — vitest would fail the run if one leaked).
+    let releaseSecond!: () => void;
+    const second = new Promise<void>((r) => (releaseSecond = r));
+
+    const promise = mapWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('first');
+      }
+      await second;
+      throw new Error('second');
+    });
+    const caught = promise.catch((e) => (e as Error).message);
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSecond();
+
+    expect(await caught).toBe('first');
+  });
+
   it('handles concurrency limit of 1 (sequential execution)', async () => {
     // Why: Limit=1 means tasks run one at a time. This is the most restrictive
     // setting and should still produce correct, ordered results.
@@ -258,6 +316,60 @@ describe('forEachWithConcurrencyLimit', () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(processed.length).toBeLessThan(items.length);
+  });
+
+  it('rejects only after in-flight workers settle (error path mirrors abort)', async () => {
+    // Why: streaming workers are side-effecting (they emit recordings into a
+    // consumer). On the error path the function used to reject on the FIRST
+    // worker rejection while siblings were still mid-await, so an in-flight
+    // worker would emit into a consumer the caller already saw fail and began
+    // tearing down. The abort path drains in-flight work before settling; the
+    // error path must mirror that, so `await` returns only once no worker is
+    // still running. Asserts the in-flight worker settles BEFORE the rejection.
+    const order: string[] = [];
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+
+    const promise = forEachWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('boom');
+      }
+      await slow;
+      order.push('inflight-settled');
+    });
+
+    const settled = promise.then(
+      () => order.push('fn-resolved'),
+      () => order.push('fn-rejected')
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSlow();
+    await settled;
+
+    expect(order).toEqual(['inflight-settled', 'fn-rejected']);
+  });
+
+  it('rejects with the first error when multiple workers throw', async () => {
+    // Why: refutes the review's "unhandled rejection" concern and pins the
+    // semantics. The first error wins; a later sibling throw is consumed (no
+    // unhandled rejection — vitest would fail the run if one leaked).
+    let releaseSecond!: () => void;
+    const second = new Promise<void>((r) => (releaseSecond = r));
+
+    const promise = forEachWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('first');
+      }
+      await second;
+      throw new Error('second');
+    });
+    const caught = promise.catch((e) => (e as Error).message);
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSecond();
+
+    expect(await caught).toBe('first');
   });
 
   it('throws RangeError when limit is below 1', async () => {

@@ -14,7 +14,7 @@ Maps over an array with a concurrency cap on the async mapper function. Behaves 
 - **Output:** Array of results in the same order as input items
 - **Errors:**
   - Throws `RangeError` if `limit < 1` (e.g., 0, negative values)
-  - Re-throws the first error from any mapper invocation (fail-fast, matching `Promise.all` semantics). Once any worker throws, surviving workers stop pulling new items (a shared failure flag) instead of draining the queue in the background; in-flight invocations still run to completion.
+  - Re-throws the **first** error from any mapper invocation (fail-fast). Once any worker throws, surviving workers stop pulling new items (a shared failure flag) instead of draining the queue in the background. In-flight invocations still run to completion, and the function settles (re-throws) only **after** all of them have settled — workers resolve and the first recorded error is re-thrown afterwards, so the rejection never races ahead of still-running background work and a later sibling throw cannot leak as an unhandled rejection.
 
 ### `forEachWithConcurrencyLimit<T>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<void>, signal?: AbortSignal): Promise<void>`
 
@@ -24,7 +24,7 @@ Runs an async, side-effecting worker over each item with a concurrency cap, invo
 - **Output:** `void` — the worker produces its own side effect (e.g. a streaming callback)
 - **Errors:**
   - Throws `RangeError` if `limit < 1`
-  - Re-throws the first error from any worker invocation (fail-fast). Once any worker throws, surviving pumps stop pulling **new** items (a shared failure flag) — the same "stop pulling" behavior as abort — so they don't keep emitting side effects into a tearing-down consumer. In-flight workers run to completion.
+  - Re-throws the **first** error from any worker invocation (fail-fast). Once any worker throws, surviving pumps stop pulling **new** items (a shared failure flag) — the same "stop pulling" behavior as abort — so they don't keep emitting side effects into a tearing-down consumer. In-flight workers run to completion, and the function settles (re-throws) only **after** they have — fully mirroring the abort path, so the caller's `await` returns once no worker is still emitting rather than the rejection racing ahead of detached background work. A later sibling throw cannot leak as an unhandled rejection.
 - **Abort:** When `signal` is aborted, workers stop pulling **new** items (checked before each pull). In-flight workers run to completion (the underlying File System Access reads cannot be torn mid-read). An already-aborted signal starts no work at all.
 
 ## Invariants & Assumptions
@@ -61,5 +61,5 @@ await forEachWithConcurrencyLimit(
 ## Tests
 
 - Unit tests: `concurrency.test.ts`.
-  - `mapWithConcurrencyLimit` — ordered results, empty input, limit > items, peak concurrency tracking, error propagation, fail-fast stops pulling new items after a mapper throws, sequential execution (limit=1), RangeError for limit=0, RangeError for negative limit, descriptive error message content.
-  - `forEachWithConcurrencyLimit` — one invocation per item, empty-input no-op, concurrency cap, abort stops pulling new items, fail-fast stops pulling new items after a worker throws, already-aborted signal starts no work, RangeError for limit < 1.
+  - `mapWithConcurrencyLimit` — ordered results, empty input, limit > items, peak concurrency tracking, error propagation, fail-fast stops pulling new items after a mapper throws, error path waits for in-flight workers to settle before rejecting (mirrors abort), first error wins when multiple mappers throw (no unhandled rejection), sequential execution (limit=1), RangeError for limit=0, RangeError for negative limit, descriptive error message content.
+  - `forEachWithConcurrencyLimit` — one invocation per item, empty-input no-op, concurrency cap, abort stops pulling new items, fail-fast stops pulling new items after a worker throws, error path waits for in-flight workers to settle before rejecting (mirrors abort), first error wins when multiple workers throw (no unhandled rejection), already-aborted signal starts no work, RangeError for limit < 1.

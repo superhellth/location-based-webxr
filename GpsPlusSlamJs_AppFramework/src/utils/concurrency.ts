@@ -36,10 +36,14 @@ export async function mapWithConcurrencyLimit<T, R>(
 
   // Use a pool of workers that pull from a shared index counter
   let nextIndex = 0;
-  // Shared fail-fast flag: once any worker throws, the surviving workers stop
-  // pulling new items instead of draining the queue in the background after the
-  // caller has already observed the rejection.
+  // Shared fail-fast state: once any worker throws, the surviving workers stop
+  // pulling new items. Each worker *resolves* (it records the error and returns
+  // rather than rejecting) so `Promise.all` waits for every in-flight invocation
+  // to settle before we re-throw. This keeps the rejection from racing ahead of
+  // still-running background work — the caller's `await` returns only once no
+  // worker is active. The first error wins, preserving fail-fast semantics.
   let failed = false;
+  let firstError: unknown;
 
   const worker = async (): Promise<void> => {
     while (nextIndex < items.length) {
@@ -55,8 +59,11 @@ export async function mapWithConcurrencyLimit<T, R>(
           currentIndex
         );
       } catch (err) {
-        failed = true;
-        throw err;
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
       }
     }
   };
@@ -69,6 +76,9 @@ export async function mapWithConcurrencyLimit<T, R>(
   }
 
   await Promise.all(workers);
+  if (failed) {
+    throw firstError;
+  }
   return results;
 }
 
@@ -112,10 +122,16 @@ export async function forEachWithConcurrencyLimit<T>(
   }
 
   let nextIndex = 0;
-  // Shared fail-fast flag: once any worker throws, the surviving pumps stop
+  // Shared fail-fast state: once any worker throws, the surviving pumps stop
   // pulling new items — mirroring the abort path — so they don't keep emitting
   // side effects into a consumer that is already tearing down after the failure.
+  // Each pump *resolves* (recording the error and returning rather than
+  // rejecting) so `Promise.all` waits for every in-flight worker to settle
+  // before we re-throw. That fully mirrors abort: the caller's `await` returns
+  // only once no worker is still emitting, instead of the rejection racing
+  // ahead of detached background work. The first error wins (fail-fast).
   let failed = false;
+  let firstError: unknown;
 
   const pump = async (): Promise<void> => {
     while (nextIndex < items.length) {
@@ -128,8 +144,11 @@ export async function forEachWithConcurrencyLimit<T>(
       try {
         await worker(items[currentIndex]!, currentIndex);
       } catch (err) {
-        failed = true;
-        throw err;
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
       }
     }
   };
@@ -141,4 +160,7 @@ export async function forEachWithConcurrencyLimit<T>(
   }
 
   await Promise.all(workers);
+  if (failed) {
+    throw firstError;
+  }
 }
