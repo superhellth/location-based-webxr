@@ -65,6 +65,15 @@ export {
   createQrSizeAccumulator,
 } from './qr-size-from-depth.js';
 
+// --- qr-size-measurer (Part B — shared depth→size piece) ---
+export {
+  type QrSizeDepthContext,
+  type ImageSize,
+  type QrSizeMeasurement,
+  type QrSizeMeasurer,
+  createQrSizeMeasurer,
+} from './qr-size-measurer.js';
+
 // --- qr-pose ---
 export {
   type Point2,

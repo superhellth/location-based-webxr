@@ -1,12 +1,13 @@
 /**
  * QR-tracking demo controller — the orchestration brain (Note 4).
  *
- * Per throttled/coalesced frame it: detects a QR (front-end), samples the depth
- * map at the corners + an interior point, unprojects them to 3D, fits a rigid
- * pose ({@link poseFromWorldCorners}, no solvePnP / no size needed), measures
- * the size ({@link estimateQrSizeFromDepth} → a per-marker running median), and
- * — once the N-consecutive-lock fires — records the detection + size into the
- * `qrDetected` store and glues the debug axis + cube to the pose.
+ * Per throttled/coalesced frame it: detects a QR (front-end), measures the size
+ * from depth via the shared framework {@link createQrSizeMeasurer} (samples the
+ * corners + an interior point, accumulates a per-marker running median), fits a
+ * rigid pose ({@link poseFromWorldCorners}, no solvePnP / no size needed) from
+ * the same sampled corners, and — once the N-consecutive-lock fires — records
+ * the detection + size into the `qrDetected` store and glues the debug axis +
+ * cube to the pose.
  *
  * Every device-specific dependency (detect, depth context, store dispatch,
  * scene update) is injected, so this whole flow is unit-testable without WebXR,
@@ -15,22 +16,19 @@
 
 import {
   createDetectionScheduler,
-  createQrSizeAccumulator,
-  estimateQrSizeFromDepth,
+  createQrSizeMeasurer,
   composePose,
   invertPose,
   validateQuad,
   type DetectionScheduler,
   type RgbaImage,
   type QrDetection,
-  type Point2,
   type Pose,
   type DepthUnprojector,
   type QrSizeEstimate,
-  type QrSizeAccumulator,
+  type QrSizeMeasurer,
   type QrDetectionEvent,
 } from "gps-plus-slam-app-framework/ar";
-import type { DepthPoint } from "gps-plus-slam-app-framework/types";
 import type { Vector3 } from "gps-plus-slam-app-framework/core";
 import { poseFromWorldCorners } from "./pose-from-corners.js";
 import type { DemoStatus } from "./hud-view.js";
@@ -79,11 +77,6 @@ interface DemoLockResult {
   estimate: QrSizeEstimate;
 }
 
-/** Pixel corner → normalized screen point for the given frame. */
-function toScreen(corner: Point2, image: RgbaImage): { x: number; y: number } {
-  return { x: corner.x / image.width, y: corner.y / image.height };
-}
-
 export function createQrDemoController(
   deps: QrDemoControllerDeps,
 ): QrDemoController {
@@ -100,52 +93,15 @@ export function createQrDemoController(
   } = deps;
 
   const timestampNow = now ?? (() => Date.now());
-  const accumulators = new Map<string, QrSizeAccumulator>();
+  // The shared framework piece: per-marker depth→size accumulation (Part B,
+  // Option 2). Both this demo and the Recorder wire the same measurer.
+  const measurer: QrSizeMeasurer = createQrSizeMeasurer();
   let status: DemoStatus = "idle";
 
   function setStatus(next: DemoStatus): void {
     if (status === next) return;
     status = next;
     onStatus?.(next);
-  }
-
-  function accumulatorFor(text: string): QrSizeAccumulator {
-    let acc = accumulators.get(text);
-    if (!acc) {
-      acc = createQrSizeAccumulator();
-      accumulators.set(text, acc);
-    }
-    return acc;
-  }
-
-  /** Build corner depth samples; `null` if any corner lacks a depth read. */
-  function cornerDepthPoints(
-    corners: readonly Point2[],
-    image: RgbaImage,
-    depthAt: DepthContext["depthAt"],
-  ): DepthPoint[] | null {
-    if (corners.length !== 4) return null;
-    const out: DepthPoint[] = [];
-    for (const corner of corners) {
-      const s = toScreen(corner, image);
-      const depthM = depthAt(s.x, s.y);
-      if (depthM === null) return null;
-      out.push({ screenX: s.x, screenY: s.y, depthM });
-    }
-    return out;
-  }
-
-  /** The QR centroid as a single interior depth sample (may be empty). */
-  function interiorDepthPoints(
-    corners: readonly Point2[],
-    image: RgbaImage,
-    depthAt: DepthContext["depthAt"],
-  ): DepthPoint[] {
-    const cx = corners.reduce((s, c) => s + c.x, 0) / corners.length;
-    const cy = corners.reduce((s, c) => s + c.y, 0) / corners.length;
-    const s = toScreen({ x: cx, y: cy }, image);
-    const depthM = depthAt(s.x, s.y);
-    return depthM === null ? [] : [{ screenX: s.x, screenY: s.y, depthM }];
   }
 
   async function runDetect(image: RgbaImage): Promise<DemoLockResult | null> {
@@ -165,11 +121,19 @@ export function createQrDemoController(
     const ctx = getDepthContext();
     if (!ctx) return null; // no depth → cannot size/place (auto-size gate)
 
-    const corners = cornerDepthPoints(detection.corners, image, ctx.depthAt);
-    if (!corners) return null;
+    // Measure size + sample corner depth in one shared step; `null` means a
+    // corner lacked a depth read (cannot size/place this frame).
+    const measurement = measurer.measure(
+      detection.text,
+      detection.corners,
+      image,
+      ctx,
+    );
+    if (!measurement) return null;
 
+    // Depth-fit pose from the SAME sampled corners (no re-sampling).
     const world: Vector3[] = [];
-    for (const dp of corners) {
+    for (const dp of measurement.cornerSamples) {
       const p = ctx.unprojector.unproject(dp);
       if (!p) return null;
       world.push(p);
@@ -177,13 +141,7 @@ export function createQrDemoController(
     const pose = poseFromWorldCorners(world);
     if (!pose) return null;
 
-    const interior = interiorDepthPoints(detection.corners, image, ctx.depthAt);
-    const observation = estimateQrSizeFromDepth(
-      corners as [DepthPoint, DepthPoint, DepthPoint, DepthPoint],
-      interior,
-      ctx.unprojector,
-    );
-    const estimate = accumulatorFor(detection.text).add(observation);
+    const estimate = measurement.estimate;
 
     const event: QrDetectionEvent = {
       text: detection.text,
@@ -224,7 +182,7 @@ export function createQrDemoController(
       return status;
     },
     reset(): void {
-      accumulators.clear();
+      measurer.reset();
       setStatus("idle");
     },
   };
