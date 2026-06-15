@@ -15,17 +15,21 @@
  *
  * The PROD frame/depth source is the **on-device-verified layer** (the §5 gate
  * is manual, exactly as the parent QR plan defers the Recorder's live camera
- * wiring): it uses the framework's public image/depth capture callbacks. The
- * tested demo logic + the faked e2e do not depend on its runtime behaviour.
+ * wiring): it uses the framework's public **QR-RGBA** capture (`setQrFrameCallback`
+ * + `startQrCapture`, B2 — top-left RGBA at the detection cadence, no JPEG
+ * round-trip) and the depth capture callback. The tested demo logic + the faked
+ * e2e do not depend on its runtime behaviour. `startFrameSource` stays as the
+ * e2e frame-injection seam; in PROD its body just points the framework QR
+ * callback at the controller.
  */
 
 import {
   initAR,
   endARSession,
   getArWorldGroup,
-  setImageCaptureCallback,
-  startImageCapture,
-  stopImageCapture,
+  setQrFrameCallback,
+  startQrCapture,
+  stopQrCapture,
   setDepthCaptureCallback,
   startDepthCapture,
   stopDepthCapture,
@@ -70,6 +74,14 @@ declare global {
 
 let latestDepthSample: DepthSample | null = null;
 
+/**
+ * The active QR-frame consumer (the controller's `offerFrame`), set by
+ * `startFrameSource`. The framework QR callback (registered in `initAR`, before
+ * the framework `initAR` runs — it must be set first, like the depth callback)
+ * forwards each throttled RGBA frame here. `null` when no source is running.
+ */
+let qrFrameConsumer: ((image: RgbaImage) => void) | null = null;
+
 /** Nearest-neighbour depth lookup over the sample's grid (screen-space). */
 function nearestDepth(
   points: readonly DepthPoint[],
@@ -90,22 +102,6 @@ function nearestDepth(
   return best;
 }
 
-/** Decode a captured JPEG blob to RGBA and hand it to the controller. */
-async function decodeToRgba(blob: Blob): Promise<RgbaImage | null> {
-  const bitmap = await createImageBitmap(blob);
-  const { width, height } = bitmap;
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    bitmap.close();
-    return null;
-  }
-  ctx.drawImage(bitmap, 0, 0);
-  const imageData = ctx.getImageData(0, 0, width, height);
-  bitmap.close();
-  return { data: imageData.data, width, height };
-}
-
 /** The production seams — the unmodified framework device wiring. */
 export const realSeams: QrDemoSeams = {
   async checkSupport(): Promise<DemoCapabilitySupport> {
@@ -116,10 +112,14 @@ export const realSeams: QrDemoSeams = {
     return { webxr: xr.supported, depthSensing: xr.supported };
   },
   async initAR(container: HTMLElement): Promise<void> {
-    // Depth callback must be registered before initAR.
+    // Depth + QR-frame callbacks must both be registered BEFORE initAR (the
+    // framework creates the depth sampler and the QR frame source inside it).
     setDepthCaptureCallback((sample) => {
       latestDepthSample = sample;
     });
+    // The framework now delivers top-left RGBA directly (B2) — no JPEG
+    // round-trip. Forward each throttled frame to the active consumer.
+    setQrFrameCallback((image) => qrFrameConsumer?.(image));
     await initAR(container, {
       enableCameraAccess: true,
       enableDepthSensingFeature: true,
@@ -129,6 +129,8 @@ export const realSeams: QrDemoSeams = {
   },
   async endARSession(): Promise<void> {
     stopDepthCapture();
+    stopQrCapture();
+    qrFrameConsumer = null;
     latestDepthSample = null;
     await endARSession();
   },
@@ -154,19 +156,14 @@ export const realSeams: QrDemoSeams = {
     };
   },
   startFrameSource(onImage: (image: RgbaImage) => void): () => void {
-    let stopped = false;
-    setImageCaptureCallback(
-      (captured) => {
-        void decodeToRgba(captured.blob).then((rgba) => {
-          if (!stopped && rgba) onImage(rgba);
-        });
-      },
-      () => 0,
-    );
-    startImageCapture();
+    // The framework QR callback (wired in initAR) forwards frames to whatever
+    // consumer is active. Point it at this controller and start the throttled
+    // capture; the default ~8 Hz cadence matches the demo's detection throttle.
+    qrFrameConsumer = onImage;
+    startQrCapture();
     return () => {
-      stopped = true;
-      stopImageCapture();
+      qrFrameConsumer = null;
+      stopQrCapture();
     };
   },
 };
