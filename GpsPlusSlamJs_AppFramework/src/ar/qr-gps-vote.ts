@@ -70,10 +70,49 @@ export interface QrGpsVoteInput {
   odomRotation?: Quaternion;
   /** 4 corner observations (default) vs. a single center observation. */
   multiCorrespondence?: boolean;
+  /**
+   * WIDE-BASELINE north-stiffness knob (Note 2 of the follow-up plan). When > 0,
+   * synthesize the correspondences on a regular polygon of THIS radius (meters)
+   * in the QR plane instead of using the physical corners. Because the full
+   * 6-DoF pose + geo + heading are known, these virtual points are consistent in
+   * BOTH odom and geo space by construction; a wider baseline gives the single
+   * pose far more lever-arm, so corner-pixel noise maps to a much smaller heading
+   * error. The physical-corner mode is the `baselineM = 0`/undefined special case.
+   *
+   * ⚠️ This adds NO new information — every point derives from the one solved
+   * pose — so it is a pure leverage/reweighting device. Increasing `count`
+   * makes a BAD detection harder for RANSAC to reject (all pairs are wrong
+   * together); it is only safe because the pre-injection gates (reprojection,
+   * occupancy plausibility, N-consecutive-lock) ensure only good detections vote.
+   * Treat it as a bounded tuning knob, not a free dial (plan §1 "dominates but
+   * does not entirely erase").
+   */
+  baselineM?: number;
+  /**
+   * Number of synthetic correspondences in wide-baseline mode (≥ 3 for a
+   * non-collinear, well-posed rotation constraint). Default 4. Ignored unless
+   * `baselineM > 0`. This is the dominance (vote-count) half of the knob.
+   */
+  count?: number;
   /** Epoch ms stamped on every synthetic point. Defaults to `Date.now()`. */
   timestamp?: number;
   /** Id prefix for the synthetic points. Default `'qr'`. */
   idPrefix?: string;
+}
+
+/**
+ * `count` points evenly spaced on a circle of radius `baselineM` in the QR
+ * plane (z = 0), starting at local +x. The symmetric ring's centroid is the QR
+ * center, so translation stays anchored there while the wide radius stiffens
+ * the rotation fit. Non-collinear for `count ≥ 3`.
+ */
+function widePlanePoints(baselineM: number, count: number): readonly Vector3[] {
+  const points: Vector3[] = [];
+  for (let i = 0; i < count; i++) {
+    const theta = (2 * Math.PI * i) / count;
+    points.push([baselineM * Math.cos(theta), baselineM * Math.sin(theta), 0]);
+  }
+  return points;
 }
 
 /** East/North/Up offset (meters) of a QR-plane point from the QR center. */
@@ -139,6 +178,8 @@ export function buildQrGpsVotes(
     syntheticAccuracyM,
     odomRotation = qrPoseWorld.rotation,
     multiCorrespondence = true,
+    baselineM,
+    count = 4,
     timestamp = Date.now(),
     idPrefix = 'qr',
   } = input;
@@ -149,10 +190,22 @@ export function buildQrGpsVotes(
     );
   }
 
-  // `buildObjectPoints` validates sizeM (>0, finite) and gives TL,TR,BR,BL.
-  const localPoints: readonly Vector3[] = multiCorrespondence
-    ? buildObjectPoints(sizeM)
-    : [[0, 0, 0]];
+  const useWideBaseline =
+    baselineM !== undefined && Number.isFinite(baselineM) && baselineM > 0;
+  if (useWideBaseline && count < 3) {
+    throw new RangeError(
+      `qr-gps-vote: wide-baseline count must be >= 3 (collinear otherwise), got ${count}`
+    );
+  }
+
+  // Wide-baseline mode: a regular polygon of radius `baselineM` in the QR plane
+  // (Note 2). Otherwise the physical corners: `buildObjectPoints` validates
+  // sizeM (>0, finite) and gives TL,TR,BR,BL; or a single center point.
+  const localPoints: readonly Vector3[] = useWideBaseline
+    ? widePlanePoints(baselineM, count)
+    : multiCorrespondence
+      ? buildObjectPoints(sizeM)
+      : [[0, 0, 0]];
 
   return localPoints.map((local, i) => {
     const odomPosition = transformPoint(local, qrPoseWorld);

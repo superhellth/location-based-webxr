@@ -106,3 +106,62 @@ describe('buildQrGpsVotes — geo corners form a centered square of side sizeM',
     );
   });
 });
+
+describe('buildQrGpsVotes — wide-baseline geo ring is congruent to the odom ring', () => {
+  // The whole point of Note 2: the synthetic geo ring and odom ring must be the
+  // SAME rigid polygon, so the Kabsch fit recovers the right rotation — and each
+  // point sits at `baselineM` from the center (the lever arm that stiffens north).
+  it('matches the odom ring geometry for any size/heading/location/baseline/count', () => {
+    fc.assert(
+      fc.property(
+        arbSize,
+        arbHeading,
+        arbGeo,
+        arbPos,
+        fc.double({ min: 0.5, max: 5, noNaN: true }),
+        fc.integer({ min: 3, max: 10 }),
+        (sizeM, headingDeg, geo, pos, baselineM, count) => {
+          const qrGeo: QrGeoPose = { ...geo, headingDeg };
+          const qrPoseWorld: Pose = { position: pos, rotation: IDENTITY };
+          const votes = buildQrGpsVotes({
+            qrPoseWorld,
+            sizeM,
+            qrGeo,
+            syntheticAccuracyM: 0.05,
+            baselineM,
+            count,
+          });
+          expect(votes).toHaveLength(count);
+
+          const enuPts = votes
+            .map((v) =>
+              geoToEnu(qrGeo, {
+                latitude: v.rawGpsPoint.latitude,
+                longitude: v.rawGpsPoint.longitude,
+                altitude: v.rawGpsPoint.altitude ?? 0,
+              })
+            )
+            .map((e) => ({ x: e.east, y: e.up, z: e.north }));
+          const odom = votes.map((v) => ({
+            x: v.odomPosition[0] - pos[0],
+            y: v.odomPosition[1] - pos[1],
+            z: v.odomPosition[2] - pos[2],
+          }));
+
+          // Congruent rings: matching consecutive side lengths + circumradius.
+          const enuSides = sideLengths(enuPts);
+          const odomSides = sideLengths(odom);
+          for (let i = 0; i < count; i++) {
+            expect(enuSides[i]).toBeCloseTo(odomSides[i], 4);
+          }
+          for (const p of enuPts) {
+            expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(baselineM, 4);
+          }
+          for (const p of odom) {
+            expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(baselineM, 4);
+          }
+        }
+      )
+    );
+  });
+});

@@ -89,6 +89,15 @@ export interface QrTrackingControllerConfig {
   getIntrinsics: (image: RgbaImage) => CameraIntrinsics | null;
   /** Synthetic GPS accuracy (m) → vote weight. */
   syntheticAccuracyM: number;
+  /**
+   * Optional wide-baseline north-stiffness knob (Note 2), forwarded to
+   * `buildQrGpsVotes`. `voteBaselineM > 0` synthesizes the correspondences on a
+   * polygon of that radius (stiffer rotation fit); `voteCount` (≥3) sets how
+   * many. Leave unset for the default physical-corner mode. Treat as a bounded
+   * tuning knob — a larger count makes a bad detection harder to RANSAC-reject.
+   */
+  voteBaselineM?: number;
+  voteCount?: number;
   /** Optional plausibility gate (e.g. occupancy self-check); `false` rejects. */
   isPlausible?: (solution: QrPoseSolution, cameraPose: Pose) => boolean;
   /** Status-change notifications for the UI. */
@@ -125,6 +134,8 @@ export function createQrTrackingController(
     getCameraPose,
     getIntrinsics,
     syntheticAccuracyM,
+    voteBaselineM,
+    voteCount,
     isPlausible,
     onStatus,
     onLocked,
@@ -237,6 +248,10 @@ export function createQrTrackingController(
             sizeM,
             qrGeo: level.qr.geo,
             syntheticAccuracyM,
+            ...(voteBaselineM !== undefined
+              ? { baselineM: voteBaselineM }
+              : {}),
+            ...(voteCount !== undefined ? { count: voteCount } : {}),
           });
           dispatchVotes(votes);
         }

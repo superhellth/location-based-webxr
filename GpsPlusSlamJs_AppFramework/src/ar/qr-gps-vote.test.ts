@@ -142,4 +142,67 @@ describe('buildQrGpsVotes', () => {
       buildQrGpsVotes({ qrPoseWorld, sizeM: -1, qrGeo, syntheticAccuracyM })
     ).toThrow(RangeError);
   });
+
+  describe('wide-baseline mode (Note 2)', () => {
+    it('produces `count` points on a polygon of radius baselineM in the QR plane', () => {
+      const baselineM = 3;
+      const votes = buildQrGpsVotes({
+        qrPoseWorld,
+        sizeM,
+        qrGeo,
+        syntheticAccuracyM,
+        baselineM,
+        count: 6,
+      });
+      expect(votes).toHaveLength(6);
+      // Each odom point sits baselineM from the QR center (identity rotation).
+      for (const v of votes) {
+        const dx = v.odomPosition[0] - qrPoseWorld.position[0];
+        const dy = v.odomPosition[1] - qrPoseWorld.position[1];
+        const dz = v.odomPosition[2] - qrPoseWorld.position[2];
+        expect(Math.hypot(dx, dy, dz)).toBeCloseTo(baselineM, 6);
+      }
+    });
+
+    it('keeps the ring centroid at the QR center (translation stays anchored)', () => {
+      const votes = buildQrGpsVotes({
+        qrPoseWorld,
+        sizeM,
+        qrGeo,
+        syntheticAccuracyM,
+        baselineM: 2.5,
+        count: 8,
+      });
+      const centroid = [0, 0, 0];
+      for (const v of votes)
+        for (let k = 0; k < 3; k++)
+          centroid[k] += v.odomPosition[k] / votes.length;
+      for (let k = 0; k < 3; k++)
+        expect(centroid[k]).toBeCloseTo(qrPoseWorld.position[k], 6);
+    });
+
+    it('falls back to the physical corners when baselineM is 0 / absent', () => {
+      const wide = buildQrGpsVotes({
+        qrPoseWorld,
+        sizeM,
+        qrGeo,
+        syntheticAccuracyM,
+        baselineM: 0,
+      });
+      expect(wide).toHaveLength(4); // physical-corner mode (multiCorrespondence default)
+    });
+
+    it('rejects a collinear (count < 3) wide-baseline request', () => {
+      expect(() =>
+        buildQrGpsVotes({
+          qrPoseWorld,
+          sizeM,
+          qrGeo,
+          syntheticAccuracyM,
+          baselineM: 2,
+          count: 2,
+        })
+      ).toThrow(RangeError);
+    });
+  });
 });

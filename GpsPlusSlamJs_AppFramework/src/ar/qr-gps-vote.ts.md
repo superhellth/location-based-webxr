@@ -14,6 +14,16 @@ outlier.
   center correspondence. Each pairs the corner's odom position (solved pose) with
   its absolute geo position (level file), stamped with `syntheticAccuracyM`.
   Throws `RangeError` on non-positive `sizeM` / `syntheticAccuracyM`.
+  - **Wide-baseline mode (Note 2):** `baselineM > 0` switches to `count` (≥3)
+    correspondences on a regular polygon of that radius in the QR plane instead
+    of the physical corners. Because the full pose + geo + heading are known, the
+    virtual points are consistent in both odom and geo space by construction; the
+    wide radius is the **north-stiffness lever arm** and `count` the **dominance**
+    (vote-count) half of the knob. Physical-corner mode is the `baselineM = 0`
+    special case. Throws `RangeError` for `count < 3` (collinear). ⚠️ Adds no new
+    information (all points derive from one pose) — a larger `count` makes a bad
+    detection harder for RANSAC to reject, so it is a **bounded** tuning knob,
+    safe only because the pre-injection gates ensure only good detections vote.
 - `localPlaneToEnu(localX, localY, headingDeg): Enu` — QR-plane offset → ENU
   meters (vertical-QR convention: +y = up, +x along `headingDeg` clockwise from
   North → `east = x·sin h`, `north = x·cos h`).
@@ -59,7 +69,9 @@ for (const v of votes) store.dispatch(recordGpsEvent(v));
   stamping, rotation override, input validation.
 - `qr-gps-vote.property.test.ts` — for any size/heading/location the geo corners
   back-convert to a centered square of side `sizeM` whose centroid is the QR
-  center (so the fusion sees the same rigid square in both frames).
+  center (so the fusion sees the same rigid square in both frames); and for any
+  baseline/count the wide-baseline geo ring is congruent to the odom ring with
+  every point at `baselineM` from the center.
 - `qr-gps-vote.integration.test.ts` — the votes flow through the real
   `createSlamAppStore` + `recordGpsEvent` fusion and yield a finite alignment;
   a lone grossly-wrong high-weight vote does not produce a non-finite alignment
