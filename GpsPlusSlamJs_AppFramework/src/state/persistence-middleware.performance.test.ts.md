@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Regression guard for the persistence middleware's **synchronous dispatch overhead**. Runs on every `pnpm test`. It asserts the *algorithmic invariant* (cost stays O(1) per dispatch) rather than a wall-clock budget, so it cannot flake on scheduler noise the way a hard ms threshold does.
+Regression guard for the persistence middleware's **synchronous dispatch overhead**. Runs on every `pnpm test`. It asserts the _algorithmic invariant_ (cost stays O(1) per dispatch) rather than a wall-clock budget, so it cannot flake on scheduler noise the way a hard ms threshold does.
 
 > **History:** an earlier version compared a single per-dispatch wall-clock sample against a hard `0.1 ms` threshold and flaked intermittently under full-suite load (see [GpsPlusSlamJs_Docs/docs/2026-06-15-followup-flaky-persistence-perf-test.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-15-followup-flaky-persistence-perf-test.md)). Replaced with the scaling-ratio approach below.
 
@@ -34,7 +34,7 @@ Both tests measure the **median per-dispatch time** for a small burst (200) and 
 - `StorageBackend.writeAction` resolves instantly (`Promise.resolve`) — isolates middleware overhead from I/O.
 - A **fresh store per measurement pass**: microtasks that drain the `WriteQueue` cannot fire inside the synchronous dispatch loop, so during a burst the queue grows to the burst size. Reusing a store would let it grow unbounded across passes and pollute the comparison. This growth is also exactly the condition under which an accidental O(n) enqueue would surface.
 - Redux `serializableCheck` and `immutableCheck` are disabled (matches production config).
-- The ratio is robust to machine speed/load because both the small and large figures scale together; only a change in *complexity class* moves it.
+- The ratio is robust to machine speed/load because both the small and large figures scale together; only a change in _complexity class_ moves it.
 - Set `DEBUG_PERF=1` to log the small/large/ratio figures.
 
 ## Test data
