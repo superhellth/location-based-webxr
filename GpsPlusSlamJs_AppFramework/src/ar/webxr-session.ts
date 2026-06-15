@@ -62,6 +62,8 @@ import {
   type DepthInfo,
 } from './depth-sampler';
 import { CameraBlitCapture, computeCaptureSize } from './camera-blit-capture';
+import { QrFrameSource } from './qr-frame-source';
+import type { RgbaImage } from './qr-frontend';
 import { createRgbLookup, type RgbLookup } from './depth-rgb-lookup';
 import { acquireCameraTexture } from './xr-camera-texture';
 import { clearFrameUpdates, runFrameUpdates } from './frame-loop';
@@ -227,6 +229,13 @@ export function resetWebXRState(): void {
     depthRgbBlit.dispose();
     depthRgbBlit = null;
   }
+  qrFrameSource = null;
+  onQrFrame = null;
+  qrCaptureSize = 512;
+  if (qrBlit) {
+    qrBlit.dispose();
+    qrBlit = null;
+  }
   onFrameCallback = null;
   if (css3dManager) {
     css3dManager.dispose();
@@ -377,6 +386,30 @@ let depthRgbBlit: CameraBlitCapture | null = null;
 const DEPTH_RGB_BLIT_CONFIG = { width: 256, height: 192 };
 
 /**
+ * Session-owned blit target for QR detection RGBA capture (framework-wiring
+ * options Part A / B2). Separate from `depthRgbBlit` (256×192) on purpose: QR
+ * detection needs more pixels across the code (~512²) than a colour lookup,
+ * but only at the detection cadence, so the {@link QrFrameSource} throttle
+ * keeps the readback off the per-frame path. Created lazily on the first QR
+ * capture, disposed by resetWebXRState(). The square size is configurable via
+ * `startQrCapture`.
+ */
+let qrBlit: CameraBlitCapture | null = null;
+
+/** The QR-detection blit resolution (square). Default 512 (plan B2). */
+let qrCaptureSize = 512;
+
+/**
+ * Throttled QR frame source (created in initAR when `onQrFrame` is set).
+ * Blits the camera texture to RGBA at the detection cadence and hands it to
+ * `onQrFrame`. @see qr-frame-source.ts
+ */
+let qrFrameSource: QrFrameSource | null = null;
+
+/** Callback for each throttled QR RGBA frame (set via setQrFrameCallback). */
+let onQrFrame: ((image: RgbaImage) => void) | null = null;
+
+/**
  * Latest WebXR camera texture, updated each frame when camera-access is enabled.
  * Acquired via Three.js's renderer.xr.getCameraTexture() API (ExternalTexture).
  * @see xr-camera-texture.ts
@@ -434,6 +467,26 @@ function acquireDepthRgbLookup(): RgbLookup | null {
   return readback
     ? createRgbLookup(readback.pixels, readback.width, readback.height)
     : null;
+}
+
+/**
+ * Capture the current XR frame as top-left RGBA for QR detection (the
+ * `capture` injected into {@link QrFrameSource}; called at most once per
+ * detection interval). Returns null — no frame this tick — when camera access
+ * or the texture is unavailable; the lazy blit makes a disposal elsewhere
+ * self-healing. Reuses `latestCameraTexture`, exactly like the depth-RGB path.
+ */
+function acquireQrRgba(): RgbaImage | null {
+  if (!renderer || !latestCameraTexture) {
+    return null;
+  }
+  if (!qrBlit) {
+    qrBlit = new CameraBlitCapture({
+      width: qrCaptureSize,
+      height: qrCaptureSize,
+    });
+  }
+  return qrBlit.captureToRgba(renderer, latestCameraTexture);
 }
 
 /**
@@ -841,6 +894,18 @@ export async function initAR(
     depthSampler = new DepthSampler(depthCallbacks);
   }
 
+  // Initialize the QR frame source if a QR frame callback is set (B2). The
+  // source owns the detection-cadence throttle; the session owns the blit
+  // (acquireQrRgba reuses `latestCameraTexture`), exactly like the depth-RGB
+  // path. `startQrCapture` is what actually begins delivering frames.
+  if (onQrFrame) {
+    const deliver = onQrFrame;
+    qrFrameSource = new QrFrameSource({
+      capture: acquireQrRgba,
+      onCapture: (image) => deliver(image),
+    });
+  }
+
   // Start render loop
   renderer.setAnimationLoop(onXRFrame);
 
@@ -1067,6 +1132,13 @@ function onXRFrame(time: number, frame: XRFrame | undefined): void {
   if (depthSampler) {
     const depthInfo = getDepthInfoFromFrame(frame, pose);
     depthSampler.onFrame(time, depthInfo);
+  }
+
+  // Check if we need to capture a QR frame. The source throttles to the
+  // detection cadence, so the (more expensive, 512²) QR blit runs ~8×/s — not
+  // every render frame. Must run after `latestCameraTexture` is set above.
+  if (qrFrameSource) {
+    qrFrameSource.onFrame(time);
   }
 
   // Call per-frame callback (e.g., for map overlay position updates)
@@ -1574,6 +1646,81 @@ export function stopDepthCapture(): void {
  */
 export function getDepthSampleCount(): number {
   return depthSampler?.getSampleCount() ?? 0;
+}
+
+/** Optional tuning for {@link startQrCapture}. */
+export interface QrCaptureConfig {
+  /** Detection cadence (ms between captures). Default 125 (~8 Hz). */
+  intervalMs?: number;
+  /**
+   * Square blit resolution (px) for QR detection. Default 512 (plan B2). A QR
+   * needs ~3–5 px per module; 512² across the frame is the verified starting
+   * point. Applied before the first capture; ignored once a blit is allocated.
+   */
+  captureSize?: number;
+}
+
+/**
+ * Set the per-frame QR RGBA callback (B2). Call this BEFORE initAR to enable
+ * in-session QR frame capture; `startQrCapture` then begins delivering frames.
+ *
+ * The callback receives a **top-left-origin** RGBA image (no JPEG round-trip),
+ * captured at the throttled detection cadence — feed it straight to a
+ * `BarcodeDetector` / OpenCV front-end. Mirrors `setDepthCaptureCallback`.
+ *
+ * @param onFrame - Called with each throttled QR frame, or `null` to clear.
+ */
+export function setQrFrameCallback(
+  onFrame: ((image: RgbaImage) => void) | null
+): void {
+  onQrFrame = onFrame;
+}
+
+/**
+ * Start QR frame capture during an AR session. Must call setQrFrameCallback
+ * before initAR (the source is created there). No-op if the source was not
+ * initialized (callback not set before initAR).
+ *
+ * @param config - optional cadence / blit-resolution overrides.
+ */
+export function startQrCapture(config?: QrCaptureConfig): void {
+  if (!qrFrameSource) {
+    log.warn('Cannot start QR capture - frame source not initialized');
+    return;
+  }
+  if (
+    typeof config?.captureSize === 'number' &&
+    Number.isFinite(config.captureSize) &&
+    config.captureSize > 0
+  ) {
+    // Applied before the first capture allocates the blit (acquireQrRgba).
+    qrCaptureSize = Math.floor(config.captureSize);
+  }
+  if (config?.intervalMs !== undefined) {
+    qrFrameSource.updateConfig({ intervalMs: config.intervalMs });
+  }
+  qrFrameSource.start();
+  log.info(
+    `QR capture started (interval: ${qrFrameSource.getConfig().intervalMs}ms, ${qrCaptureSize}×${qrCaptureSize})`
+  );
+}
+
+/**
+ * Stop QR frame capture. Safe to call when not running.
+ */
+export function stopQrCapture(): void {
+  if (qrFrameSource) {
+    const count = qrFrameSource.getFrameCount();
+    qrFrameSource.stop();
+    log.info(`QR capture stopped (${count} frames captured)`);
+  }
+}
+
+/**
+ * Get the number of QR frames captured since the last `startQrCapture`.
+ */
+export function getQrFrameCount(): number {
+  return qrFrameSource?.getFrameCount() ?? 0;
 }
 
 /**

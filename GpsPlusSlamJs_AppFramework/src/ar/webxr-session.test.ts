@@ -45,6 +45,10 @@ import {
   startDepthCapture,
   stopDepthCapture,
   getDepthSampleCount,
+  setQrFrameCallback,
+  startQrCapture,
+  stopQrCapture,
+  getQrFrameCount,
   setFrameCallback,
   getLiveCss3dManager,
   type ARPose,
@@ -1221,6 +1225,53 @@ describe('depth capture functions', () => {
    */
   it('getDepthSampleCount returns 0 when not sampling', () => {
     expect(getDepthSampleCount()).toBe(0);
+  });
+});
+
+describe('QR frame capture (B2)', () => {
+  beforeEach(() => {
+    resetWebXRState();
+  });
+
+  /**
+   * Why this test matters:
+   * setQrFrameCallback must be callable before AR is initialized (it only
+   * stashes the callback; the source is created in initAR), mirroring
+   * setDepthCaptureCallback.
+   */
+  it('setQrFrameCallback does not throw before AR init', () => {
+    expect(() => setQrFrameCallback(vi.fn())).not.toThrow();
+    expect(() => setQrFrameCallback(null)).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * startQrCapture must gracefully no-op when the frame source was never
+   * created (callback not set before initAR), not throw.
+   */
+  it('startQrCapture does not throw when source not initialized', () => {
+    expect(() => startQrCapture()).not.toThrow();
+    expect(() =>
+      startQrCapture({ intervalMs: 100, captureSize: 256 })
+    ).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * stopQrCapture must be safe to call when nothing is running (e.g. teardown
+   * after a failed start).
+   */
+  it('stopQrCapture does not throw when not running', () => {
+    expect(() => stopQrCapture()).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * getQrFrameCount returns 0 when no capture has happened — the default the
+   * Recorder/demo read before any frame is delivered.
+   */
+  it('getQrFrameCount returns 0 when not capturing', () => {
+    expect(getQrFrameCount()).toBe(0);
   });
 });
 
