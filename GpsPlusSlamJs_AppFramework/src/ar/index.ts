@@ -98,6 +98,20 @@ export {
   solveQrPose,
 } from './qr-pose.js';
 
+// --- qr-pose-aggregation (sliding-window pose stabilization) ---
+export {
+  DEFAULT_ROTATION_INLIER_ANGLE_DEG,
+  type AverageRotationOptions,
+  type AverageRotationResult,
+  type AggregateQrPoseResult,
+  type QrPoseStabilityStatus,
+  type QrPoseStabilityOptions,
+  type QrPoseStability,
+  averageRotation,
+  aggregateQrPose,
+  evaluateQrPoseStability,
+} from './qr-pose-aggregation.js';
+
 // --- qr-level ---
 export {
   type QrLevel,
