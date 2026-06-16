@@ -413,6 +413,14 @@ let cameraFrameCaptureSize = 512;
  * Throttled camera frame source (created in initAR when `onCameraFrame` is
  * set). Blits the camera texture to RGBA at the detection cadence and hands it
  * to `onCameraFrame`. @see camera-frame-source.ts
+ *
+ * SINGLE consumer by design: one source, one callback, one blit. That covers
+ * one CV consumer at a time (QR *or* object detection). To run two live CV
+ * consumers **simultaneously** at independent cadences/resolutions, replace this
+ * single-callback wiring with a small registry (e.g.
+ * `registerCameraFrameConsumer({ intervalMs, captureSize, onFrame })`) holding a
+ * `CameraFrameSource` per consumer — the class is already per-instance. See the
+ * SCOPE note in `camera-frame-source.ts`.
  */
 let cameraFrameSource: CameraFrameSource | null = null;
 

@@ -40,6 +40,17 @@ performs the camera-texture blit + readback **only at the detection cadence**
   overlapping in-flight detects, so every delivered frame is detected without a
   second throttle dropping boundary frames.
 
+## Scope / future
+
+Wired for **one** live CV consumer at a time (QR _or_ object detection): the
+session keeps a single source + callback + blit. For **two simultaneous** CV
+consumers at independent cadences/resolutions, generalize the
+`webxr-session.ts` wiring to a small multi-consumer registry
+(`registerCameraFrameConsumer({ intervalMs, captureSize, onFrame }) =>
+unregister`), one `CameraFrameSource` per consumer — the class is already
+per-instance, so only the session wiring changes. See the SCOPE note in
+`camera-frame-source.ts` and the matching comment in `webxr-session.ts`.
+
 ## Examples
 
 ```ts
