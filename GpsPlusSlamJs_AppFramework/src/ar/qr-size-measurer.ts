@@ -33,6 +33,30 @@ import {
   type QrSizeEstimate,
 } from './qr-size-from-depth.js';
 
+const EPS = 1e-9;
+
+/**
+ * Robustness knobs for the depth-at-corners stage (on top of the accumulator
+ * options). QR corners sit on a high-contrast print boundary where the coarse
+ * WebXR depth grid often has no near reading; these let a measurement still
+ * succeed instead of returning `null` every frame.
+ */
+export interface QrSizeMeasurerOptions extends QrSizeAccumulatorOptions {
+  /**
+   * When a corner pixel has no depth, retry at points inset toward the centroid
+   * by these fractions (in order) and borrow the first valid depth — keeping the
+   * TRUE corner screen position so the measured size is not shrunk. Default
+   * `[0.12, 0.25]`. Set to `[]` to disable inset fallback.
+   */
+  cornerInsetFractions?: number[];
+  /**
+   * Max corners whose depth may be reconstructed by a planar fit through the
+   * other three when still missing after the inset fallback. Default `1`
+   * (tolerate one un-sampleable corner); `0` disables reconstruction.
+   */
+  maxReconstructedCorners?: number;
+}
+
 /** The per-frame depth access the measurer needs (a subset of the demo's `DepthContext`). */
 export interface QrSizeDepthContext {
   /** Depth (m) at a normalized screen point, or `null` if unavailable there. */
@@ -60,10 +84,11 @@ export interface QrSizeMeasurement {
 export interface QrSizeMeasurer {
   /**
    * Measure one detection's size from depth and fold it into the per-`text`
-   * accumulator. Returns `null` only when the corner depth cannot be sampled
-   * (any corner lacks a depth read, or `corners.length !== 4`) — i.e. the
-   * marker can't be sized this frame. A degenerate quad does not fail here: the
-   * (null) observation is simply not accumulated and the prior estimate stands.
+   * accumulator. Returns `null` when the corner depth cannot be sampled even
+   * after the inset fallback and at-most-one planar reconstruction (i.e. ≥2
+   * corners lack a depth read), or `corners.length !== 4` — the marker can't be
+   * sized this frame. A degenerate quad does not fail here: the (null)
+   * observation is simply not accumulated and the prior estimate stands.
    */
   measure(
     text: string,
@@ -82,19 +107,104 @@ function toScreen(corner: Point2, image: ImageSize): { x: number; y: number } {
   return { x: corner.x / image.width, y: corner.y / image.height };
 }
 
-/** Build the 4 corner depth samples; `null` if any corner lacks a depth read. */
+/**
+ * Depth at a corner with inset fallback: try the corner pixel first, then points
+ * progressively inset toward the centroid. The returned {@link DepthPoint} always
+ * carries the TRUE corner's screen position — only the depth VALUE may be borrowed
+ * from an inset sample (valid because the marker face is locally planar over the
+ * few-percent inset) — so the unprojected square keeps its real size. `null` when
+ * no inset offers a depth read either.
+ */
+function sampleCornerDepth(
+  corner: Point2,
+  centroid: Point2,
+  image: ImageSize,
+  depthAt: QrSizeDepthContext['depthAt'],
+  insetFractions: readonly number[]
+): DepthPoint | null {
+  const s = toScreen(corner, image);
+  const exact = depthAt(s.x, s.y);
+  if (exact !== null) return { screenX: s.x, screenY: s.y, depthM: exact };
+  for (const f of insetFractions) {
+    const inset = {
+      x: corner.x + f * (centroid.x - corner.x),
+      y: corner.y + f * (centroid.y - corner.y),
+    };
+    const si = toScreen(inset, image);
+    const depthM = depthAt(si.x, si.y);
+    // Report at the true corner position with the borrowed depth.
+    if (depthM !== null) return { screenX: s.x, screenY: s.y, depthM };
+  }
+  return null;
+}
+
+/**
+ * Estimate a missing corner's depth by fitting a plane `depth = f(screenX,
+ * screenY)` through three known corner samples and evaluating it at the missing
+ * corner's screen position. `null` when the three are collinear in screen space
+ * (degenerate plane).
+ */
+function reconstructDepth(
+  known: readonly DepthPoint[],
+  at: { x: number; y: number }
+): number | null {
+  if (known.length < 3) return null;
+  const [a, b, c] = known as [DepthPoint, DepthPoint, DepthPoint];
+  const abx = b.screenX - a.screenX;
+  const aby = b.screenY - a.screenY;
+  const abz = b.depthM - a.depthM;
+  const acx = c.screenX - a.screenX;
+  const acy = c.screenY - a.screenY;
+  const acz = c.depthM - a.depthM;
+  // Plane normal = AB × AC; nz is the screen-space Jacobian determinant.
+  const nx = aby * acz - abz * acy;
+  const ny = abz * acx - abx * acz;
+  const nz = abx * acy - aby * acx;
+  if (Math.abs(nz) < EPS) return null;
+  const depthM =
+    a.depthM - (nx * (at.x - a.screenX) + ny * (at.y - a.screenY)) / nz;
+  return Number.isFinite(depthM) ? depthM : null;
+}
+
+/**
+ * Build the 4 corner depth samples with inset fallback and at-most-`maxRecon`
+ * planar reconstruction. `null` when more corners than allowed lack a depth read.
+ */
 function cornerDepthPoints(
   corners: readonly Point2[],
   image: ImageSize,
-  depthAt: QrSizeDepthContext['depthAt']
+  depthAt: QrSizeDepthContext['depthAt'],
+  insetFractions: readonly number[],
+  maxRecon: number
 ): [DepthPoint, DepthPoint, DepthPoint, DepthPoint] | null {
   if (corners.length !== 4) return null;
+  const centroid = {
+    x: corners.reduce((s, c) => s + c.x, 0) / corners.length,
+    y: corners.reduce((s, c) => s + c.y, 0) / corners.length,
+  };
+  const sampled = corners.map((corner) =>
+    sampleCornerDepth(corner, centroid, image, depthAt, insetFractions)
+  );
+  const missing = sampled.filter((p) => p === null).length;
+  if (missing === 0) {
+    return sampled as [DepthPoint, DepthPoint, DepthPoint, DepthPoint];
+  }
+  if (missing > maxRecon) return null;
+
+  // Reconstruct each missing corner's depth from the planar fit of the known
+  // ones, at the true corner screen position.
+  const known = sampled.filter((p): p is DepthPoint => p !== null);
   const out: DepthPoint[] = [];
-  for (const corner of corners) {
-    const s = toScreen(corner, image);
-    const depthM = depthAt(s.x, s.y);
+  for (let i = 0; i < 4; i++) {
+    const s = sampled[i];
+    if (s) {
+      out.push(s);
+      continue;
+    }
+    const at = toScreen(corners[i] as Point2, image);
+    const depthM = reconstructDepth(known, at);
     if (depthM === null) return null;
-    out.push({ screenX: s.x, screenY: s.y, depthM });
+    out.push({ screenX: at.x, screenY: at.y, depthM });
   }
   return out as [DepthPoint, DepthPoint, DepthPoint, DepthPoint];
 }
@@ -113,12 +223,16 @@ function interiorDepthPoints(
 }
 
 /**
- * Create a size measurer. `options` are forwarded to every per-marker
- * {@link createQrSizeAccumulator} (quality threshold, min samples, spread, cap).
+ * Create a size measurer. Accumulator `options` (quality threshold, min samples,
+ * spread, cap) are forwarded to every per-marker {@link createQrSizeAccumulator};
+ * the depth-at-corners knobs ({@link QrSizeMeasurerOptions.cornerInsetFractions},
+ * {@link QrSizeMeasurerOptions.maxReconstructedCorners}) tune corner sampling.
  */
 export function createQrSizeMeasurer(
-  options: QrSizeAccumulatorOptions = {}
+  options: QrSizeMeasurerOptions = {}
 ): QrSizeMeasurer {
+  const insetFractions = options.cornerInsetFractions ?? [0.12, 0.25];
+  const maxRecon = options.maxReconstructedCorners ?? 1;
   const accumulators = new Map<string, QrSizeAccumulator>();
 
   function accumulatorFor(text: string): QrSizeAccumulator {
@@ -132,7 +246,13 @@ export function createQrSizeMeasurer(
 
   return {
     measure(text, corners, image, ctx): QrSizeMeasurement | null {
-      const cornerSamples = cornerDepthPoints(corners, image, ctx.depthAt);
+      const cornerSamples = cornerDepthPoints(
+        corners,
+        image,
+        ctx.depthAt,
+        insetFractions,
+        maxRecon
+      );
       if (!cornerSamples) return null;
 
       const interiorSamples = interiorDepthPoints(corners, image, ctx.depthAt);

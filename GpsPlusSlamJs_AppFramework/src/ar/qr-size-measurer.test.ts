@@ -119,3 +119,105 @@ describe('createQrSizeMeasurer', () => {
     expect(e.estimateM).toBeNull();
   });
 });
+
+describe('createQrSizeMeasurer — depth-at-corners robustness (C1/C2)', () => {
+  // A ctx whose depth grid has HOLES: depthAt returns null inside small windows
+  // around chosen screen points (simulating the high-contrast corner boundary
+  // where the coarse WebXR depth map has no near reading), depth 1 elsewhere.
+  function holeyCtx(
+    holes: Array<{ x: number; y: number; r: number }>
+  ): QrSizeDepthContext {
+    return {
+      depthAt: (sx, sy) => {
+        for (const h of holes) {
+          if (Math.hypot(sx - h.x, sy - h.y) <= h.r) return null;
+        }
+        return 1;
+      },
+      unprojector: {
+        unproject: (p: DepthPoint): Vector3 | null => [
+          p.screenX,
+          p.screenY,
+          p.depthM,
+        ],
+      },
+    };
+  }
+
+  it('C1: a corner with no exact depth still measures via inset fallback', () => {
+    // Tiny hole exactly on the TL corner (screen 0.4,0.4); inset toward the
+    // centroid (0.5,0.5) escapes it. Size must stay the true 0.2 m (the inset
+    // only borrows depth — the corner position is preserved).
+    const ctx = holeyCtx([{ x: 0.4, y: 0.4, r: 0.01 }]);
+    const measurer = createQrSizeMeasurer({ minSamples: 1 });
+    const m = measurer.measure('q', SQUARE_CORNERS, IMAGE, ctx);
+    expect(m).not.toBeNull();
+    expect(m!.estimate.estimateM).toBeCloseTo(0.2, 6);
+    // Reported corner position is the TRUE corner, not the inset point.
+    expect(m!.cornerSamples[0].screenX).toBeCloseTo(0.4, 6);
+    expect(m!.cornerSamples[0].screenY).toBeCloseTo(0.4, 6);
+  });
+
+  it('C1: inset fallback can be disabled', () => {
+    const ctx = holeyCtx([{ x: 0.4, y: 0.4, r: 0.01 }]);
+    const measurer = createQrSizeMeasurer({
+      cornerInsetFractions: [],
+      maxReconstructedCorners: 0,
+    });
+    expect(measurer.measure('q', SQUARE_CORNERS, IMAGE, ctx)).toBeNull();
+  });
+
+  it('C1: one fully-missing corner is reconstructed from the other three', () => {
+    // A hole covering the whole TL region (corner + its inset path toward the
+    // centroid) → TL cannot be sampled at all; the planar fit through TR/BR/BL
+    // fills its depth. r=0.05 covers TL+insets but not the other corners.
+    const ctx = holeyCtx([{ x: 0.4, y: 0.4, r: 0.05 }]);
+    const measurer = createQrSizeMeasurer({ minSamples: 1 });
+    const m = measurer.measure('q', SQUARE_CORNERS, IMAGE, ctx);
+    expect(m).not.toBeNull();
+    // Planar surface at depth 1 → reconstructed TL depth is 1, size still 0.2 m.
+    expect(m!.cornerSamples[0].depthM).toBeCloseTo(1, 6);
+    expect(m!.estimate.estimateM).toBeCloseTo(0.2, 6);
+  });
+
+  it('C1: two missing corners exceed the reconstruction budget → null', () => {
+    const ctx = holeyCtx([
+      { x: 0.4, y: 0.4, r: 0.05 }, // TL + insets
+      { x: 0.6, y: 0.4, r: 0.05 }, // TR + insets
+    ]);
+    const measurer = createQrSizeMeasurer();
+    expect(measurer.measure('q', SQUARE_CORNERS, IMAGE, ctx)).toBeNull();
+  });
+
+  it('C2: the quality threshold is configurable (a strict gate rejects a noisy read)', () => {
+    // A non-planar (noisy) read: push one corner off the z=1 plane so quality
+    // drops below the default 0.8 but above a relaxed 0.3.
+    const noisyCtx: QrSizeDepthContext = {
+      depthAt: () => 1,
+      unprojector: {
+        unproject: (p: DepthPoint): Vector3 | null => {
+          // TL (screen 0.4,0.4) is lifted out of plane; others stay planar.
+          const z =
+            p.screenX < 0.45 && p.screenY < 0.45 ? p.depthM + 0.05 : p.depthM;
+          return [p.screenX, p.screenY, z];
+        },
+      },
+    };
+    const strict = createQrSizeMeasurer({
+      minSamples: 1,
+      qualityThreshold: 0.8,
+    });
+    const relaxed = createQrSizeMeasurer({
+      minSamples: 1,
+      qualityThreshold: 0.3,
+    });
+    // The frame is sampled either way (returns a measurement object)…
+    const s = strict.measure('q', SQUARE_CORNERS, IMAGE, noisyCtx);
+    const r = relaxed.measure('q', SQUARE_CORNERS, IMAGE, noisyCtx);
+    expect(s).not.toBeNull();
+    expect(r).not.toBeNull();
+    // …but only the relaxed gate ACCEPTS the noisy observation into the estimate.
+    expect(s!.estimate.sampleCount).toBe(0); // rejected by strict 0.8 gate
+    expect(r!.estimate.sampleCount).toBe(1); // accepted by relaxed 0.3 gate
+  });
+});
