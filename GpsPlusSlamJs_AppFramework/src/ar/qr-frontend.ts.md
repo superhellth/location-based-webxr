@@ -33,9 +33,10 @@ Native `BarcodeDetector` is preferred; OpenCV's `QRCodeDetector` is the fallback
   empty decoded text yield `null`.
 - **Worker hosting:** in production this runs in a worker; `OpenCvQrFrontEnd`'s
   `CvQrDetectorLike` is built from the lazily-loaded `cv` (classic worker,
-  `importScripts`; see [opencv-pnp.ts.md](opencv-pnp.ts.md) and plan §9). The
-  pipeline (front-end + `OpenCvPnpSquare` + `solveQrPose`) is transport-agnostic,
-  so the same code runs on the main thread in tests.
+  `importScripts`; see plan §9). The pipeline (front-end + `PlanarPnpSquare` +
+  `solveQrPose`) is transport-agnostic, so the same code runs on the main thread
+  in tests. (Pose is now the pure-JS [planar-pnp.ts.md](planar-pnp.ts.md); only
+  the decoder fallback below still uses OpenCV.)
 
 ## Tests
 
@@ -47,5 +48,5 @@ Native `BarcodeDetector` is preferred; OpenCV's `QRCodeDetector` is the fallback
 ## Related
 
 - Emits corners consumed by [qr-pose.ts.md](qr-pose.ts.md) (`solveQrPose`).
-- The OpenCV PnP backend is [opencv-pnp.ts.md](opencv-pnp.ts.md).
+- The PnP backend is the pure-JS [planar-pnp.ts.md](planar-pnp.ts.md).
 - Driven at a throttled cadence by [detection-scheduler.ts.md](detection-scheduler.ts.md).

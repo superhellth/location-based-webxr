@@ -71,7 +71,7 @@ const solution = solveQrPose({
     position: depthSample.cameraPos,
     rotation: depthSample.cameraRot,
   },
-  solver: openCvPnpSquare, // Phase 2
+  solver: new PlanarPnpSquare(), // pure-JS IPPE (planar-pnp.ts)
 });
 if (solution) placeUnderArWorldGroup(solution.qrPoseWorld);
 ```
@@ -90,7 +90,8 @@ if (solution) placeUnderArWorldGroup(solution.qrPoseWorld);
 
 - Consumes the same projection-matrix source as
   [depth-unprojection.ts.md](depth-unprojection.ts.md).
-- The injected `SolvePnpSquare` is implemented by the OpenCV worker front-end in
-  Phase 2 (`qr-frontend` / worker).
+- The injected `SolvePnpSquare` is implemented by the pure-JS
+  [planar-pnp.ts.md](planar-pnp.ts.md) (`PlanarPnpSquare`, IPPE) — synchronous,
+  no OpenCV/WASM/worker.
 - `qrPoseWorld` feeds the synthetic GPS-vote bridge (Phase 5) and the occupancy
   plausibility self-check (Phase 4).

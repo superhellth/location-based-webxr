@@ -41,7 +41,7 @@ so a future object detector (YOLO) reuses it unchanged. It gates nothing on QR.
 ## Related
 
 - Drives [qr-frontend.ts.md](qr-frontend.ts.md) + [qr-pose.ts.md](qr-pose.ts.md)
-  (`solveQrPose`) + [opencv-pnp.ts.md](opencv-pnp.ts.md); locked solutions feed
+  (`solveQrPose`) + [planar-pnp.ts.md](planar-pnp.ts.md); locked solutions feed
   the occupancy self-check ([qr-occupancy-check.ts.md](qr-occupancy-check.ts.md))
   and the GPS-vote bridge ([qr-gps-vote.ts.md](qr-gps-vote.ts.md)). Consumed by
   [qr-tracking-controller.ts.md](qr-tracking-controller.ts.md).

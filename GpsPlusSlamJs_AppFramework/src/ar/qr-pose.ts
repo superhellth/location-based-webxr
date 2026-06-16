@@ -58,8 +58,8 @@ export interface OpenCvPnpResult {
 }
 
 /**
- * Injected planar-PnP solver. The OpenCV implementation (Phase 2) wraps
- * `cv.solvePnP(..., SOLVEPNP_IPPE_SQUARE)`; tests inject a stub. Returns `null`
+ * Injected planar-PnP solver. The production implementation is the pure-JS
+ * {@link PlanarPnpSquare} (planar-pnp.ts, IPPE); tests inject a stub. Returns `null`
  * when the solve fails (degenerate input, no convergence).
  */
 export interface SolvePnpSquare {

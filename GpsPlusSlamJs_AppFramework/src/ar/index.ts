@@ -155,9 +155,6 @@ export {
   CameraFrameSource,
 } from './camera-frame-source.js';
 
-// --- opencv-pnp ---
-export { type CvMat, type CvLike, OpenCvPnpSquare } from './opencv-pnp.js';
-
 // --- planar-pnp (pure-JS IPPE; the OpenCV-free SolvePnpSquare) ---
 export {
   type Mat3,

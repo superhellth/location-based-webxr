@@ -1,5 +1,5 @@
 /**
- * Pure-JS planar-square PnP — the OpenCV-free replacement for `opencv-pnp.ts`.
+ * Pure-JS planar-square PnP — the OpenCV-free `SolvePnpSquare` implementation.
  *
  * Implements `qr-pose.ts`'s injected {@link SolvePnpSquare} for a centered planar
  * square (the `SOLVEPNP_IPPE_SQUARE` case) with no OpenCV, no WASM, no worker and

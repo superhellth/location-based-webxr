@@ -41,8 +41,8 @@ The live integration is device-coupled and overlaps the plan's **mandatory
 manual** §5 / Phase 3 gate, so it is deliberately out of scope here:
 
 - an off-by-default `qrTracking` recording option + settings-modal checkbox;
-- constructing the framework controller at Enter-AR with `OpenCvPnpSquare` (in a
-  classic worker that `importScripts` opencv.js), the BarcodeDetector front-end,
+- constructing the framework controller at Enter-AR with `PlanarPnpSquare` (the
+  pure-JS IPPE solver — no worker, no opencv.js), the BarcodeDetector front-end,
   `solveQrPose`, `fetchQrLevel`, `recordGpsEvent` dispatch, and
   `checkQrPlausibility`;
 - feeding `CameraBlitCapture.captureToPixels` frames + the per-view projection

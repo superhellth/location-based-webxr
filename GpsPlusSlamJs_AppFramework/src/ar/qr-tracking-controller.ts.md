@@ -52,7 +52,7 @@ timestamp }`, emitted via `onDetection` on every lock. Structural (no import
   [2026-06-16-followup-qr-pose-stabilization-sliding-window.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-16-followup-qr-pose-stabilization-sliding-window.md).
 - **Fully injected** (front-end, solve, fetch, dispatch, camera/intrinsics
   accessors, clock) → no WASM, device, or store needed to test. Production wires
-  `solvePose` to `solveQrPose({...input, solver: OpenCvPnpSquare})`,
+  `solvePose` to `solveQrPose({...input, solver: new PlanarPnpSquare()})`,
   `fetchLevel` to `fetchQrLevel`, `dispatchVotes` to `recordGpsEvent`, and
   optionally `isPlausible` to `checkQrPlausibility`.
 
