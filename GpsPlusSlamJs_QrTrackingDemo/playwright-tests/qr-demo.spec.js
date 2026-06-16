@@ -56,3 +56,43 @@ test.describe("QR-tracking demo — measure + glue flow", () => {
     expect(scene.lastVisible).toBe(true);
   });
 });
+
+/**
+ * Regression: a QR can lock (detection + pose) while its depth-measured size is
+ * still `unknown` (noisy/non-planar depth → quality below the accept threshold).
+ * The HUD said "detected" but NOTHING appeared in 3D, because the scene update
+ * was gated on a known size — so even the pose-only AXIS was withheld. The axis
+ * needs only the pose; only the cube needs a size.
+ */
+test.describe("QR-tracking demo — axis appears before the size converges", () => {
+  test.beforeEach(async ({ page }) => {
+    await installQrDemoFakes(page, { planar: false });
+  });
+
+  test("shows the axis on lock even while the size stays unknown (cube waits)", async ({
+    page,
+  }) => {
+    await bootQrDemo(page);
+    await feedFrames(page, 12);
+
+    // Detection locked, but the size never converged.
+    await expect(page.getByTestId("hud-status")).toContainText("Locked");
+    await expect(page.getByTestId("hud-lifecycle")).toHaveText("unknown");
+    await expect(page.getByTestId("hud-size")).toHaveText("—");
+
+    const scene = await page.evaluate(() => {
+      const kids = window.__qrDemoTest.worldGroupChildren;
+      // children[0] = axis, children[1] = cube (add order in createQrDebugView).
+      return {
+        count: kids.length,
+        axisVisible: kids[0]?.visible,
+        cubeVisible: kids[1]?.visible,
+      };
+    });
+    expect(scene.count).toBe(2);
+    // The axis (pose only) MUST be visible so the user sees the detection is
+    // glued; the cube (needs a measured size) stays hidden until one arrives.
+    expect(scene.axisVisible).toBe(true);
+    expect(scene.cubeVisible).toBe(false);
+  });
+});

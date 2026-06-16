@@ -36,6 +36,32 @@ describe("createQrDebugView", () => {
     expect(cube.scale.z).toBeLessThan(0.2);
   });
 
+  it("shows the axis (pose only) but hides the cube when the size is unknown", () => {
+    // Regression: a QR can lock before its depth size converges (sizeM null).
+    // The axis must still appear so the user sees the detection is glued; the
+    // cube waits for a measured size rather than drawing a NaN-scaled box.
+    const parent = new Group();
+    const view = createQrDebugView(parent);
+    view.update(pose, null);
+    const axis = parent.children[0]!;
+    const cube = parent.children[1]!;
+    expect(axis.visible).toBe(true);
+    expect(axis.position.x).toBeCloseTo(1, 6);
+    expect(cube.visible).toBe(false);
+    // The cube must not have been scaled to a NaN/garbage size.
+    expect(Number.isNaN(cube.scale.x)).toBe(false);
+  });
+
+  it("reveals the cube once a measured size arrives after an unknown-size update", () => {
+    const parent = new Group();
+    const view = createQrDebugView(parent);
+    view.update(pose, null); // size not measured yet → axis only
+    view.update(pose, 0.2); // size arrives → cube appears
+    const cube = parent.children[1]!;
+    expect(cube.visible).toBe(true);
+    expect(cube.scale.x).toBeCloseTo(0.2, 6);
+  });
+
   it("clear() hides without detaching; dispose() detaches", () => {
     const parent = new Group();
     const view = createQrDebugView(parent);

@@ -160,8 +160,11 @@ async function startAr(): Promise<void> {
       renderDebugLog();
     },
     updateScene: (pose, sizeM) => {
-      // Need a measured size to draw the cube; skip until one is available.
-      if (sizeM !== null) view?.update(pose, sizeM);
+      // Always update: the view shows the AXIS from the pose alone (so a locked
+      // QR is visibly glued immediately) and reveals the CUBE only once a
+      // measured size arrives. Previously this was gated on `sizeM !== null`,
+      // which withheld even the axis while the depth size was still converging.
+      view?.update(pose, sizeM);
     },
     onStatus: (next) => {
       status = next;

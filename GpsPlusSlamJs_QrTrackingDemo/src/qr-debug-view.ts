@@ -19,8 +19,16 @@ import type { Pose } from "gps-plus-slam-app-framework/ar";
 const CUBE_DEPTH_M = 0.01;
 
 export interface QrDebugView {
-  /** Glue the axis + cube to a solved pose at the given physical size (m). */
-  update(pose: Pose, sizeM: number): void;
+  /**
+   * Glue the debug objects to a solved pose. The **axis** is placed from the
+   * pose alone (it needs no size), so it appears as soon as a detection locks.
+   * The **cube** models the QR's physical extent, so it is shown only when a
+   * measured `sizeM` is available; pass `null` (size not yet measured) to show
+   * the axis while keeping the cube hidden. This is deliberate: a detected QR
+   * must show *something* glued immediately, even before the depth-measured
+   * size converges (which can take seconds, or never, on noisy depth).
+   */
+  update(pose: Pose, sizeM: number | null): void;
   /** Hide the objects (e.g. on reset); does NOT detach them from the scene. */
   clear(): void;
   /** Remove the objects from the parent and free GPU resources. */
@@ -58,14 +66,23 @@ export function createQrDebugView(parent: Object3D): QrDebugView {
   }
 
   return {
-    update(pose: Pose, sizeM: number): void {
+    update(pose: Pose, sizeM: number | null): void {
+      // The axis needs only the pose — show it as soon as a detection locks.
       applyPose(axes, pose);
+      axes.visible = true;
+
+      // The cube needs a measured size (its front face must land on the printed
+      // corners). Until one is available, keep it hidden rather than drawing a
+      // wrong/NaN-sized box — the axis alone already proves the QR is glued.
+      if (sizeM === null) {
+        cube.visible = false;
+        return;
+      }
       applyPose(cube, pose);
       // Front face on the printed code: span sizeM in-plane, thin in depth, and
       // push the slab back by half its depth so the +z face sits at the code.
       cube.scale.set(sizeM, sizeM, CUBE_DEPTH_M);
       cube.translateZ(-CUBE_DEPTH_M / 2);
-      axes.visible = true;
       cube.visible = true;
     },
     clear(): void {

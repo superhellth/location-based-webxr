@@ -28,9 +28,9 @@ const UNPROJECT_SCALE = 0.512;
  *
  * @param {import('@playwright/test').Page} page
  */
-export async function installQrDemoFakes(page) {
+export async function installQrDemoFakes(page, { planar = true } = {}) {
   await page.addInitScript(
-    ({ frameSize, qrText, unprojectScale }) => {
+    ({ frameSize, qrText, unprojectScale, planar }) => {
       /** Mutable control surface the specs drive from `page.evaluate`. */
       const control = {
         /** Real THREE objects the debug view adds to the faked arWorldGroup. */
@@ -70,11 +70,17 @@ export async function installQrDemoFakes(page) {
         createDetect: () => () => Promise.resolve(detection),
         getDepthContext: () => ({
           // Linear screen→world map; the square frame keeps the quad square.
+          // When `planar` is false, the bottom-right corner (screenX,screenY
+          // both > 0.5) is pushed out of the plane so the quad is non-planar:
+          // `poseFromWorldCorners` still fits a valid pose (lock fires), but
+          // `estimateQrSizeFromDepth`'s planarity score drops below the accept
+          // threshold, so the size never leaves `unknown` (estimateM stays
+          // null) — the real-device "detected but size not yet measured" case.
           unprojector: {
             unproject: (dp) => [
               dp.screenX * unprojectScale,
               dp.screenY * unprojectScale,
-              -1,
+              !planar && dp.screenX > 0.5 && dp.screenY > 0.5 ? -0.9 : -1,
             ],
           },
           depthAt: () => 1,
@@ -95,7 +101,12 @@ export async function installQrDemoFakes(page) {
         height: frameSize,
       };
     },
-    { frameSize: FRAME_SIZE, qrText: QR_TEXT, unprojectScale: UNPROJECT_SCALE },
+    {
+      frameSize: FRAME_SIZE,
+      qrText: QR_TEXT,
+      unprojectScale: UNPROJECT_SCALE,
+      planar,
+    },
   );
 }
 
