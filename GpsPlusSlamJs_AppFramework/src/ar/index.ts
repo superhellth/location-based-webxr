@@ -158,6 +158,19 @@ export {
 // --- opencv-pnp ---
 export { type CvMat, type CvLike, OpenCvPnpSquare } from './opencv-pnp.js';
 
+// --- planar-pnp (pure-JS IPPE; the OpenCV-free SolvePnpSquare) ---
+export {
+  type Mat3,
+  type Homography,
+  type PoseCandidate,
+  solveLinear,
+  homographyFromCorrespondences,
+  nearestRotation3x3,
+  ippePoseCandidates,
+  rotationToRodrigues,
+  PlanarPnpSquare,
+} from './planar-pnp.js';
+
 // --- detection-scheduler (generic; QR aliases kept for back-compat) ---
 export {
   type DetectionSchedulerConfig,

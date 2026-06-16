@@ -21,10 +21,12 @@ import {
   composePose,
   transformPoint,
   solveQrPose,
+  validateQuad,
   type Pose,
   type Point2,
   type SolvePnpSquare,
 } from './qr-pose';
+import { PlanarPnpSquare } from './planar-pnp';
 
 const arbFovy = fc.double({
   min: Math.PI / 6,
@@ -235,6 +237,101 @@ describe('solveQrPose — full round-trip recovers the synthetic pose', () => {
           expect(Math.abs(Math.abs(dot) - 1)).toBeLessThan(1e-5);
         }
       )
+    );
+  });
+});
+
+describe('solveQrPose — end-to-end with the REAL pure-JS PlanarPnpSquare', () => {
+  it('recovers qrPoseWorld from projected corners using the actual solver', () => {
+    // The strongest end-to-end proof: no stub. Project a synthetic square,
+    // feed the pixels to solveQrPose with the production PlanarPnpSquare, and
+    // require the recovered world pose to match the ground truth. A clear tilt
+    // keeps the planar flip distinguishable so the reprojection pick is correct.
+    const arbAxis = fc
+      .tuple(
+        fc.double({ min: -1, max: 1, noNaN: true }),
+        fc.double({ min: -1, max: 1, noNaN: true }),
+        fc.double({ min: -1, max: 1, noNaN: true })
+      )
+      .filter(([x, y, z]) => Math.hypot(x, y, z) > 0.1);
+    const arbAngle = fc.double({ min: 0.15, max: 0.7, noNaN: true });
+    const arbTvec = fc.record({
+      x: fc.double({ min: -0.2, max: 0.2, noNaN: true }),
+      y: fc.double({ min: -0.2, max: 0.2, noNaN: true }),
+      z: fc.double({ min: 1.2, max: 3.5, noNaN: true }),
+    });
+    const arbCamPos = fc.tuple(
+      fc.double({ min: -10, max: 10, noNaN: true }),
+      fc.double({ min: -10, max: 10, noNaN: true }),
+      fc.double({ min: -10, max: 10, noNaN: true })
+    );
+    const arbCamAngle = fc.double({ min: -Math.PI, max: Math.PI, noNaN: true });
+
+    const solver = new PlanarPnpSquare();
+
+    fc.assert(
+      fc.property(
+        arbAxis,
+        arbAngle,
+        arbTvec,
+        arbCamPos,
+        arbCamAngle,
+        (axis, angle, tv, camPos, camAngle) => {
+          const intr = { fx: 600, fy: 600, cx: 320, cy: 240 };
+          const sizeM = 0.2;
+
+          // Ground-truth OpenCV pose → rvec = angle · unit-axis.
+          const n = vec3.normalize(vec3.create(), vec3.fromValues(...axis));
+          const rvec: [number, number, number] = [
+            angle * n[0],
+            angle * n[1],
+            angle * n[2],
+          ];
+          const tvec: [number, number, number] = [tv.x, tv.y, tv.z];
+
+          const qrInCam = qrInCameraFromOpenCv({ rvec, tvec });
+          const obj = buildObjectPoints(sizeM);
+          const corners: Point2[] = [];
+          for (const o of obj) {
+            const px = projectViewPoint(transformPoint(o, qrInCam), intr);
+            if (px === null) return; // corner behind camera — not a solver case
+            corners.push(px);
+          }
+          // Quads the production winding guard rejects are legitimately not
+          // solver inputs; skip them (early return, not an fc.pre skip).
+          if (!validateQuad(corners).ok) return;
+
+          const cameraPose: Pose = {
+            position: camPos,
+            rotation: yawQuat(camAngle),
+          };
+
+          const solution = solveQrPose({
+            imagePoints: corners,
+            sizeM,
+            intrinsics: intr,
+            cameraPose,
+            solver,
+          });
+          expect(solution).not.toBeNull();
+
+          const expectedWorld = composePose(cameraPose, qrInCam);
+          for (let i = 0; i < 3; i++) {
+            expect(
+              Math.abs(
+                solution!.qrPoseWorld.position[i] - expectedWorld.position[i]
+              )
+            ).toBeLessThan(2e-3);
+          }
+          const dot =
+            solution!.qrPoseWorld.rotation[0] * expectedWorld.rotation[0] +
+            solution!.qrPoseWorld.rotation[1] * expectedWorld.rotation[1] +
+            solution!.qrPoseWorld.rotation[2] * expectedWorld.rotation[2] +
+            solution!.qrPoseWorld.rotation[3] * expectedWorld.rotation[3];
+          expect(Math.abs(Math.abs(dot) - 1)).toBeLessThan(1e-3);
+        }
+      ),
+      { numRuns: 300 }
     );
   });
 });
