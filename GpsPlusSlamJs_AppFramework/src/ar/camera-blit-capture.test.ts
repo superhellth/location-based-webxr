@@ -944,6 +944,29 @@ describe('camera-blit-capture', () => {
     });
 
     /**
+     * Why this test matters (WS-C detection-resolution sweep):
+     * `captureSize` is the QR-detection lever — the longer-edge blit budget the
+     * BarcodeDetector sees. The on-device sweep varies it across {512, 768,
+     * 1024}; lock that each candidate stays aspect-correct (long edge == size,
+     * 4:3 short edge = 3/4·size) so a bigger budget puts more pixels on a small
+     * QR without ever stretching it. See the thin-demo/size plan WS-C.
+     */
+    it('keeps each sweep-candidate capture size aspect-correct (4:3)', () => {
+      expect(computeAspectFitSize(640, 480, 512)).toEqual({
+        width: 512,
+        height: 384,
+      });
+      expect(computeAspectFitSize(640, 480, 768)).toEqual({
+        width: 768,
+        height: 576,
+      });
+      expect(computeAspectFitSize(640, 480, 1024)).toEqual({
+        width: 1024,
+        height: 768,
+      });
+    });
+
+    /**
      * Why this test matters:
      * Invalid camera dimensions (texture not ready) must fall back to a safe
      * maxEdge-square rather than producing a 0-sized render target.

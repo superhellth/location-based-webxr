@@ -44,6 +44,7 @@ import {
 } from "gps-plus-slam-app-framework/ar";
 import { checkWebXRSupport } from "gps-plus-slam-app-framework/sensors";
 import type { DepthSample } from "gps-plus-slam-app-framework/types";
+import { parseCaptureSizeParam } from "./capture-size-param.js";
 import type { Object3D } from "three";
 import type { DemoCapabilitySupport } from "./capability.js";
 import type { DepthContext } from "./demo-controller.js";
@@ -163,10 +164,18 @@ export const realSeams: QrDemoSeams = {
     // whatever consumer is active. Point it at this controller and start the
     // throttled capture — the source is the single cadence owner (Option A).
     qrFrameConsumer = onImage;
+    // WS-C: allow a device tester to sweep the RGB capture resolution via
+    // `?capture=<px>` (no rebuild). Absent → the framework default (512).
+    const captureSize =
+      typeof window !== "undefined"
+        ? parseCaptureSizeParam(window.location.search)
+        : undefined;
+    const captureConfig: { intervalMs?: number; captureSize?: number } = {};
+    if (options?.intervalMs !== undefined)
+      captureConfig.intervalMs = options.intervalMs;
+    if (captureSize !== undefined) captureConfig.captureSize = captureSize;
     startCameraFrameCapture(
-      options?.intervalMs !== undefined
-        ? { intervalMs: options.intervalMs }
-        : undefined,
+      Object.keys(captureConfig).length > 0 ? captureConfig : undefined,
     );
     return () => {
       qrFrameConsumer = null;
