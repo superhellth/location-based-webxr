@@ -27,8 +27,8 @@ axis + cube. Geo-less: never casts a GPS vote.
 - **Pose is full PnP, not the depth-corner fit.** Depth still supplies the metric
   SIZE (`measurer.measure`); the pose comes from `solvePose({ imagePoints, sizeM,
 intrinsics, cameraPose })`. Rotation no longer inherits per-corner depth noise.
-  `pose-from-corners.ts` stays a tested off-path utility (hybrid-fallback building
-  block), no longer on the live path.
+  (The depth-corner `pose-from-corners.ts` hybrid-fallback was removed in the
+  2026-06-17 cleanup once on-device confirmed PnP translation is robust.)
 - **Size-exists gate (relaxed):** the controller places as soon as ANY size is
   measured (`estimate.estimateM !== null`) — the lever that actually glued
   on-device. The strict `estimated` lifecycle is only the production GPS-vote gate,

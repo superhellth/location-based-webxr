@@ -14,8 +14,8 @@
  * scale PnP needs); the relaxed gate places as soon as a size exists
  * (`estimateM !== null`), the lever that actually glued on-device. The size
  * measurer still returns the corner depth samples, but this controller no longer
- * consumes them (`poseFromWorldCorners` stays a tested off-path utility / the
- * hybrid-fallback building block).
+ * consumes them (the depth-corner pose fit was retired once on-device confirmed
+ * PnP translation is robust).
  *
  * Every device-specific dependency (detect, depth context, the pose solve, store
  * dispatch, scene update) is injected, so this whole flow is unit-testable

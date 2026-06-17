@@ -11,8 +11,11 @@ spreadLabel, lifecycleLabel }`.
 
 ## Invariants
 
-- Size shown in **cm** (1 dp), spread in **mm** (rounded). `measuring…` while
-  measuring with no median yet; `—` when unknown. Singular `1 sample`.
+- Size shown in **cm** (1 dp), spread in **mm** (rounded). A positive spread that
+  rounds below 1 mm reads `<1 mm` (not `±0 mm`, which looked like false precision
+  once the half-width converged sub-mm); a genuine zero spread (<2 samples) still
+  reads `±0 mm`. `measuring…` while measuring with no median yet; `—` when unknown.
+  Singular `1 sample`.
 - `status` is the high-level lock state; `size.status` is the lifecycle stage
   (`unknown` | `measuring` | `estimated`).
 

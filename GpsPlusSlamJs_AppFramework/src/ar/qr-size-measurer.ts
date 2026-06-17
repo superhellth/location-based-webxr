@@ -12,11 +12,11 @@
  *     → per-`text` {@link QrSizeAccumulator}.add → the size lifecycle estimate
  *
  * It is intentionally **pose-agnostic**: it returns the sampled corner depth
- * points so a consumer that also wants a depth-fit pose (the demo) can unproject
- * them without re-sampling, while a consumer that only needs the size (the
- * Recorder, which solves pose via PnP) ignores them. Promoting the rigid
- * depth-corner *pose* fit (`poseFromWorldCorners`) is the separate §3.3
- * follow-up.
+ * points so a *future* consumer that wants a depth-fit pose could unproject them
+ * without re-sampling. Current consumers (the demo and the Recorder) solve pose
+ * via PnP and ignore them. Promoting a rigid depth-corner *pose* fit into the
+ * framework is a separate follow-up (the demo's earlier `pose-from-corners`
+ * experiment was deleted once on-device confirmed PnP translation is robust).
  *
  * @see qr-size-from-depth.ts — the per-observation estimate + the accumulator.
  * @see depth-unprojection.ts — `DepthUnprojector`.

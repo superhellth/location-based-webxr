@@ -47,10 +47,12 @@ re-implementing the loop.
 - **Dense fit is primary (WS-A).** The size comes from the robust plane fit over
   interior reads, not the noisy corner depths — so a small/tilted QR is sized from
   its face. The corner path is only a fallback for a too-sparse interior lattice.
-- **Pose-agnostic by design.** It returns the raw samples so a depth-fit consumer
-  could unproject them without re-sampling; a PnP consumer (the demo/Recorder)
-  ignores them and reads only `estimate`. Promoting the rigid depth-corner _pose_
-  fit (`poseFromWorldCorners`) is the separate §3.3 follow-up.
+- **Pose-agnostic by design.** It returns the raw samples so a _future_ depth-fit
+  consumer could unproject them without re-sampling; current consumers (the demo,
+  the Recorder) solve pose via PnP and read only `estimate`. Promoting a rigid
+  depth-corner _pose_ fit into the framework is a separate follow-up (the demo's
+  earlier `pose-from-corners` experiment was deleted after on-device validated PnP
+  translation).
 - Accumulation is keyed by `text`; markers are independent.
 - Accumulator `options` flow to every per-marker `createQrSizeAccumulator`
   (quality threshold, min samples, spread cap, ring size).

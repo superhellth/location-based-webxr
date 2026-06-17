@@ -13,8 +13,8 @@
  *      code. The HUD renders the live size readout.
  *
  * Pure, unit-tested logic lives in the sibling modules (`capability`,
- * `pose-from-corners`, `qr-debug-view`, `hud-view`, `demo-store`,
- * `demo-controller`). This file is verified manually via `pnpm dev` on an AR
+ * `qr-debug-view`, `hud-view`, `demo-store`, `demo-controller`). This file is
+ * verified manually via `pnpm dev` on an AR
  * device (the §5 on-device gate) and through the faked Playwright e2e.
  */
 

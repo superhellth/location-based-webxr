@@ -32,6 +32,23 @@ describe("toHudView", () => {
     expect(v.lifecycleLabel).toBe("estimated");
   });
 
+  it("shows a sub-mm spread as '<1 mm', not '±0 mm'", () => {
+    // The robust half-width (1.4826·MAD/√N) goes sub-mm once the estimate
+    // converges; rounding it to ±0 mm read as false precision on device.
+    const v = toHudView("tracking", {
+      status: "estimated",
+      estimateM: 0.018,
+      sampleCount: 238,
+      spreadM: 0.0002, // 0.2 mm
+    });
+    expect(v.spreadLabel).toBe("<1 mm");
+  });
+
+  it("keeps '±0 mm' for a genuine zero spread (no samples yet)", () => {
+    const v = toHudView("scanning", undefined);
+    expect(v.spreadLabel).toBe("±0 mm");
+  });
+
   it("uses the singular 'sample' for exactly one", () => {
     const v = toHudView("scanning", {
       status: "measuring",

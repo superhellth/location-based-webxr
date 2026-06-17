@@ -26,8 +26,7 @@ for the auto-size path; without it the app degrades to a manual size.
 ## Architecture
 
 - **Tested pure logic** (`src/*.ts` + colocated `*.test.ts`): `capability`,
-  `pose-from-corners`, `qr-debug-view`, `hud-view`, `demo-store`,
-  `demo-controller`, `seams`.
+  `qr-debug-view`, `hud-view`, `demo-store`, `demo-controller`, `seams`.
 - **`main.ts`** — glue only (capability gate → boot → per-frame
   `offerFrame` → HUD). Verified via the faked Playwright e2e and manually on a
   device (`pnpm dev`).
