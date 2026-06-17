@@ -104,6 +104,15 @@ export {
   solveQrPose,
 } from './qr-pose.js';
 
+// --- qr-derived-pose (decision D-A — derive size/pose from RAW on read) ---
+export {
+  type RawQrObservation,
+  type DeriveQrPoseDeps,
+  deriveQrSizeM,
+  solveQrPoseFromObservation,
+  deriveSolvedQrPose,
+} from './qr-derived-pose.js';
+
 // --- qr-pose-aggregation (sliding-window pose stabilization) ---
 export {
   DEFAULT_ROTATION_INLIER_ANGLE_DEG,

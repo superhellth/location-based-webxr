@@ -8,7 +8,7 @@ Framework-level Redux slice that stores **what was detected, where, in 3D**, key
 
 - **State** `QrDetectedState = { maxHistory, markers: Record<payload, QrMarkerState> }`.
   - `QrMarkerState = { text, detections: QrDetectionEntry[] (ring, oldest→newest), size: QrSizeEstimate }`.
-  - `QrDetectionEntry = { text, qrPoseWorld, qrPoseInCamera, reprojectionErrorPx, timestamp }` — deliberately detection-agnostic (Note 1: generalizes to object detection).
+  - `QrDetectionEntry = { text, qrPoseWorld, qrPoseInCamera, reprojectionErrorPx, timestamp, corners?, cameraPose?, projectionMatrix?, imageWidth?, imageHeight? }` — deliberately detection-agnostic (Note 1: generalizes to object detection). The trailing **RAW** fields (`corners…imageHeight`) are decision **D-A** of the recorder live-QR plan: the authoritative, algorithm-agnostic detector output from which size + pose are **derived on read**. They are **optional during the D-A-2 transition** (the demo still records the solved pose); once the producer dispatches raw-only (WS-3) the solved `qrPoseWorld`/`qrPoseInCamera`/`reprojectionErrorPx` are dropped and the raw fields become required. See [2026-06-17-recorder-live-qr-detection-recording-plan.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-17-recorder-live-qr-detection-recording-plan.md).
   - `QrSizeEstimate = { status: 'unknown'|'measuring'|'estimated', estimateM, sampleCount, spreadM }` — the Note 3 size lifecycle.
 - **Actions**: `recordQrDetection(entry)`, `recordQrSizeEstimate({ text, estimate })`, `pruneQrDetections({ text, count })`, `clearQrMarker({ text })`, `clearAllQrMarkers()`, `setQrMaxHistory(n)`.
 - **Reducer**: `qrDetectedReducer`.
@@ -18,7 +18,8 @@ Framework-level Redux slice that stores **what was detected, where, in 3D**, key
 - **Pose-stability selectors** (sliding-window stabilization, see [2026-06-16-followup-qr-pose-stabilization-sliding-window.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-16-followup-qr-pose-stabilization-sliding-window.md)):
   - `selectQrPoseStability(state, text, options?)` → `QrPoseStability` (`unknown | measuring | stable` + filtered pose + spreads), derived from the raw ring buffer via `ar/qr-pose-aggregation.evaluateQrPoseStability`. Surfaces the lifecycle for the HUD, mirroring the size lifecycle's shape — but **derived, not stored** (the detections are the source of truth, unlike depth-measured size).
   - `selectStableQrPose(state, text, options?)` → `Pose | null`: the filtered pose **only** once `stable`, else `null`. The pose analogue of `selectResolvedQrSizeM` — the `resolveStablePose` bridge an app injects into the QR controller / demo (`resolveStablePose: (text) => selectStableQrPose(store.getState(), text)`) so the high-weight vote / smooth overlay consume the converged pose, never the raw latest one, without `ar` importing the slice.
-- **Constant**: `DEFAULT_QR_MAX_HISTORY = 32`.
+- **Derive-on-read selector (decision D-A)**: `selectSolvedQrPose(state, text, deps)` → `Pose | null`. Maps the marker's RAW observations (`toRawObservation` guard — skips solved-only transitional entries) and delegates to `ar/qr-derived-pose.deriveSolvedQrPose`: accumulate size over the history against the injected `deps.resolveDepthAt` (the as-of depth join), then PnP-solve the latest. Runs identically live and on replay (only `resolveDepthAt` differs). Replaces the once-stored solved pose with a re-testable derivation. See [`qr-derived-pose.ts.md`](../ar/qr-derived-pose.ts.md).
+- **Constant**: `DEFAULT_QR_MAX_HISTORY = 32` (framework-wide default; a consumer that wants longer live trails calls `setQrMaxHistory(n)` itself — e.g. the Recorder sets 100).
 
 ## Invariants & assumptions
 

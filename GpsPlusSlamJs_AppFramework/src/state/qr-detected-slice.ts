@@ -31,14 +31,19 @@
  */
 
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { Vector3 } from 'gps-plus-slam-js';
-import type { Pose } from '../ar/qr-pose.js';
+import type { Matrix4, Vector3 } from 'gps-plus-slam-js';
+import type { Point2, Pose } from '../ar/qr-pose.js';
 import type { QrSizeEstimate } from '../ar/qr-size-from-depth.js';
 import {
   evaluateQrPoseStability,
   type QrPoseStability,
   type QrPoseStabilityOptions,
 } from '../ar/qr-pose-aggregation.js';
+import {
+  deriveSolvedQrPose,
+  type DeriveQrPoseDeps,
+  type RawQrObservation,
+} from '../ar/qr-derived-pose.js';
 
 // Re-exported so consumers of the slice keep importing the size lifecycle types
 // from one place. They are DEFINED in `ar/qr-size-from-depth.ts` (where size is
@@ -74,6 +79,23 @@ export interface QrDetectionEntry {
   reprojectionErrorPx: number;
   /** Epoch ms when the detection locked. */
   timestamp: number;
+
+  // --- RAW detector output (decision D-A, recorder live-QR plan) -----------
+  // The authoritative, algorithm-agnostic shape: size + solved pose are DERIVED
+  // from these on read (see `selectSolvedQrPose` → `ar/qr-derived-pose.ts`).
+  // OPTIONAL during the D-A-2 transition — the demo still records the solved
+  // pose above; once the producer dispatches raw-only (WS-3) the solved fields
+  // are dropped and these become required.
+  /** The 4 detected corners in detector-buffer PIXELS, order TL,TR,BR,BL. */
+  corners?: readonly Point2[];
+  /** Capturing camera pose in raw-WebXR/odom space (PnP camera-relative base). */
+  cameraPose?: Pose;
+  /** Column-major GL projection of the detector frame (→ PnP intrinsics). */
+  projectionMatrix?: Matrix4;
+  /** Detector-buffer width in pixels (to normalize corners + build intrinsics). */
+  imageWidth?: number;
+  /** Detector-buffer height in pixels. */
+  imageHeight?: number;
 }
 
 /** Per-marker state: a bounded detection history + the size lifecycle. */
@@ -350,4 +372,55 @@ export function selectStableQrPose(
 ): Pose | null {
   const stability = selectQrPoseStability(state, text, options);
   return stability.status === 'stable' ? stability.pose : null;
+}
+
+// --- Derive-on-read (decision D-A) -------------------------------------
+
+/**
+ * Narrow a stored entry to a {@link RawQrObservation} — i.e. one that carries
+ * the full raw detector output. During the D-A-2 transition some entries may
+ * still be solved-pose-only (no raw fields); those are skipped by the derive
+ * selector. After WS-3 every entry is raw and this guard always holds.
+ */
+function toRawObservation(entry: QrDetectionEntry): RawQrObservation | null {
+  if (
+    !entry.corners ||
+    !entry.cameraPose ||
+    !entry.projectionMatrix ||
+    entry.imageWidth === undefined ||
+    entry.imageHeight === undefined
+  ) {
+    return null;
+  }
+  return {
+    text: entry.text,
+    corners: entry.corners,
+    cameraPose: entry.cameraPose,
+    projectionMatrix: entry.projectionMatrix,
+    imageWidth: entry.imageWidth,
+    imageHeight: entry.imageHeight,
+    timestamp: entry.timestamp,
+  };
+}
+
+/**
+ * Derive the best-effort solved WORLD pose for a marker from its RAW observation
+ * history (decision D-A): accumulate size over the history against the injected
+ * `resolveDepthAt` as-of join, then PnP-solve the latest observation. Returns
+ * `null` when the marker is unknown, has no raw observations, cannot be sized
+ * yet, or PnP rejects the latest quad — the re-test-friendly replacement for the
+ * once-stored solved pose. Runs identically live and on replay (only
+ * `deps.resolveDepthAt` differs). See `ar/qr-derived-pose.ts`.
+ */
+export function selectSolvedQrPose(
+  state: RootWithQrDetected,
+  text: string,
+  deps: DeriveQrPoseDeps
+): Pose | null {
+  const marker = state.qrDetected.markers[text];
+  if (!marker) return null;
+  const observations = marker.detections
+    .map(toRawObservation)
+    .filter((o): o is RawQrObservation => o !== null);
+  return deriveSolvedQrPose(text, observations, deps);
 }

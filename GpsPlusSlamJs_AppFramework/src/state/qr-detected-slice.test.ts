@@ -25,11 +25,13 @@ import {
   selectResolvedQrSizeM,
   selectStableQrPose,
   selectQrPoseStability,
+  selectSolvedQrPose,
   medianQrPosition,
   DEFAULT_QR_MAX_HISTORY,
   type QrDetectedState,
   type QrDetectionEntry,
 } from './qr-detected-slice';
+import { PlanarPnpSquare } from '../ar/planar-pnp';
 
 function entry(
   text: string,
@@ -328,5 +330,57 @@ describe('medianQrPosition', () => {
       entry('A', 4, [1000, 1000, 1000]),
     ];
     expect(medianQrPosition(entries)).toEqual([1, 1, 1]);
+  });
+});
+
+describe('selectSolvedQrPose (derive-on-read, D-A)', () => {
+  // The end-to-end "re-derives the known pose" guarantee is proven in
+  // qr-derived-pose.test.ts; here we pin the slice's mapping + guard: unknown
+  // markers, the D-A-2 transition (solved-only entries carry no raw fields and
+  // must be skipped), and a graceful null when depth is unavailable.
+  const deps = {
+    resolveDepthAt: () => null, // no depth resolvable
+    solver: new PlanarPnpSquare(),
+  };
+
+  it('returns null for an unknown marker', () => {
+    expect(selectSolvedQrPose({ qrDetected: init() }, 'nope', deps)).toBeNull();
+  });
+
+  it('skips solved-only (legacy/transitional) entries with no raw fields', () => {
+    let s = init();
+    // `entry()` produces a solved-pose-only detection (no corners/cameraPose/…),
+    // so even with a working depth resolver there is nothing raw to derive from.
+    s = qrDetectedReducer(s, recordQrDetection(entry('A', 1, [1, 2, 3])));
+    expect(
+      selectSolvedQrPose({ qrDetected: s }, 'A', {
+        resolveDepthAt: () => ({
+          depthAt: () => 1,
+          unprojector: { unproject: () => [0, 0, 0] },
+        }),
+        solver: new PlanarPnpSquare(),
+      })
+    ).toBeNull();
+  });
+
+  it('returns null when a raw entry exists but no depth covers it', () => {
+    const raw: QrDetectionEntry = {
+      ...entry('A', 1),
+      corners: [
+        { x: 10, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 30 },
+        { x: 10, y: 30 },
+      ],
+      cameraPose: { position: [0, 0, 0], rotation: [0, 0, 0, 1] },
+      projectionMatrix: [
+        1.875, 0, 0, 0, 0, 2.5, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0,
+      ],
+      imageWidth: 640,
+      imageHeight: 480,
+    };
+    let s = init();
+    s = qrDetectedReducer(s, recordQrDetection(raw));
+    expect(selectSolvedQrPose({ qrDetected: s }, 'A', deps)).toBeNull();
   });
 });
