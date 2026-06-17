@@ -144,20 +144,38 @@ export function wireQrRecording(options: WireQrRecordingOptions): () => void {
     getArWorldGroup,
   });
 
+  // Coalesce the per-action debug updates to at most one per animation frame
+  // (F3): the recorder store bursts (depth + GPS + ~8 Hz QR detections), and
+  // there is no value rendering more than once per frame. The deriver already
+  // makes each update O(1)/detection (F1+F2); this just caps the frequency.
+  // (Mirrors the rAF coalescing main.ts uses for the frame-tile/map overlays.)
+  let rafId: number | null = null;
+  const scheduleUpdate = (): void => {
+    if (rafId !== null) return; // an update is already queued for this frame
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      debug.update();
+    });
+  };
+
   const attach = (store: RecorderStore): (() => void) =>
-    store.subscribe(() => debug.update());
+    store.subscribe(scheduleUpdate);
   let detach = attach(storeRef.get());
-  debug.update(); // reflect any pre-existing markers immediately
+  debug.update(); // reflect any pre-existing markers immediately (synchronous)
   const unsubscribeSwap = storeRef.subscribe((nextStore) => {
     detach();
     detach = attach(nextStore);
-    debug.update();
+    debug.update(); // a store swap (Start Recording / replay) reflects immediately
   });
 
   return () => {
     stopCameraFrameCapture();
     producer.reset();
     setProducer(null);
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
     detach();
     unsubscribeSwap();
     debug.dispose();

@@ -9,7 +9,7 @@
  * are mocked (covered by their own tests); these tests isolate the wiring.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const {
   mockCreateQrDetectionController,
@@ -134,10 +134,29 @@ function makeStoreRef(store: FakeStore) {
 
 const qr = { enabled: true, intervalMs: 125, captureSize: 1024 };
 
+// Manual requestAnimationFrame so the F3 coalescing is deterministic in tests:
+// callbacks queue and only run when flushRaf() is called.
+let rafQueue: Array<() => void> = [];
+function flushRaf(): void {
+  const q = rafQueue;
+  rafQueue = [];
+  for (const cb of q) cb();
+}
+
 describe('wireQrRecording', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedProducerDeps.current = null;
+    rafQueue = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('creates the producer with an EPOCH-ms clock matching the depth stream (the as-of join)', () => {
@@ -252,7 +271,7 @@ describe('wireQrRecording', () => {
     });
   });
 
-  it('drives the debug controller on store change and re-attaches across a swap', () => {
+  it('coalesces per-action updates to one per frame (F3) and re-attaches across a swap', () => {
     const store = makeStore();
     const { ref } = makeStoreRef(store);
     wireQrRecording({
@@ -261,17 +280,30 @@ describe('wireQrRecording', () => {
       qr,
       setProducer: vi.fn(),
     });
-    // Initial update on wire.
+    // Initial update on wire is synchronous (reflect pre-existing markers).
     expect(mockDebugController.update).toHaveBeenCalledTimes(1);
 
-    store.emit(); // a store change → update
+    // A store change defers to the next frame (not synchronous).
+    store.emit();
+    expect(mockDebugController.update).toHaveBeenCalledTimes(1);
+    flushRaf();
     expect(mockDebugController.update).toHaveBeenCalledTimes(2);
 
-    const store2 = makeStore();
-    ref.set(store2); // Start Recording / replay swap → re-attach + update
+    // Two changes in the SAME frame coalesce into a single update (the F3 win).
+    store.emit();
+    store.emit();
+    flushRaf();
     expect(mockDebugController.update).toHaveBeenCalledTimes(3);
-    store2.emit(); // new store change drives the controller
+
+    // A store swap (Start Recording / replay) reflects immediately (synchronous).
+    const store2 = makeStore();
+    ref.set(store2);
     expect(mockDebugController.update).toHaveBeenCalledTimes(4);
+
+    // The new store's changes drive the controller too (coalesced).
+    store2.emit();
+    flushRaf();
+    expect(mockDebugController.update).toHaveBeenCalledTimes(5);
   });
 
   it('dispose() stops capture, resets the producer, clears it, and disposes the viz', () => {

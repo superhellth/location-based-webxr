@@ -28,6 +28,10 @@ the WS-5 **consumer** (debug axis+cube). `main.ts` calls it once in `handleEnter
   original "no debug cube" bug: it never satisfies the join.
 - **Single cadence owner:** `startCameraFrameCapture({ intervalMs })` throttles;
   the producer runs `minIntervalMs: 0`.
+- **rAF-coalesced viz updates (F3, perf-degradation fix):** per-store-action
+  `debug.update()` calls are coalesced to at most one per animation frame (the
+  store bursts depth + GPS + ~8 Hz QR); the initial wire + store swaps update
+  synchronously for immediacy. The pending frame is cancelled on dispose.
 - **Camera pose** comes from the current XR frame (`getCurrentArPose()`, Option A) —
   fresh every frame, not stale to the 1 Hz depth. **Projection** still comes from
   the latest depth sample (near-constant FOV; per-frame projection is open topic F).
