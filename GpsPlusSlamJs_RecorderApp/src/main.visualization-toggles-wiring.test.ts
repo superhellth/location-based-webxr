@@ -102,6 +102,7 @@ const {
       getRawMarkerWorldSizes: vi.fn().mockReturnValue([]),
     },
     mockRecordingOptions: {
+      qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
       images: { enabled: false, intervalMs: 1000, quality: 0.8 },
       depth: { enabled: false, intervalMs: 1000 },
       occupancy: { cellSizeM: 0.15 },

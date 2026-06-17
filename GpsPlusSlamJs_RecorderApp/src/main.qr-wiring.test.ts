@@ -1,38 +1,34 @@
 // @vitest-environment jsdom
 /**
- * Integration tests for Issue 8: CameraFollower wiring in live AR mode (main.ts).
+ * Integration tests for the live-QR wiring in live AR mode (main.ts) — recorder
+ * live-QR WS-2/WS-5.
  *
- * Why these tests matter:
- * These tests verify that handleEnterAR creates a CameraFollower and compass cubes,
- * wires the follower update into the per-frame callback, and passes the follower
- * as mapParent when creating the MapOverlay. Without these, a regression could
- * silently break the GPS-aligned map / compass cubes in live AR.
+ * Why these tests matter: QR capture is OPT-IN (recording-options `qr.enabled`).
+ * When enabled, handleEnterAR MUST register the camera-frame callback BEFORE
+ * initAR and wire the producer + debug viz (`wireQrRecording`) after AR init; and
+ * resetMainState / re-entry MUST dispose that wiring (subscription/GPU-leak
+ * regression). The `qr.enabled === false` (NOT wired) side is covered by the other
+ * main.*-wiring tests, whose options have qr disabled and which never call
+ * `wireQrRecording`. Mock harness follows the occupancy-cubes precedent.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// ---------- hoisted mocks (need to be available before vi.mock factories) ----------
+// ---------- hoisted mocks ----------
 
-const { mockCreateCameraFollower, mockFollower, mockCreateGpsCompassCubes } =
-  vi.hoisted(() => {
-    const mockFollower = {
-      object3D: { name: 'camera-follower' }, // matches SCENE_NODE.CAMERA_FOLLOWER
-      update: vi.fn(),
-      dispose: vi.fn(),
-    };
-    return {
-      mockCreateCameraFollower: vi.fn().mockReturnValue(mockFollower),
-      mockFollower,
-      mockCreateGpsCompassCubes: vi.fn(),
-    };
-  });
+const { mockWireQrRecording, qrRecordingDisposers } = vi.hoisted(() => {
+  const qrRecordingDisposers: Array<() => void> = [];
+  return {
+    qrRecordingDisposers,
+    mockWireQrRecording: vi.fn((_options: unknown) => {
+      const dispose = vi.fn();
+      qrRecordingDisposers.push(dispose);
+      return dispose;
+    }),
+  };
+});
 
-const {
-  mockGetArWorldGroup,
-  mockGetScene,
-  mockGetCamera,
-  mockSetFrameCallback,
-} = vi.hoisted(() => {
+const { mockGetArWorldGroup, mockGetScene, mockGetCamera } = vi.hoisted(() => {
   const mockArWorldGroup = { name: 'ar-world' };
   const mockScene = { name: 'scene' };
   const mockCamera = { name: 'camera' };
@@ -40,34 +36,27 @@ const {
     mockGetArWorldGroup: vi.fn().mockReturnValue(mockArWorldGroup),
     mockGetScene: vi.fn().mockReturnValue(mockScene),
     mockGetCamera: vi.fn().mockReturnValue(mockCamera),
-    mockSetFrameCallback: vi.fn(),
   };
 });
 
-// Tracking-quality subscriber spy. Each call returns a distinct dispose spy so
-// tests can assert prior subscriptions are disposed before a new one is wired.
-const { mockSubscribeHudToTrackingQuality, trackingQualityDisposers } =
-  vi.hoisted(() => {
-    const trackingQualityDisposers: Array<() => void> = [];
-    return {
-      trackingQualityDisposers,
-      mockSubscribeHudToTrackingQuality: vi.fn(() => {
-        const dispose = vi.fn();
-        trackingQualityDisposers.push(dispose);
-        return dispose;
-      }),
-    };
-  });
+// ---------- module under test seam ----------
 
-// ---------- mocks for all main.ts dependencies ----------
+vi.mock('./qr/wire-qr-recording', () => ({
+  wireQrRecording: mockWireQrRecording,
+}));
+
+// ---------- framework + app mocks (occupancy-cubes precedent) ----------
 
 vi.mock('gps-plus-slam-app-framework/visualization/camera-follower', () => ({
-  createCameraFollower: mockCreateCameraFollower,
+  createCameraFollower: vi.fn().mockReturnValue({
+    object3D: { name: 'camera-follower' },
+    update: vi.fn(),
+    dispose: vi.fn(),
+  }),
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/gps-compass-cubes', () => ({
-  createGpsCompassCubes: mockCreateGpsCompassCubes,
+  createGpsCompassCubes: vi.fn(),
 }));
-
 vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   initAR: vi.fn().mockResolvedValue(undefined),
   isWebXRSupported: vi.fn().mockResolvedValue(true),
@@ -79,7 +68,10 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setFrameCallback: mockSetFrameCallback,
+  setCameraFrameCallback: vi.fn(),
+  startCameraFrameCapture: vi.fn(),
+  stopCameraFrameCapture: vi.fn(),
+  setFrameCallback: vi.fn(),
   setTrackingLostCallback: vi.fn(),
   setTrackingCallbacks: vi.fn(),
   setTrackingRecoveredCallback: vi.fn(),
@@ -90,9 +82,6 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   getImageCaptureFrameCount: vi.fn().mockReturnValue(0),
   getDepthSampleCount: vi.fn().mockReturnValue(0),
 }));
-
-// ---------- lightweight stubs for the rest of main.ts imports ----------
-
 vi.mock('./utils/sentry', () => ({ initSentry: vi.fn() }));
 vi.mock('gps-plus-slam-js', () => ({
   odometryTrackingRestarted: vi.fn((payload: unknown) => ({
@@ -206,6 +195,7 @@ vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
   setCurrentScenario: vi.fn(),
   startSession: vi.fn(),
   resetForNewSession: vi.fn(),
+  clearRefPointsCacheForAllScenarios: vi.fn(),
 }));
 vi.mock('./storage/external-file-storage', () => ({
   isExternalStorageSupported: vi.fn().mockReturnValue(true),
@@ -216,9 +206,7 @@ vi.mock('./storage/external-file-storage', () => ({
   resetForNewRecording: vi.fn(),
   hasReadFolderPermission: vi.fn(),
 }));
-vi.mock('./storage/sync-manager', () => ({
-  createSyncManager: vi.fn(),
-}));
+vi.mock('./storage/sync-manager', () => ({ createSyncManager: vi.fn() }));
 vi.mock('gps-plus-slam-app-framework/storage/zip-export', () => ({
   syncToExternalZip: vi.fn(),
 }));
@@ -246,11 +234,13 @@ vi.mock('./state/recorder-store', () => ({
     dispatch: vi.fn(),
     getState: vi.fn().mockReturnValue({}),
     subscribe: vi.fn().mockReturnValue(() => {}),
+    writeFrame: vi.fn().mockResolvedValue(undefined),
   }),
   startSession: vi.fn(),
   endSession: vi.fn(),
   add2dImage: vi.fn(),
   recordDepthSample: vi.fn(),
+  recordQrDetection: vi.fn(),
 }));
 vi.mock('gps-plus-slam-app-framework/state/store-subscribers', () => ({
   wireStoreSubscribers: vi.fn().mockReturnValue(() => {}),
@@ -264,15 +254,24 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
-    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
+    // QR ENABLED — this file exercises the wired path.
+    qr: { enabled: true, intervalMs: 125, captureSize: 1024 },
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
     depth: { enabled: false, intervalMs: 1000 },
     occupancy: { cellSizeM: 0.15 },
     visualization: {
-      frameTiles: true,
-      occupancyCubes: true,
+      frameTiles: false,
+      occupancyCubes: false,
       gpsAlignmentMarkers: true,
-      compassCubes: true,
+      compassCubes: false,
+    },
+    arCrashIsolation: {
+      enableDomOverlay: true,
+      enableCameraAccess: true,
+      enableDepthSensingFeature: true,
+      enableCss3dRenderer: true,
+      enableCameraTextureAcquisition: true,
+      applyChromiumProjectionLayerWorkaround: false,
     },
   }),
 }));
@@ -311,16 +310,6 @@ vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
 vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
   gpsEventVisualizer: { setVisible: vi.fn(), clearAll: vi.fn() },
 }));
-vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
-  MapOverlay: vi.fn().mockImplementation(() => ({
-    isVisible: vi.fn().mockReturnValue(false),
-    toggle: vi.fn(),
-    updatePosition: vi.fn(),
-    setGpsPosition: vi.fn(),
-    getGpsPosition: vi.fn().mockReturnValue(null),
-    dispose: vi.fn(),
-  })),
-}));
 vi.mock(
   'gps-plus-slam-app-framework/visualization/leaflet-map-overlay',
   () => ({
@@ -346,11 +335,8 @@ vi.mock('gps-plus-slam-app-framework/ar/capture-failure-tracker', () => ({
 vi.mock('gps-plus-slam-app-framework', () => ({
   selectTrackingQuality: vi.fn().mockReturnValue(null),
 }));
-// Spy on the HUD tracking-quality subscriber so we can assert the dispose
-// handle returned by `subscribeHudToTrackingQuality` is honored across
-// enter-AR cycles and on resetMainState (subscription-leak regression).
 vi.mock('./ui/hud-tracking-quality-subscriber', () => ({
-  subscribeHudToTrackingQuality: mockSubscribeHudToTrackingQuality,
+  subscribeHudToTrackingQuality: vi.fn(() => vi.fn()),
 }));
 vi.mock('./replay/replay-handlers', () => ({
   createReplayHandlers: vi.fn().mockReturnValue({
@@ -368,6 +354,7 @@ vi.mock('./ref-points/ref-point-handlers', () => ({
   createRefPointHandlers: vi.fn().mockReturnValue({
     handleMarkRefPoint: vi.fn(),
     handleImportKml: vi.fn(),
+    checkNearbyRefPoint: vi.fn(),
     reset: vi.fn(),
   }),
 }));
@@ -376,6 +363,10 @@ vi.mock('./recording/recording-session-handlers', () => ({
     handleStartRecording: vi.fn(),
     handleStopRecording: vi.fn(),
     recordCaptureFailure: vi.fn(),
+    recordCaptureSuccess: vi.fn(),
+    recordWriteSuccess: vi.fn(),
+    recordWriteFailure: vi.fn(),
+    getCurrentSessionName: vi.fn().mockReturnValue(''),
     reset: vi.fn(),
   }),
 }));
@@ -391,157 +382,68 @@ vi.mock('./storage/folder-manager', () => ({
   }),
 }));
 
-// Import after all mocks are set up
+// Import after all mocks are set up.
 import { handleEnterARForTesting, resetMainState } from './main';
+import { setCameraFrameCallback } from 'gps-plus-slam-app-framework/ar/webxr-session';
 
-describe('Issue 8: CameraFollower wiring in live AR', () => {
+describe('Live-QR wiring in live AR (qr.enabled)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    trackingQualityDisposers.length = 0;
     resetMainState();
-
-    // Set up minimal DOM expected by main.ts module init
+    vi.clearAllMocks();
+    qrRecordingDisposers.length = 0;
     document.body.innerHTML = `
       <div id="app"></div>
-      <div id="setup-modal">
-        <h1 id="setup-title">Recorder</h1>
-      </div>
+      <div id="setup-modal"><h1 id="setup-title">Recorder</h1></div>
       <div id="controls"></div>
       <div id="replay-controls" class="hidden"></div>
       <div id="ref-point-picker-modal"></div>
     `;
   });
 
-  /**
-   * Why this test matters:
-   * Issue 8 requires a CameraFollower at the scene root (not arWorldGroup)
-   * so compass cubes stay GPS-aligned regardless of alignment matrix changes.
-   * If the follower is not created during AR init, compass directions will
-   * rotate with the alignment matrix (the discovered bug).
-   */
-  it('creates CameraFollower with scene root after AR init', async () => {
+  it('registers the camera-frame callback (before initAR) and wires QR recording when enabled', async () => {
     await handleEnterARForTesting();
 
-    expect(mockCreateCameraFollower).toHaveBeenCalledTimes(1);
-    expect(mockCreateCameraFollower).toHaveBeenCalledWith(mockGetScene());
+    // Camera-frame callback registered (the producer's frame feed).
+    expect(setCameraFrameCallback).toHaveBeenCalledTimes(1);
+
+    // QR recording wired once, after AR init, with the expected options.
+    expect(mockWireQrRecording).toHaveBeenCalledTimes(1);
+    const opts = mockWireQrRecording.mock.calls[0]?.[0] as {
+      storeRef: unknown;
+      getArWorldGroup: unknown;
+      qr: { enabled: boolean; intervalMs: number; captureSize: number };
+      setProducer: unknown;
+    };
+    expect(opts.storeRef).toBeDefined();
+    expect(opts.getArWorldGroup).toBe(mockGetArWorldGroup);
+    expect(opts.qr).toEqual({
+      enabled: true,
+      intervalMs: 125,
+      captureSize: 1024,
+    });
+    expect(typeof opts.setProducer).toBe('function');
   });
 
-  /**
-   * Why this test matters:
-   * Compass cubes provide cardinal direction indicators. They must be children
-   * of the follower so they track the camera's position but stay GPS-aligned.
-   */
-  it('creates GpsCompassCubes on the follower after AR init', async () => {
+  it('resetMainState disposes the QR recording wiring', async () => {
     await handleEnterARForTesting();
+    expect(qrRecordingDisposers).toHaveLength(1);
 
-    expect(mockCreateGpsCompassCubes).toHaveBeenCalledTimes(1);
-    expect(mockCreateGpsCompassCubes).toHaveBeenCalledWith(
-      mockFollower.object3D
-    );
+    resetMainState();
+    expect(qrRecordingDisposers[0]).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * Why this test matters:
-   * The follower must be updated every XR frame so the map tracks the camera
-   * smoothly. If the frame callback doesn't call follower.update(), the map
-   * will remain at origin instead of following the user.
-   */
-  it('frame callback updates the CameraFollower', async () => {
+  it('disposes the prior QR wiring when handleEnterAR re-enters', async () => {
     await handleEnterARForTesting();
+    expect(qrRecordingDisposers[0]).not.toHaveBeenCalled();
 
-    // setFrameCallback should have been called with a function
-    expect(mockSetFrameCallback).toHaveBeenCalledTimes(1);
-    const frameCallback = mockSetFrameCallback.mock.calls[0][0];
-    expect(typeof frameCallback).toBe('function');
-
-    // Invoke the callback — it should call follower.update()
-    (frameCallback as () => void)();
-
-    expect(mockFollower.update).toHaveBeenCalledTimes(1);
-    // Should pass camera and a positive dt (no arWorldGroup needed)
-    const [camera, dt] = mockFollower.update.mock.calls[0];
-    expect(camera).toBe(mockGetCamera());
-    expect(dt).toBeGreaterThanOrEqual(0);
+    await handleEnterARForTesting();
+    expect(qrRecordingDisposers[0]).toHaveBeenCalledTimes(1);
+    expect(mockWireQrRecording).toHaveBeenCalledTimes(2);
   });
 
-  /**
-   * Why this test matters:
-   * If arWorldGroup or scene is null (unexpected state), the follower should
-   * not be created and the frame callback should still function (no crash).
-   */
-  it('skips follower creation when arWorldGroup is null', async () => {
+  it('does not wire QR recording when the AR world group is unavailable', async () => {
     mockGetArWorldGroup.mockReturnValueOnce(null);
-
     await handleEnterARForTesting();
-
-    expect(mockCreateCameraFollower).not.toHaveBeenCalled();
-    expect(mockCreateGpsCompassCubes).not.toHaveBeenCalled();
-  });
-
-  it('skips follower creation when scene is null', async () => {
-    mockGetScene.mockReturnValueOnce(null);
-
-    await handleEnterARForTesting();
-
-    expect(mockCreateCameraFollower).not.toHaveBeenCalled();
-    expect(mockCreateGpsCompassCubes).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * Tracking-quality HUD subscription lifecycle.
- *
- * Why these tests matter:
- * `subscribeHudToTrackingQuality` returns a dispose function that detaches both
- * the per-store subscription and the store-swap listener. `handleEnterAR` can
- * run multiple times per page load (back to setup → Enter AR again). If the
- * dispose handle is ignored, every cycle appends another `storeRef` + `store`
- * subscriber that is never cleaned up — leaking memory and firing redundant HUD
- * updates. These tests pin the dispose-before-resubscribe and reset behavior.
- */
-describe('Tracking-quality HUD subscription cleanup', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    trackingQualityDisposers.length = 0;
-    resetMainState();
-
-    document.body.innerHTML = `
-      <div id="app"></div>
-      <div id="setup-modal">
-        <h1 id="setup-title">Recorder</h1>
-      </div>
-      <div id="controls"></div>
-      <div id="replay-controls" class="hidden"></div>
-      <div id="ref-point-picker-modal"></div>
-    `;
-  });
-
-  it('subscribes the HUD to tracking quality on AR entry', async () => {
-    await handleEnterARForTesting();
-
-    expect(mockSubscribeHudToTrackingQuality).toHaveBeenCalledTimes(1);
-    expect(trackingQualityDisposers).toHaveLength(1);
-    // The single live subscription must still be active (not disposed).
-    expect(trackingQualityDisposers[0]).not.toHaveBeenCalled();
-  });
-
-  it('disposes the previous subscription before re-subscribing on a second AR entry', async () => {
-    await handleEnterARForTesting();
-    await handleEnterARForTesting();
-
-    expect(mockSubscribeHudToTrackingQuality).toHaveBeenCalledTimes(2);
-    expect(trackingQualityDisposers).toHaveLength(2);
-    // First subscription was torn down; only the latest stays active.
-    expect(trackingQualityDisposers[0]).toHaveBeenCalledTimes(1);
-    expect(trackingQualityDisposers[1]).not.toHaveBeenCalled();
-  });
-
-  it('disposes the live subscription on resetMainState', async () => {
-    await handleEnterARForTesting();
-    expect(trackingQualityDisposers[0]).not.toHaveBeenCalled();
-
-    resetMainState();
-
-    expect(trackingQualityDisposers[0]).toHaveBeenCalledTimes(1);
+    expect(mockWireQrRecording).not.toHaveBeenCalled();
   });
 });

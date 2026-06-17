@@ -65,6 +65,7 @@ import {
   endARSession,
   setImageCaptureCallback,
   setDepthCaptureCallback,
+  setCameraFrameCallback,
   setFrameCallback,
   setTrackingLostCallback,
   setTrackingCallbacks,
@@ -181,6 +182,8 @@ import {
   type RecordingOptions,
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import { initSettingsModal } from './ui/settings-modal';
+import { wireQrRecording } from './qr/wire-qr-recording';
+import type { QrDetectionController } from 'gps-plus-slam-app-framework/ar';
 
 import { listFormatter } from 'gps-plus-slam-app-framework/utils/list-formatter';
 
@@ -255,6 +258,13 @@ let unsubscribeFrameTiles: (() => void) | null = null;
 let occupancyGrid: OccupancyGrid | null = null;
 let occupancyCubesVisualizer: OccupancyCubesVisualizer | null = null;
 let unsubscribeOccupancyGrid: (() => void) | null = null;
+
+// Live QR recording (opt-in, recording-options `qr`). The thin RAW producer
+// (created in handleEnterAR when enabled) receives camera frames via the
+// `setCameraFrameCallback` registered before initAR; `wireQrRecording` owns the
+// producer + the WS-5 debug-viz subscriber and returns a dispose handle.
+let qrProducer: QrDetectionController | null = null;
+let unsubscribeQrRecording: (() => void) | null = null;
 
 // HUD tracking-quality subscription. `subscribeHudToTrackingQuality` returns a
 // dispose function that detaches both the per-store subscription and the
@@ -580,6 +590,12 @@ export function resetMainState(): void {
   }
   occupancyGrid = null;
   setOccupancyGrid(null);
+  // Live QR teardown — stop capture, detach the producer + debug-viz subscriber.
+  if (unsubscribeQrRecording) {
+    unsubscribeQrRecording();
+    unsubscribeQrRecording = null;
+  }
+  qrProducer = null;
   liveFrameBlobs.clear();
   recordingSessionHandlers.reset();
   refPointHandlers.reset();
@@ -1086,6 +1102,14 @@ async function handleEnterAR(): Promise<void> {
       );
     });
 
+    // Live QR (opt-in): register the camera-frame callback BEFORE initAR (the
+    // frame source is created during init). Only when QR is enabled, so a
+    // disabled session never builds the source. The producer is created after
+    // initAR (handleEnterAR's arWorldGroup block) and forwarded frames here.
+    if (recordingOptions.qr.enabled) {
+      setCameraFrameCallback((image) => qrProducer?.offerFrame(image));
+    }
+
     // Set up tracking lost callback to warn user when AR tracking fails
     setTrackingLostCallback(() => {
       updateArInfo('⚠️ LOST');
@@ -1261,6 +1285,32 @@ async function handleEnterAR(): Promise<void> {
       } catch (err) {
         log.warn(
           'Occupancy grid wiring skipped; recording continues without depth cubes',
+          err
+        );
+      }
+
+      // Live QR RAW recording + WS-5 debug viz (opt-in). Gated on the operator
+      // setting; the camera-frame callback was registered before initAR above.
+      // Best-effort: a wiring failure must not break the AR session. Disposed
+      // first to avoid leaking the producer/subscriber across enter-AR cycles
+      // (same leak class as the occupancy/tracking-quality wiring).
+      try {
+        unsubscribeQrRecording?.();
+        unsubscribeQrRecording = null;
+        qrProducer = null;
+        if (recordingOptions.qr.enabled) {
+          unsubscribeQrRecording = wireQrRecording({
+            storeRef,
+            getArWorldGroup,
+            qr: recordingOptions.qr,
+            setProducer: (producer) => {
+              qrProducer = producer;
+            },
+          });
+        }
+      } catch (err) {
+        log.warn(
+          'QR recording wiring skipped; recording continues without QR capture',
           err
         );
       }

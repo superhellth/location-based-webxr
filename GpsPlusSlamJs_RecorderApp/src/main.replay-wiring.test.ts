@@ -243,6 +243,7 @@ vi.mock('gps-plus-slam-app-framework/state/store-subscribers', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
+    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
     images: {
       enabled: true,
       intervalMs: 2000,
