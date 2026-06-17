@@ -165,7 +165,8 @@ export const realSeams: QrDemoSeams = {
     // throttled capture — the source is the single cadence owner (Option A).
     qrFrameConsumer = onImage;
     // WS-C: allow a device tester to sweep the RGB capture resolution via
-    // `?capture=<px>` (no rebuild). Absent → the framework default (512).
+    // `?capture=<px>` (no rebuild). Absent → the framework default (1024, raised
+    // from 512 by the 2026-06-17 on-device sweep).
     const captureSize =
       typeof window !== "undefined"
         ? parseCaptureSizeParam(window.location.search)

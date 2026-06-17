@@ -6,7 +6,7 @@
  * on a device — it is not available in the headless test harness. To run that
  * sweep on-device WITHOUT a rebuild per resolution, the demo reads
  * `?capture=<px>` and forwards it as the camera-frame `captureSize` (longer-edge
- * blit budget). Absent/invalid → `undefined` (the framework default, 512, stands).
+ * blit budget). Absent/invalid → `undefined` (the framework default, 1024, stands).
  *
  * @see seams.ts — passes the result to `startCameraFrameCapture({ captureSize })`.
  * @see 2026-06-17-followup-qr-size-thin-demo-next-steps.md — the sweep method.

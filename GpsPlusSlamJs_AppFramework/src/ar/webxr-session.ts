@@ -235,7 +235,7 @@ export function resetWebXRState(): void {
   }
   cameraFrameSource = null;
   onCameraFrame = null;
-  cameraFrameCaptureSize = 512;
+  cameraFrameCaptureSize = DEFAULT_CAMERA_FRAME_CAPTURE_SIZE;
   if (cameraFrameBlit) {
     cameraFrameBlit.dispose();
     cameraFrameBlit = null;
@@ -393,8 +393,8 @@ const DEPTH_RGB_BLIT_CONFIG = { width: 256, height: 192 };
  * Session-owned blit target for the generic camera-frame RGBA capture
  * (framework-wiring options Part A / B2) — feeds QR detection today, object
  * detection / OpenCV later. Separate from `depthRgbBlit` (256×192) on purpose:
- * CV detection needs more pixels across the target (~512²) than a colour
- * lookup, but only at the detection cadence, so the {@link CameraFrameSource}
+ * CV detection needs more pixels across the target (~1024 long edge) than a
+ * colour lookup, but only at the detection cadence, so the {@link CameraFrameSource}
  * throttle keeps the readback off the per-frame path. Created lazily on the
  * first capture, disposed by resetWebXRState(). The longer-edge size is
  * configurable via `startCameraFrameCapture`; the blit preserves the camera
@@ -403,11 +403,25 @@ const DEPTH_RGB_BLIT_CONFIG = { width: 256, height: 192 };
 let cameraFrameBlit: CameraBlitCapture | null = null;
 
 /**
- * Longer-edge resolution of the camera-frame blit (px). Default 512 (plan B2).
- * The blit preserves the camera aspect, so the actual target is e.g. 512×384
- * for a 4:3 frame — see `computeAspectFitSize` / `acquireCameraFrameRgba`.
+ * Default longer-edge resolution (px) for the camera-frame blit the QR / CV
+ * detector sees. The on-device capture-resolution sweep (2026-06-17, via the
+ * `?capture=` override) showed **1024** decodes a small / out-of-focus QR
+ * markedly better than the prior 512 with no perceptible cadence cost on the
+ * test phone; 2048 helped slightly more but risks low-end devices (4096 lagged),
+ * so 1024 is the safe default. Raise per-consumer via
+ * `startCameraFrameCapture({ captureSize })`.
+ *
+ * @see GpsPlusSlamJs_Docs/docs/2026-06-17-qr-size-accuracy-and-thin-demo-plan.md (WS-C)
  */
-let cameraFrameCaptureSize = 512;
+export const DEFAULT_CAMERA_FRAME_CAPTURE_SIZE = 1024;
+
+/**
+ * Longer-edge resolution of the camera-frame blit (px), default
+ * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE}. The blit preserves the camera
+ * aspect, so the actual target is e.g. 1024×768 for a 4:3 frame — see
+ * `computeAspectFitSize` / `acquireCameraFrameRgba`.
+ */
+let cameraFrameCaptureSize = DEFAULT_CAMERA_FRAME_CAPTURE_SIZE;
 
 /**
  * Throttled camera frame source (created in initAR when `onCameraFrame` is
@@ -1681,11 +1695,12 @@ export interface CameraFrameCaptureConfig {
   /** Detection cadence (ms between captures). Default 125 (~8 Hz). */
   intervalMs?: number;
   /**
-   * Longer-edge resolution (px) of the camera-frame blit. Default 512 (plan
-   * B2). The blit preserves the camera ASPECT with its longer edge at this
-   * value (e.g. 512 → 512×384 for a 4:3 camera), so the target reaches the
-   * detector undistorted. A QR needs ~3–5 px per module; 512 on the long edge
-   * is the verified starting point. Applied before the first capture.
+   * Longer-edge resolution (px) of the camera-frame blit. Default
+   * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE} (1024). The blit preserves the
+   * camera ASPECT with its longer edge at this value (e.g. 1024 → 1024×768 for a
+   * 4:3 camera), so the target reaches the detector undistorted. A QR needs ~3–5
+   * px per module; the on-device sweep settled on 1024 (512 made small QRs decode
+   * only at very close range). Applied before the first capture.
    */
   captureSize?: number;
 }
@@ -1761,6 +1776,17 @@ export function stopCameraFrameCapture(): void {
  */
 export function getCameraFrameCount(): number {
   return cameraFrameSource?.getFrameCount() ?? 0;
+}
+
+/**
+ * The current longer-edge resolution (px) of the camera-frame blit — the
+ * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE} default unless overridden via
+ * `startCameraFrameCapture({ captureSize })`. Exposed for diagnostics and to
+ * let tests assert the on-device-tuned default without reaching into module
+ * state.
+ */
+export function getCameraFrameCaptureSize(): number {
+  return cameraFrameCaptureSize;
 }
 
 /**
