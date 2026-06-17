@@ -133,8 +133,9 @@ function meanOfInliers(
 
 /**
  * Pick the densest sample as the reference: the one with the most OTHER samples
- * within the inlier threshold. For a single rigid pose, RANSAC degenerates to
- * this mode-finding, and it is robust to the latest sample being an outlier.
+ * within the inlier threshold. For a single rigid pose, consensus-based outlier
+ * rejection degenerates to this mode-finding, and it is robust to the latest
+ * sample being an outlier.
  */
 function bestReference(
   samples: readonly GlQuat[],

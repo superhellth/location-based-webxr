@@ -4,10 +4,10 @@
  *
  * A detected QR is NOT a rigid re-anchor. Instead its solved pose is turned into
  * one (or, by default, four) very-high-weight synthetic GPS observation(s) and
- * injected into the existing weighted-Kabsch/RANSAC fusion via the normal
- * `recordGpsEvent` path. "Mostly but not entirely overrides the other votes"
- * then falls out of the existing accuracy→weight curve for free, and a single
- * bad detection is still rejectable as a RANSAC outlier rather than teleporting
+ * injected into the existing weighted alignment + outlier-rejection fusion via
+ * the normal `recordGpsEvent` path. "Mostly but not entirely overrides the other
+ * votes" then falls out of the existing accuracy→weight curve for free, and a
+ * single bad detection is still rejectable as an outlier rather than teleporting
  * the scene.
  *
  * Multi-correspondence (default): a single QR gives a full 6-DoF pose, but the
@@ -81,8 +81,8 @@ export interface QrGpsVoteInput {
    *
    * ⚠️ This adds NO new information — every point derives from the one solved
    * pose — so it is a pure leverage/reweighting device. Increasing `count`
-   * makes a BAD detection harder for RANSAC to reject (all pairs are wrong
-   * together); it is only safe because the pre-injection gates (reprojection,
+   * makes a BAD detection harder for the outlier-rejection step to reject (all
+   * pairs are wrong together); it is only safe because the pre-injection gates (reprojection,
    * occupancy plausibility, N-consecutive-lock) ensure only good detections vote.
    * Treat it as a bounded tuning knob, not a free dial (plan §1 "dominates but
    * does not entirely erase").

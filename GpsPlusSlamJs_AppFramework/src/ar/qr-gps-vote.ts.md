@@ -1,11 +1,10 @@
 # qr-gps-vote.ts
 
 **Purpose:** Turn a solved QR pose into synthetic high-weight GPS observation(s)
-for the existing weighted-Kabsch/RANSAC fusion — Phase 5 / §6 of the
+for the existing weighted alignment + outlier-rejection fusion — Phase 5 / §6 of the
 [QR-code detection & tracking plan](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-15-qr-code-detection-tracking-plan.md).
 A QR does **not** rigidly re-anchor the scene; it votes (heavily) via the normal
-`recordGpsEvent` path, so a bad detection is still rejectable as a RANSAC
-outlier.
+`recordGpsEvent` path, so a bad detection is still rejectable as an outlier.
 
 ## Public API
 
@@ -22,7 +21,8 @@ outlier.
     (vote-count) half of the knob. Physical-corner mode is the `baselineM = 0`
     special case. Throws `RangeError` for `count < 3` (collinear). ⚠️ Adds no new
     information (all points derive from one pose) — a larger `count` makes a bad
-    detection harder for RANSAC to reject, so it is a **bounded** tuning knob,
+    detection harder for the outlier-rejection step to reject, so it is a
+    **bounded** tuning knob,
     safe only because the pre-injection gates ensure only good detections vote.
 - `localPlaneToEnu(localX, localY, headingDeg): Enu` — QR-plane offset → ENU
   meters (vertical-QR convention: +y = up, +x along `headingDeg` clockwise from
@@ -75,8 +75,8 @@ for (const v of votes) store.dispatch(recordGpsEvent(v));
 - `qr-gps-vote.integration.test.ts` — the votes flow through the real
   `createSlamAppStore` + `recordGpsEvent` fusion and yield a finite alignment;
   a lone grossly-wrong high-weight vote does not produce a non-finite alignment
-  (RANSAC robustness — the magnitude of the "shift toward QR" is validated by
-  the Phase 6 demonstrator).
+  (outlier-rejection robustness — the magnitude of the "shift toward QR" is
+  validated by the Phase 6 demonstrator).
 
 ## Related
 

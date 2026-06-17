@@ -277,7 +277,7 @@ export function selectQrSize(
  *
  * Per the Note 3 decision (confirmed) a reliably-estimated *measured* size
  * drives the vote under the *same* gate as an authored size — no extra
- * size-specific bar — because the §7 occupancy + reprojection + RANSAC
+ * size-specific bar — because the §7 occupancy + reprojection + outlier-rejection
  * backstops already bound a bad read.
  */
 export function selectResolvedQrSizeM(

@@ -106,7 +106,7 @@ export interface QrTrackingControllerConfig {
    * `buildQrGpsVotes`. `voteBaselineM > 0` synthesizes the correspondences on a
    * polygon of that radius (stiffer rotation fit); `voteCount` (≥3) sets how
    * many. Leave unset for the default physical-corner mode. Treat as a bounded
-   * tuning knob — a larger count makes a bad detection harder to RANSAC-reject.
+   * tuning knob — a larger count makes a bad detection harder to outlier-reject.
    */
   voteBaselineM?: number;
   voteCount?: number;

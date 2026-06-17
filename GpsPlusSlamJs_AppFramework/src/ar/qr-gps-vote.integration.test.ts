@@ -3,11 +3,12 @@
  *
  * Why this test matters: the pure unit/property tests prove the payload
  * geometry; this proves the payloads are actually CONSUMABLE by the real
- * weighted-Kabsch/RANSAC fusion in `gps-plus-slam-js`. It dispatches the 4
- * synthetic corner votes through a real store and asserts the fusion ingests
- * them and produces a finite alignment, and that adding one grossly-wrong
- * high-weight vote does not crash or produce a non-finite alignment (the bridge
- * relies on RANSAC, not a trust-QR-absolutely bypass — plan §6).
+ * weighted alignment + outlier-rejection fusion in `gps-plus-slam-js`. It
+ * dispatches the 4 synthetic corner votes through a real store and asserts the
+ * fusion ingests them and produces a finite alignment, and that adding one
+ * grossly-wrong high-weight vote does not crash or produce a non-finite
+ * alignment (the bridge relies on outlier rejection, not a trust-QR-absolutely
+ * bypass — plan §6).
  *
  * The exact "alignment shifts toward the QR" magnitude is a library-fusion
  * behavior validated end-to-end by the Recorder demonstrator (Phase 6); here we

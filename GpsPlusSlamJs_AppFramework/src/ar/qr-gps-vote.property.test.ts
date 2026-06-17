@@ -1,7 +1,7 @@
 /**
  * QR pose → synthetic GPS-vote bridge — property tests.
  *
- * Why this test matters: for the Kabsch fusion to recover the right rotation,
+ * Why this test matters: for the alignment fusion to recover the right rotation,
  * the geo corners must form the SAME rigid square as the odom corners, for any
  * QR size, heading, and geo location. We verify both squares independently and
  * confirm their centroid is the QR center.
@@ -109,7 +109,7 @@ describe('buildQrGpsVotes — geo corners form a centered square of side sizeM',
 
 describe('buildQrGpsVotes — wide-baseline geo ring is congruent to the odom ring', () => {
   // The whole point of Note 2: the synthetic geo ring and odom ring must be the
-  // SAME rigid polygon, so the Kabsch fit recovers the right rotation — and each
+  // SAME rigid polygon, so the alignment fit recovers the right rotation — and each
   // point sits at `baselineM` from the center (the lever arm that stiffens north).
   it('matches the odom ring geometry for any size/heading/location/baseline/count', () => {
     fc.assert(
