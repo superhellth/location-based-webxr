@@ -24,12 +24,24 @@ const entryFiles = [
   'src/ar/capability-checker.ts',
   'src/ar/capture-failure-tracker.ts',
   'src/ar/chromium-camera-access-workaround.ts',
+  'src/ar/depth-grid-lookup.ts',
   'src/ar/depth-sampler.ts',
   'src/ar/depth-unprojection.ts',
   'src/ar/occupancy-grid.ts',
   'src/ar/enable-gps-ar.ts',
   'src/ar/frame-loop.ts',
   'src/ar/image-capture.ts',
+  // QR detection + derive-on-read + debug viz — deep-imported by the recorder's
+  // live-QR modules (NOT via the `/ar` barrel, which eagerly pulls
+  // permission-checker into partially-mocked wiring tests). The `./ar/*` exports
+  // wildcard already advertises these subpaths, so they must be built per-file.
+  'src/ar/planar-pnp.ts',
+  'src/ar/qr-debug-view.ts',
+  'src/ar/qr-derived-pose.ts',
+  'src/ar/qr-detection-controller.ts',
+  'src/ar/qr-frontend.ts',
+  'src/ar/qr-pose.ts',
+  'src/ar/qr-size-measurer.ts',
   'src/ar/replay-scene.ts',
   'src/ar/scene-node-names.ts',
   'src/ar/webxr-nue-basis.ts',
@@ -65,6 +77,9 @@ const entryFiles = [
   'src/state/tracking-quality.ts',
   'src/state/gps-event-coordinator.ts',
   'src/state/gps-ar-pose-sampler.ts',
+  // Deep-imported by the recorder's qr-debug-controller (selectDerivedQrPlacement)
+  // — same barrel-avoidance rationale as the ar/qr-* entries above.
+  'src/state/qr-detected-slice.ts',
   'src/state/recording-options.ts',
   'src/state/recording-replayer.ts',
   'src/state/replay-engine.ts',
