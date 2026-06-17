@@ -60,6 +60,27 @@ while the size is unknown (non-planar depth); a `null` solve, no depth,
 no-corner-depth, no detection, and a degenerate quad all stay scanning without
 recording; `resolveStablePose` overrides the rendered pose; `reset` → idle.
 
+## Why a separate controller (O-D1 — thin-demo audit, WS-D)
+
+This controller deliberately parallels the framework's `createQrTrackingController`
+(both: detect → solve pose → emit → status machine → scheduler). The audit
+(`2026-06-17-qr-size-accuracy-and-thin-demo-plan.md`, WS-D) confirmed that **every
+non-trivial piece is already framework code** — `createDetectionScheduler`,
+`createQrSizeMeasurer`, `solveQrPose` + `PlanarPnpSquare`, `intrinsicsFromProjection`,
+`validateQuad`. What remains here is **pure wiring** plus one demo-specific policy:
+the relaxed "size-exists" overlay gate (place as soon as any size is measured),
+which is intentionally NOT the framework's strict `estimated` GPS-vote gate.
+
+The demo cannot reuse `createQrTrackingController` as-is because that controller is
+**level/geo-centric** (`fetchLevel` → `QrLevel`, GPS votes) and delegates size to a
+`resolveSizeM(text, level)` callback that does **not** receive the per-frame
+corners/image/depth the depth→size measurement needs. Unifying them (**O-D1 option
+D-X**: make the framework controller level-optional + add a size-from-depth hook,
+then delete this file) is the right end state, but it is **deferred until the
+Recorder's live-QR path exists** — generalising shared, well-tested code for a
+single consumer is premature; the second consumer should drive the abstraction. See
+the follow-up `2026-06-17-followup-qr-size-thin-demo-next-steps.md` (D-X).
+
 ## Related
 
 - The PnP backend: [planar-pnp.ts.md](../../GpsPlusSlamJs_AppFramework/src/ar/planar-pnp.ts.md)
