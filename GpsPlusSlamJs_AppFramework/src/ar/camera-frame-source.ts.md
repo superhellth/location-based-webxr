@@ -15,7 +15,11 @@ performs the camera-texture blit + readback **only at the detection cadence**
   - `onFrame(timestamp: number): void` — call once per XR frame; captures at most
     once per `intervalMs`.
   - `getFrameCount(): number` — successful captures since `start()`.
-  - `getConfig()` / `updateConfig(partial)` — `intervalMs` only; invalid values ignored.
+  - `getConfig()` / `updateConfig(partial)` — `intervalMs` only; invalid values
+    ignored. The **constructor routes its optional `config` through
+    `updateConfig`**, so the same validation applies at construction — an invalid
+    `intervalMs` (≤ 0, `NaN`, `Infinity`) falls back to the default cadence rather
+    than bypassing the throttle (which would capture on every frame).
 - `CameraFrameSourceCallbacks`
   - `capture: () => RgbaImage | null` — the GPU blit → top-left RGBA (production:
     `CameraBlitCapture.captureToRgba`). `null` = no frame this tick.
@@ -70,4 +74,6 @@ src.onFrame(time);
 
 - `camera-frame-source.test.ts` — throttle math, the **performance regression**
   test (≈ 8 captures over ~1 s of 60 fps frames, not ~60), null-retry,
-  throw-safety, stop/restart, and `updateConfig` validation.
+  throw-safety, stop/restart, and `updateConfig` validation — plus the
+  **constructor-validation** block proving an invalid `intervalMs` passed at
+  construction is rejected the same way (and does not bypass the throttle).

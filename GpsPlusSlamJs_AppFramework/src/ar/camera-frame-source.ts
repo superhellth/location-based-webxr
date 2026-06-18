@@ -84,7 +84,13 @@ export class CameraFrameSource {
     config?: Partial<CameraFrameSourceConfig>
   ) {
     this.callbacks = callbacks;
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    // Route the optional config through updateConfig so the SAME validation
+    // applies at construction as at runtime — an invalid intervalMs (≤ 0, NaN,
+    // Infinity) must fall back to the default cadence, never bypass the throttle.
+    this.config = { ...DEFAULT_CONFIG };
+    if (config) {
+      this.updateConfig(config);
+    }
   }
 
   /** Begin throttling. Resets the cadence so the first tick captures. */

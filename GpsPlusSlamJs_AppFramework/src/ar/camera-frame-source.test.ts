@@ -152,6 +152,51 @@ describe('CameraFrameSource', () => {
     expect(src.getFrameCount()).toBe(1); // reset zeroed the counter
   });
 
+  describe('constructor config validation', () => {
+    /**
+     * Why this test matters: `updateConfig` already validates `intervalMs`
+     * (see the block below), but the constructor is a second entry point for
+     * the SAME config. It must apply the SAME guard — otherwise an invalid
+     * value passed at construction silently bypasses validation. `intervalMs`
+     * is typed `number`, so `0`, a negative, `NaN` or `Infinity` are all
+     * type-valid inputs that need no cast to reach this path.
+     */
+    it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])(
+      'ignores an invalid constructor intervalMs (%s) and keeps the default',
+      (bad) => {
+        const src = new CameraFrameSource(
+          { capture: () => null, onCapture: vi.fn() },
+          { intervalMs: bad }
+        );
+        expect(src.getConfig().intervalMs).toBe(125);
+      }
+    );
+
+    /**
+     * The concrete harm of the missing guard (regression): a `NaN` interval
+     * makes the throttle check `timestamp - lastCaptureTime < NaN` always
+     * false, so EVERY frame captures — exactly the per-frame blit the whole
+     * throttle exists to prevent. With validation, the default 125 ms cadence
+     * is restored and ~1 s of 60 fps frames yields ≈ 8 captures, not 60.
+     */
+    it('does not let an invalid constructor intervalMs bypass the throttle', () => {
+      const capture = vi.fn(() => fakeImage());
+      const onCapture = vi.fn();
+      const src = new CameraFrameSource(
+        { capture, onCapture },
+        { intervalMs: Number.NaN }
+      );
+      src.start();
+
+      const FRAME_MS = 1000 / 60;
+      for (let i = 0; i < 60; i++) {
+        src.onFrame(i * FRAME_MS);
+      }
+
+      expect(capture.mock.calls.length).toBeLessThanOrEqual(9);
+    });
+  });
+
   describe('updateConfig', () => {
     it('applies a valid intervalMs', () => {
       const src = new CameraFrameSource({
