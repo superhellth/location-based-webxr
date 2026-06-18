@@ -161,6 +161,7 @@ const {
     mockShowConfirmDialog: vi.fn().mockResolvedValue(false),
     mockGpsEventVisualizer: {
       clearAll: vi.fn(),
+      setVisible: vi.fn(),
       getCounts: vi.fn().mockReturnValue({ raw: 0, fused: 0, snapshots: 0 }),
       getAlignmentSnapshotPositions: vi.fn().mockReturnValue([]),
     },
@@ -460,6 +461,46 @@ describe('handleStartRecording', () => {
     // Why: Previous recording markers must be cleared
     await handlers.handleStartRecording();
     expect(mockGpsEventVisualizer.clearAll).toHaveBeenCalled();
+  });
+
+  it('re-applies the gpsAlignmentMarkers opt-out AFTER clearAll (regression)', async () => {
+    // Bug (2026-06-18): Enter-AR applies the operator's `gpsAlignmentMarkers`
+    // opt-out via gpsEventVisualizer.setVisible(false), but handleStartRecording
+    // then calls clearAll(), which resets the shared visualizer to its pristine
+    // VISIBLE state (a replay-safety reset). Markers spawned by the live
+    // store-subscriber during recording therefore reappeared despite the toggle
+    // being OFF. The handler must re-assert the opt-out AFTER clearAll, or the
+    // reset wins.
+    const localDeps = createMockDeps({
+      getRecordingOptions: () => ({
+        ...defaultOptions,
+        visualization: {
+          ...defaultOptions.visualization,
+          gpsAlignmentMarkers: false,
+        },
+      }),
+    });
+    const localHandlers = createRecordingSessionHandlers(localDeps);
+
+    await localHandlers.handleStartRecording();
+
+    expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(false);
+    // Crucially AFTER clearAll — otherwise clearAll's reset-to-visible wins and
+    // the markers reappear (the exact reported symptom).
+    const clearOrder =
+      mockGpsEventVisualizer.clearAll.mock.invocationCallOrder[0];
+    const setVisibleOrder =
+      mockGpsEventVisualizer.setVisible.mock.invocationCallOrder[0];
+    expect(setVisibleOrder).toBeGreaterThan(clearOrder);
+  });
+
+  it('re-applies the current gpsAlignmentMarkers value (visible) after clearAll', async () => {
+    // Symmetry: with the toggle ON the re-assert is harmless (clearAll already
+    // left markers visible) but keeps the visibility explicit and order-safe.
+    await handlers.handleStartRecording();
+    expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(
+      defaultOptions.visualization.gpsAlignmentMarkers
+    );
   });
 
   it('should create a new store via deps', async () => {

@@ -303,6 +303,15 @@ export function createRecordingSessionHandlers(
 
     resetCoordinatorState();
     gpsEventVisualizer.clearAll();
+    // clearAll() resets the shared visualizer to its pristine VISIBLE state (so a
+    // prior live opt-out can't leak into replay). This clearAll runs AFTER
+    // Enter-AR already applied the operator's `visualization.gpsAlignmentMarkers`
+    // opt-out via setVisible(), so without re-asserting it here the markers spawned
+    // by the live store-subscriber during recording reappear despite the toggle
+    // being off (regression 2026-06-18). Re-apply the current option now.
+    gpsEventVisualizer.setVisible(
+      deps.getRecordingOptions().visualization.gpsAlignmentMarkers
+    );
 
     // Cleanup previous store subscription if any
     if (unsubscribeStore) {
