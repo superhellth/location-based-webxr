@@ -575,6 +575,113 @@ No errors</pre
           </details>
 
           <div class="space-y-4">
+            <!-- ============================================================ -->
+            <!-- Permission Status Section — moved to the TOP of the setup    -->
+            <!-- flow (D6 item 1, 2026-06-16 user feedback). Permissions are  -->
+            <!-- the upfront gating action; storage / scenario / notes follow.-->
+            <!-- ============================================================ -->
+            <div id="permission-section" class="space-y-2">
+              <label class="block text-sm text-gray-400 mb-1"
+                >Required Permissions</label
+              >
+              <div class="bg-gray-700/50 rounded-lg p-3 space-y-2">
+                <!-- File Storage Status (shown first per user feedback Issue #1) -->
+                <div
+                  id="perm-filestorage"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📁</span>
+                    <span>File Storage</span>
+                  </span>
+                  <span
+                    id="perm-filestorage-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >⏳ Pending</span
+                  >
+                </div>
+                <!-- WebXR/AR Status -->
+                <div
+                  id="perm-webxr"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>🥽</span>
+                    <span>AR + Depth Sensing</span>
+                  </span>
+                  <span
+                    id="perm-webxr-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Camera Status -->
+                <div
+                  id="perm-camera"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📷</span>
+                    <span>Camera</span>
+                  </span>
+                  <span
+                    id="perm-camera-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Orientation Status (optional) -->
+                <div
+                  id="perm-orientation"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>🧭</span>
+                    <span>Compass</span>
+                    <span class="text-xs text-gray-500">(optional)</span>
+                  </span>
+                  <span
+                    id="perm-orientation-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+                <!-- Geolocation Status (requested LAST — D6 item 2) -->
+                <div
+                  id="perm-gps"
+                  class="flex items-center justify-between text-sm"
+                >
+                  <span class="flex items-center gap-2">
+                    <span>📍</span>
+                    <span>Location (GPS)</span>
+                  </span>
+                  <span
+                    id="perm-gps-status"
+                    class="text-yellow-400"
+                    aria-live="polite"
+                    >Checking...</span
+                  >
+                </div>
+              </div>
+              <!-- Request Permissions Button -->
+              <button
+                id="btn-request-permissions"
+                class="w-full bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-400 focus:outline-none disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg transition-all hidden"
+                aria-label="Grant required permissions"
+              >
+                Grant Permissions
+              </button>
+              <!-- Permission error message -->
+              <p
+                id="permission-error"
+                class="text-xs text-red-400 text-center hidden"
+              ></p>
+            </div>
+
             <!-- Storage Setup - REQUIRED for recording -->
             <div
               id="storage-setup"
@@ -669,109 +776,6 @@ No errors</pre
                 placeholder="Weather, device, etc..."
                 disabled
               ></textarea>
-            </div>
-
-            <!-- Permission Status Section -->
-            <div id="permission-section" class="space-y-2">
-              <label class="block text-sm text-gray-400 mb-1"
-                >Required Permissions</label
-              >
-              <div class="bg-gray-700/50 rounded-lg p-3 space-y-2">
-                <!-- File Storage Status (shown first per user feedback Issue #1) -->
-                <div
-                  id="perm-filestorage"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span>📁</span>
-                    <span>File Storage</span>
-                  </span>
-                  <span
-                    id="perm-filestorage-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >⏳ Pending</span
-                  >
-                </div>
-                <!-- WebXR/AR Status -->
-                <div
-                  id="perm-webxr"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span>🥽</span>
-                    <span>AR + Depth Sensing</span>
-                  </span>
-                  <span
-                    id="perm-webxr-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >Checking...</span
-                  >
-                </div>
-                <!-- Geolocation Status -->
-                <div
-                  id="perm-gps"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span>📍</span>
-                    <span>Location (GPS)</span>
-                  </span>
-                  <span
-                    id="perm-gps-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >Checking...</span
-                  >
-                </div>
-                <!-- Camera Status -->
-                <div
-                  id="perm-camera"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span>📷</span>
-                    <span>Camera</span>
-                  </span>
-                  <span
-                    id="perm-camera-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >Checking...</span
-                  >
-                </div>
-                <!-- Orientation Status (optional) -->
-                <div
-                  id="perm-orientation"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span>🧭</span>
-                    <span>Compass</span>
-                    <span class="text-xs text-gray-500">(optional)</span>
-                  </span>
-                  <span
-                    id="perm-orientation-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >Checking...</span
-                  >
-                </div>
-              </div>
-              <!-- Request Permissions Button -->
-              <button
-                id="btn-request-permissions"
-                class="w-full bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-400 focus:outline-none disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg transition-all hidden"
-                aria-label="Grant required permissions"
-              >
-                Grant Permissions
-              </button>
-              <!-- Permission error message -->
-              <p
-                id="permission-error"
-                class="text-xs text-red-400 text-center hidden"
-              ></p>
             </div>
 
             <!-- Start Button -->

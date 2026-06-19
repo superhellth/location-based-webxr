@@ -166,6 +166,23 @@ test.describe('Setup Modal Flow', () => {
     await expect(warning).toBeAttached();
   });
 
+  // D6 item 1 (2026-06-16 user feedback): the Required Permissions section is
+  // the upfront action on the setup screen — it must render ABOVE the storage,
+  // scenario and notes blocks (it used to be the last block). Codifies the
+  // structural reorder so it can't silently regress.
+  test('permissions section renders above storage setup', async ({ page }) => {
+    const permSection = page.locator('#permission-section');
+    const storageSetup = page.locator('#storage-setup');
+    await expect(permSection).toBeVisible();
+    await expect(storageSetup).toBeVisible();
+    const permBox = await permSection.boundingBox();
+    const storageBox = await storageSetup.boundingBox();
+    expect(permBox).not.toBeNull();
+    expect(storageBox).not.toBeNull();
+    // Permissions must sit above storage (smaller top y).
+    expect(permBox.y).toBeLessThan(storageBox.y);
+  });
+
   test('setup modal title is correct', async ({ page }) => {
     await expect(
       page.getByRole('heading', { name: 'GPS + SLAM Recorder' })

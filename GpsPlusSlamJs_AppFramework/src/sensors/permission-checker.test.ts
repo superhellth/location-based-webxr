@@ -581,6 +581,58 @@ describe('permission-checker', () => {
       expect(result.webxr.error).toContain('AR access denied');
       expect(result.allMandatoryReady).toBe(false);
     });
+
+    /**
+     * Why this test matters (D6 item 2, 2026-06-16 RecorderApp user feedback):
+     * the permission prompts must be requested AR-essentials-first with
+     * Location/GPS LAST — testers found GPS interrupting the AR+camera flow
+     * confusing. This locks the request order: WebXR → Camera → Geolocation
+     * (orientation has no observable side effect on non-iOS, so it is not part
+     * of the assertion). GPS must come after both WebXR and camera.
+     */
+    it('requests GPS last — after WebXR and camera', async () => {
+      const callOrder: string[] = [];
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([{ stop: vi.fn() }]),
+      };
+      const mockSession = {
+        end: vi.fn().mockResolvedValue(undefined),
+      };
+
+      vi.stubGlobal('navigator', {
+        xr: {
+          isSessionSupported: vi.fn().mockResolvedValue(true),
+          requestSession: vi.fn().mockImplementation(() => {
+            callOrder.push('webxr');
+            return Promise.resolve(mockSession);
+          }),
+        },
+        geolocation: {
+          getCurrentPosition: vi
+            .fn()
+            .mockImplementation((success: PositionCallback) => {
+              callOrder.push('gps');
+              success({} as GeolocationPosition);
+            }),
+        },
+        mediaDevices: {
+          getUserMedia: vi.fn().mockImplementation(() => {
+            callOrder.push('camera');
+            return Promise.resolve(mockStream);
+          }),
+        },
+        permissions: {
+          query: vi.fn().mockResolvedValue({ state: 'prompt' }),
+        },
+        storage: { getDirectory: vi.fn() },
+      });
+      vi.stubGlobal('DeviceOrientationEvent', {});
+      setFileSystemState({ folderSelected: true, writeVerified: true });
+
+      await requestAllPermissions();
+
+      expect(callOrder).toEqual(['webxr', 'camera', 'gps']);
+    });
   });
 
   /**
