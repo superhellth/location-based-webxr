@@ -496,6 +496,15 @@ export function createRecordingSessionHandlers(
     setStopButtonBusy(true);
     try {
       await performStop();
+    } catch (err) {
+      // performStop guards its slow I/O (metadata write, final sync, ZIP export)
+      // individually, but its tail (end-session dispatch, summary build/render)
+      // is unguarded and runs *before* hideRecordingControls(). If it throws,
+      // the recording controls stay on screen with the Stop button stuck busy
+      // + "Stopping…" — a bricked UI. Restore the button to idle so the user can
+      // retry, then re-throw so the failure is still reported (Sentry).
+      setStopButtonBusy(false);
+      throw err;
     } finally {
       stopInProgress = false;
     }

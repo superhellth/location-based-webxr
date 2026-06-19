@@ -1066,6 +1066,39 @@ describe('handleStopRecording', () => {
     expect(mockSetStopButtonBusy).toHaveBeenCalledWith(true);
   });
 
+  it('restores the Stop button to idle when performStop throws, so the UI is not bricked', async () => {
+    // UI feedback for async actions (CLAUDE.md): if teardown throws *after* the
+    // button is marked busy but *before* hideRecordingControls() runs (e.g. the
+    // summary screen fails to render, or an end-session subscriber throws), the
+    // recording controls stay on screen with the Stop button stuck disabled +
+    // "Stopping…" forever — a bricked UI. The busy state set on entry must be
+    // symmetrically restored on the error path, and the error must still
+    // propagate so it is reported (Sentry) rather than swallowed.
+    mockGetSaveFileHandle.mockReturnValue(null);
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+
+    // Inject the throw in the unguarded tail *before* hideRecordingControls()
+    // runs (computeFusedPath builds the summary at performStop line ~709, the
+    // controls are hidden at ~734), so the recording controls genuinely stay on
+    // screen and the stuck button is the only thing keeping the UI usable.
+    const tailError = new Error('summary build failed');
+    mockComputeFusedPath.mockImplementationOnce(() => {
+      throw tailError;
+    });
+
+    await expect(handlers.handleStopRecording()).rejects.toThrow(tailError);
+
+    // Busy on entry, then restored to idle on the failure path.
+    expect(mockSetStopButtonBusy).toHaveBeenCalledWith(true);
+    expect(mockSetStopButtonBusy).toHaveBeenCalledWith(false);
+    // We threw before the terminal transition, so the recording controls are
+    // still visible (and the summary never rendered) — the idle restoration of
+    // the Stop button is what un-bricks the UI.
+    expect(mockHideRecordingControls).not.toHaveBeenCalled();
+    expect(mockShowSessionSummary).not.toHaveBeenCalled();
+  });
+
   it('is unaffected by cleanupForNewRecording racing the in-flight final sync', async () => {
     // Defense in depth (capture-local): the other concurrent path is an XR
     // session-end firing cleanupForNewRecording() while the final sync is still
