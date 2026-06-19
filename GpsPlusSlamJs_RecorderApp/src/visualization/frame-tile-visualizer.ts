@@ -65,13 +65,16 @@ export interface FrameTileVisualizerOptions {
    * image shape (the longer edge equals this value, the shorter edge is
    * `sizeMeters × shorter/longer`). Frames without persisted dimensions
    * (legacy recordings) fall back to a square `sizeMeters × sizeMeters`
-   * tile. Defaults to 0.2 m (20 cm) — visible without dominating the scene
-   * at typical walking-pace capture cadence.
+   * tile. Defaults to 0.1 m (10 cm) — halved from 0.2 (D7, 2026-06-16 user
+   * feedback) so the floating captured-frame tiles are "less in your face"
+   * (the field tester read a tile spawning at the pose as the camera "zooming
+   * in"). Plane-size only — this does NOT reduce per-tile texture memory; the
+   * separate display-resolution divisor (Slice 4b) does.
    */
   readonly sizeMeters?: number;
 }
 
-const DEFAULT_SIZE = 0.2;
+const DEFAULT_SIZE = 0.1;
 const NAME_PREFIX = 'frame-tile';
 /** Name of the internal `WEBXR_TO_NUE` basis node tiles hang off. */
 const BASIS_NODE_NAME = 'frame-tile-basis';

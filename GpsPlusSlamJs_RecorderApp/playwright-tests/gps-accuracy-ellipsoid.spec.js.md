@@ -18,7 +18,7 @@ at the same world position.
 - Low-accuracy event (40 m reported uncertainty) → bbox ≈ 80 m × 80 m × 80 m (tolerance 70–90 m).
 - High-accuracy event (5 m reported uncertainty) → bbox ≈ 10 m × 10 m × 10 m (tolerance 8–12 m).
 - Ratio between the two ≈ 8 (tolerance 6–10) on every axis — the actual user-visible diagnostic.
-- Missing accuracy → legacy fixed 8 cm sphere (bbox ≈ 16 cm, tolerance 0.1–0.2 m).
+- Missing accuracy → legacy fixed 4 cm sphere (bbox ≈ 8 cm, tolerance 0.05–0.1 m; radius halved 0.08 → 0.04 per D5).
 - Asymmetric `{ horizontal: 3, vertical: 30 }` → tall narrow ellipsoid (y/x ratio ≈ 10).
 
 ## Why bounding boxes, not pixel diffs

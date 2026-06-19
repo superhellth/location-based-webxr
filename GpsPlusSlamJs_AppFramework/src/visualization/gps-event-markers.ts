@@ -23,11 +23,21 @@ import { VIS_COLORS } from './vis-colors';
 
 const log = createLogger('GpsEventVisualizer');
 
-/** Sphere radius in meters (8cm - smaller than reference point markers) */
-const GPS_MARKER_RADIUS = 0.08;
+/**
+ * Sphere radius in meters for the raw-GPS / fused debug markers.
+ *
+ * Halved 0.08 → 0.04 (D5, 2026-06-16 user feedback): these "different colours"
+ * tracking spheres were cluttering the AR scene and hiding the ref-point
+ * markers. They now shrink while the ref-point marker spheres grow (×2), so the
+ * marker the user cares about stands out. This is a framework-level constant
+ * rendered in BOTH live recording and replay, so replays of older recordings
+ * also show the smaller debug spheres — intended and accepted (requester
+ * decision); a plain constant change is correct (no live-vs-replay flag).
+ */
+const GPS_MARKER_RADIUS = 0.04;
 
-/** Slightly larger radius for alignment snapshots to stand out */
-const SNAPSHOT_MARKER_RADIUS = 0.1;
+/** Slightly larger radius for alignment snapshots to stand out (halved 0.1 → 0.05 with the GPS markers, D5). */
+const SNAPSHOT_MARKER_RADIUS = 0.05;
 
 /**
  * Default opacity for the yellow raw-GPS sphere when it is rendered at the

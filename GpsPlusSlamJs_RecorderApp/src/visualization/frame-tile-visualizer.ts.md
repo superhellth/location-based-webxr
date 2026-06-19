@@ -38,6 +38,13 @@ class FrameTileVisualizer {
   `OccupancyCubesVisualizer`.
 - **Shared geometry** — one `PlaneGeometry(1, 1)` at module scope,
   reused by every tile. Per-tile size comes from `mesh.scale`.
+- **Default plane size `DEFAULT_SIZE = 0.1` m** (halved from 0.2, D7,
+  [2026-06-16-user-feedback-team1.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-16-user-feedback-team1.md)).
+  The field tester read a tile spawning at the current pose as the camera
+  "zooming in"; the smaller plane is less "in your face". **Plane size only —
+  this does NOT reduce per-tile GPU texture memory.** The separate
+  display-resolution divisor (Slice 4b) downscales the texture and is the part
+  that cuts memory.
 - **Aspect-correct sizing (Finding 1 / D1 of
   [2026-06-13-frame-tile-rendering-bugs-user-feedback.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-13-frame-tile-rendering-bugs-user-feedback.md)).**
   The shared geometry is square, so a non-square JPEG would be **stretched**

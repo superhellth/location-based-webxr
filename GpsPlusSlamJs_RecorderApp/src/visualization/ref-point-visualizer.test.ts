@@ -300,6 +300,26 @@ describe('RefPointVisualizer', () => {
     });
 
     /**
+     * Why this test matters (D5, 2026-06-16 user feedback): the field tester
+     * "barely saw" the ref-point marker amid the compass + point-cloud cubes.
+     * The decision keeps those cubes ON and instead makes the ref-point marker
+     * the ONLY sphere that grows — to double the `syncGpsAnchoredMeshes`
+     * default radius (0.1 → 0.2) — while the other GPS-anchored debug spheres
+     * halve. Lock the *rendered geometry radius* (not just the opts literal) so
+     * a future refactor of `REF_POINT_OPTS` can't silently drop it.
+     */
+    it('renders the ref-point marker at the doubled 0.2 m radius so it stays spottable', () => {
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.syncRefPoints([
+        createMockReferencePoint('rp1', 48.8567, 2.3523),
+      ]);
+
+      const mesh = mockScene.children[0] as THREE.Mesh;
+      const geo = mesh.geometry as THREE.SphereGeometry;
+      expect(geo.parameters.radius).toBeCloseTo(0.2);
+    });
+
+    /**
      * Why this test matters: `syncRefPoints` no-ops while `zeroRef` is
      * null. The class docstring promises "the next call once the AR
      * session is up will reconcile", but the only place a zero reference

@@ -123,7 +123,7 @@ describe('FrameTileVisualizer', () => {
     scene.updateMatrixWorld(true);
 
     const mesh = findTile(arWorldGroup, 'frames/a.jpg');
-    // decompose (not setFromMatrix*) so the tile's 0.2 scale is factored
+    // decompose (not setFromMatrix*) so the tile's uniform scale is factored
     // out of the extracted rotation.
     const world = new THREE.Vector3();
     const worldQuat = new THREE.Quaternion();
@@ -147,13 +147,14 @@ describe('FrameTileVisualizer', () => {
   });
 
   // Why: tile size is observable via mesh.scale because the geometry
-  // is a unit plane shared across all tiles. Default 20 cm keeps tiles
-  // visible without dominating the scene.
-  it('scales the shared unit-plane geometry to the configured size (20 cm default)', () => {
+  // is a unit plane shared across all tiles. Default 10 cm (halved from 20 cm,
+  // D7) keeps tiles visible without dominating the scene / reading as a
+  // camera "zoom in".
+  it('scales the shared unit-plane geometry to the configured size (10 cm default)', () => {
     const viz = new FrameTileVisualizer(arSpaceNode);
     viz.addTile(makeFrame(), texture);
     const mesh = findTile(arSpaceNode, 'frames/frame-000001.jpg');
-    expect(mesh.scale.toArray()).toEqual([0.2, 0.2, 0.2]);
+    expect(mesh.scale.toArray()).toEqual([0.1, 0.1, 0.1]);
   });
 
   it('honours an explicit sizeMeters option', () => {
