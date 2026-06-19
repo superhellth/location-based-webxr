@@ -1,7 +1,10 @@
 # GpsPlusSlamJs Recorder App (WebXR/Three.js)
 
-> **Live:** deployed at **<https://gps.csutil.com/recorder/>** (the "Example app
-> to evaluate the tracking accuracy" linked from the landing page).
+> **Live:** deployed at **<https://gps.csutil.com/recorder/>**. It records
+> reusable AR + GPS datasets — for 3D reconstruction (COLMAP / Gaussian
+> splatting), alignment-quality evaluation, desktop replay, and geo-anchored
+> site documentation. (Linked from the landing page as the example app to
+> evaluate tracking accuracy — one of those use cases.)
 
 > **New to the framework?** This recorder is the **full** rung of the example
 > ladder (trivial → starter → full). Start smaller with the
@@ -16,7 +19,7 @@
 
 - **The Problem:** AR systems (like ARCore/ARKit) provide precise local tracking but drift over time and have no concept of global coordinates (latitude/longitude). GPS provides global coordinates but is noisy and lacks precise orientation.
 - **The Solution:** The library aligns the local AR coordinate system with the global GPS frame in real-time. It uses a point-set registration algorithm to continuously compute the transformation matrix between the two worlds.
-- **Why this Recorder?** Developing and testing these alignment algorithms requires complex, real-world data (e.g., walking around large outdoor areas). This Recorder App captures raw sensor inputs (AR poses, GPS readings, device orientation) and user interactions into a format that can be replayed deterministically. This allows developers to fix bugs, tune algorithms, and verify logic without needing to physically go outside for every test run.
+- **Why this Recorder?** It captures synchronized real-world AR + GPS data — AR poses, GPS readings, device orientation, camera frames and depth, plus user-marked reference points — into a format that can be replayed deterministically. That single dataset serves several developer use cases: build 3D reconstructions (COLMAP / Gaussian splatting — the recorder emits a COLMAP `sparse/0/` model, see [`src/colmap/`](src/colmap/)), **evaluate GPS↔AR alignment quality**, re-run sessions in desktop replay for debugging and parameter tuning without going outside for every test, and **document a site** with accurate geo-anchored photos, point clouds and reference markers. (Developing/tuning the alignment library itself is one of these use cases, not the only one.)
 
 ## ⚠️ CRITICAL: This App Uses the GpsPlusSlamJs Library
 
