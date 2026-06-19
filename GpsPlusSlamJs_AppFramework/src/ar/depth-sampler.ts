@@ -146,7 +146,14 @@ export class DepthSampler {
     config?: Partial<DepthSamplerConfig>
   ) {
     this.callbacks = callbacks;
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    // Route the initial config through the same validation as updateConfig so
+    // the constructor cannot seat values updateConfig itself would refuse (a
+    // fractional gridSize, a non-finite/non-positive intervalMs that would
+    // disable the throttle). Mirrors the camera-frame-source fix (PR #91).
+    this.config = { ...DEFAULT_CONFIG };
+    if (config) {
+      this.updateConfig(config);
+    }
   }
 
   /**

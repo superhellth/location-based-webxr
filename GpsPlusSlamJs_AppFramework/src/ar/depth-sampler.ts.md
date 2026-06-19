@@ -8,7 +8,7 @@ Samples sparse depth points from the WebXR depth sensing API at a configurable i
 
 ### `DepthSampler` (class)
 
-- **`constructor(callbacks: DepthSamplerCallbacks, config?: Partial<DepthSamplerConfig>)`** — creates a sampler with event callbacks and optional config overrides.
+- **`constructor(callbacks: DepthSamplerCallbacks, config?: Partial<DepthSamplerConfig>)`** — creates a sampler with event callbacks and optional config overrides. The initial config is routed through the same validation as `updateConfig`, so invalid overrides (non-finite/non-positive `intervalMs`, fractional `gridSize`) are ignored at construction exactly as at runtime — the constructor cannot seat a value `updateConfig` would refuse.
 - **`start(): void`** — begins sampling; resets counters and timers.
 - **`stop(): void`** — stops sampling.
 - **`isRunning(): boolean`** — returns whether sampling is active.

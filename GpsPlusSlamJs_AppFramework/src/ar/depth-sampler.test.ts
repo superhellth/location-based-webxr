@@ -67,6 +67,25 @@ describe('DepthSampler', () => {
     it('uses default grid size of 16', () => {
       expect(sampler.getConfig().gridSize).toBe(16);
     });
+
+    /**
+     * Why this test matters: the constructor must apply the SAME validation as
+     * `updateConfig` (a fractional `gridSize` makes no sense as an N×N grid, and
+     * a non-finite/non-positive `intervalMs` disables the throttle so every
+     * frame captures). Previously the constructor merged config verbatim
+     * (`{ ...DEFAULT_CONFIG, ...config }`), so `new DepthSampler(cb, bad)` could
+     * seat values `updateConfig` itself would refuse — the same constructor-vs-
+     * updateConfig inconsistency fixed for `camera-frame-source` (PR #91).
+     */
+    it('rejects invalid config at construction, like updateConfig', () => {
+      const bad = new DepthSampler(callbacks, {
+        gridSize: 2.5,
+        intervalMs: NaN,
+      });
+      expect(bad.getConfig().gridSize).toBe(16); // fractional → default kept
+      expect(bad.getConfig().intervalMs).toBe(1000); // NaN → default kept
+      bad.stop();
+    });
   });
 
   describe('updateConfig', () => {
