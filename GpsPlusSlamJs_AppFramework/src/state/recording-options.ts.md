@@ -8,40 +8,43 @@ User-configurable recording options for controlling high-frequency data streams 
 
 ### Types
 
-| Type                   | Description                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `DepthCaptureOptions`  | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`, `rgb`                                              |
-| `ImageCaptureOptions`  | Config for image capture: `enabled`, `intervalMs`, `quality`, `resolutionDivisor`                                  |
-| `OccupancyOptions`     | Config for the derived occupancy grid: `cellSizeM` (voxel edge length, metres)                                     |
-| `VisualizationOptions` | Live debug-overlay toggles: `frameTiles`, `occupancyCubes`, `gpsAlignmentMarkers`, `compassCubes` (all default ON) |
-| `QrCaptureOptions`     | Live QR detection + RAW recording: `enabled` (default **OFF**, opt-in), `intervalMs`, `captureSize`                |
-| `RecordingOptions`     | Combined config with `depth`, `images`, `arCrashIsolation`, `occupancy`, `visualization`, `qr` sections            |
+| Type                      | Description                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `DepthCaptureOptions`     | Config for depth sampling: `enabled`, `intervalMs`, `gridSize`, `rgb`                                              |
+| `ImageCaptureOptions`     | Config for image capture: `enabled`, `intervalMs`, `quality`, `resolutionDivisor`                                  |
+| `OccupancyOptions`        | Config for the derived occupancy grid: `cellSizeM` (voxel edge length, metres)                                     |
+| `FrameTileDisplayOptions` | Frame-tile display-texture resolution: `divisor` (1=full…8=eighth, default 2). Display-only, distinct from capture |
+| `VisualizationOptions`    | Live debug-overlay toggles: `frameTiles`, `occupancyCubes`, `gpsAlignmentMarkers`, `compassCubes` (all default ON) |
+| `QrCaptureOptions`        | Live QR detection + RAW recording: `enabled` (default **OFF**, opt-in), `intervalMs`, `captureSize`                |
+| `RecordingOptions`        | Combined config: `depth`, `images`, `arCrashIsolation`, `occupancy`, `frameTileDisplay`, `visualization`, `qr`     |
 
 ### Functions
 
-| Function                                | Input                            | Output                 | Description                                                                               |
-| --------------------------------------- | -------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| `loadRecordingOptions(key?)`            | `key?: string`                   | `RecordingOptions`     | Loads from localStorage, returns defaults if not found                                    |
-| `saveRecordingOptions(options, key?)`   | `RecordingOptions, key?: string` | `void`                 | Validates and saves to localStorage                                                       |
-| `resetRecordingOptions(key?)`           | `key?: string`                   | `RecordingOptions`     | Clears storage, returns defaults                                                          |
-| `cloneRecordingOptions(options)`        | `RecordingOptions`               | `RecordingOptions`     | Deep copy                                                                                 |
-| `validateDepthOptions(partial)`         | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions`  | Validates and clamps; rounds `gridSize` to an integer (N×N grid) so it applies downstream |
-| `validateImageOptions(partial)`         | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions`  | Validates and clamps values                                                               |
-| `validateOccupancyOptions(partial)`     | `Partial<OccupancyOptions>`      | `OccupancyOptions`     | Clamps `cellSizeM`; rejects NaN/Infinity to default                                       |
-| `validateVisualizationOptions(partial)` | `Partial<VisualizationOptions>`  | `VisualizationOptions` | Boolean-or-default per field (missing/corrupted → ON)                                     |
-| `validateQrOptions(partial)`            | `Partial<QrCaptureOptions>`      | `QrCaptureOptions`     | `enabled` boolean-or-default (→ OFF); clamps `intervalMs`/`captureSize`, NaN → default    |
-| `validateRecordingOptions(partial)`     | `Partial<RecordingOptions>`      | `RecordingOptions`     | Validates full options object                                                             |
+| Function                                   | Input                              | Output                    | Description                                                                               |
+| ------------------------------------------ | ---------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| `loadRecordingOptions(key?)`               | `key?: string`                     | `RecordingOptions`        | Loads from localStorage, returns defaults if not found                                    |
+| `saveRecordingOptions(options, key?)`      | `RecordingOptions, key?: string`   | `void`                    | Validates and saves to localStorage                                                       |
+| `resetRecordingOptions(key?)`              | `key?: string`                     | `RecordingOptions`        | Clears storage, returns defaults                                                          |
+| `cloneRecordingOptions(options)`           | `RecordingOptions`                 | `RecordingOptions`        | Deep copy                                                                                 |
+| `validateDepthOptions(partial)`            | `Partial<DepthCaptureOptions>`     | `DepthCaptureOptions`     | Validates and clamps; rounds `gridSize` to an integer (N×N grid) so it applies downstream |
+| `validateImageOptions(partial)`            | `Partial<ImageCaptureOptions>`     | `ImageCaptureOptions`     | Validates and clamps values                                                               |
+| `validateOccupancyOptions(partial)`        | `Partial<OccupancyOptions>`        | `OccupancyOptions`        | Clamps `cellSizeM`; rejects NaN/Infinity to default                                       |
+| `validateFrameTileDisplayOptions(partial)` | `Partial<FrameTileDisplayOptions>` | `FrameTileDisplayOptions` | Clamps `divisor` to 1–8 + rounds to integer; rejects NaN/Infinity to default              |
+| `validateVisualizationOptions(partial)`    | `Partial<VisualizationOptions>`    | `VisualizationOptions`    | Boolean-or-default per field (missing/corrupted → ON)                                     |
+| `validateQrOptions(partial)`               | `Partial<QrCaptureOptions>`        | `QrCaptureOptions`        | `enabled` boolean-or-default (→ OFF); clamps `intervalMs`/`captureSize`, NaN → default    |
+| `validateRecordingOptions(partial)`        | `Partial<RecordingOptions>`        | `RecordingOptions`        | Validates full options object                                                             |
 
 ### Constants
 
-| Constant                    | Description                                           |
-| --------------------------- | ----------------------------------------------------- |
-| `STORAGE_KEY`               | localStorage key: `'gps-plus-slam-recorder-options'`  |
-| `DEFAULT_RECORDING_OPTIONS` | Default values (all enabled)                          |
-| `DEPTH_CONSTRAINTS`         | Min/max/step for depth options                        |
-| `IMAGE_CONSTRAINTS`         | Min/max/step for image options                        |
-| `OCCUPANCY_CONSTRAINTS`     | Min/max/step for `cellSizeM` (metres)                 |
-| `QR_CONSTRAINTS`            | Min/max/step for `qr.intervalMs` and `qr.captureSize` |
+| Constant                         | Description                                           |
+| -------------------------------- | ----------------------------------------------------- |
+| `STORAGE_KEY`                    | localStorage key: `'gps-plus-slam-recorder-options'`  |
+| `DEFAULT_RECORDING_OPTIONS`      | Default values (all enabled)                          |
+| `DEPTH_CONSTRAINTS`              | Min/max/step for depth options                        |
+| `IMAGE_CONSTRAINTS`              | Min/max/step for image options                        |
+| `OCCUPANCY_CONSTRAINTS`          | Min/max/step for `cellSizeM` (metres)                 |
+| `FRAME_TILE_DISPLAY_CONSTRAINTS` | Min/max/step for `frameTileDisplay.divisor`           |
+| `QR_CONSTRAINTS`                 | Min/max/step for `qr.intervalMs` and `qr.captureSize` |
 
 ## Invariants & Assumptions
 
@@ -57,6 +60,7 @@ User-configurable recording options for controlling high-frequency data streams 
   depth: { enabled: true, intervalMs: 1000, gridSize: 16, rgb: true },
   images: { enabled: true, intervalMs: 2000, quality: 0.7, resolutionDivisor: 1 },
   occupancy: { cellSizeM: 0.15 },
+  frameTileDisplay: { divisor: 2 },
   visualization: { frameTiles: true, occupancyCubes: true, gpsAlignmentMarkers: true, compassCubes: true },
   qr: { enabled: false, intervalMs: 125, captureSize: 1024 }
 }
@@ -67,6 +71,8 @@ User-configurable recording options for controlling high-frequency data streams 
 `visualization.*` (all default **ON**) gate the four live AR debug overlays — frame tiles, occupancy cubes, GPS+VIO alignment spheres, and compass cubes. They control **only what is drawn live during recording**: capture (frame blobs, depth samples, occupancy data, GPS events) is never affected, and **replay is never gated** (reviewing the captured overlays is the point there). Like `occupancy.cellSizeM`, they are read once at Enter-AR — toggling mid-session applies on the next Enter-AR, not retroactively. Because all four default ON the group is purely additive: every overlay still renders until the operator opts out. The recorder reads them in `handleEnterAR` (frame tiles / occupancy cubes / compass cubes are skipped by _not_ wiring them; the alignment spheres are hidden via `GpsEventVisualizer.setVisible`). See [2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md) (Finding B) and [gps-event-markers.ts.md](../visualization/gps-event-markers.ts.md).
 
 `occupancy.cellSizeM` (default **0.15 m**, matching `OccupancyGrid`'s own default) is the voxel edge length for the derived occupancy grid. It does **not** change what is recorded — it governs the grid built from the recorded depth points (debug cubes + COLMAP `points3D`), so it applies on replay too, letting the same recording be re-quantized at a different resolution. The recorder surfaces it as a cm slider in the settings modal; it is read once at grid construction (Enter-AR / replay load). See [2026-06-13-occupancy-grid-settings-and-mesh-review.md](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-13-occupancy-grid-settings-and-mesh-review.md) (item 1) and [occupancy-grid.ts.md](../ar/occupancy-grid.ts.md).
+
+`frameTileDisplay.divisor` (default **2** = half) controls the **display** resolution of the captured frame tiles shown in AR/replay — it downscales the decoded texture to `1/divisor` of each dimension (decode path: `frame-texture-decoder.ts` `decodeFrameTexture(blob, divisor)`), cutting per-tile GPU texture memory. It is **distinct from** the capture `images.resolutionDivisor` (the saved JPEG is untouched). Like `occupancy.cellSizeM` it does not change what is recorded, so it applies to **both live and replay**, read at Enter-AR (`main.ts`) and replay start (`replay/replay-mode.ts`). It is a **partial** memory mitigation for the OOM/crash track (D7-resolution, 2026-06-16 user feedback) — the tile _count_ still grows unbounded, so a cap/recycle remains the separate Track-S fix. Surfaced as the "Display resolution (AR tiles)" slider in the settings modal.
 
 `depth.gridSize` default is 16 (16×16 = 256 points per sample) so the AR-space occupancy grid populates fast enough for on-device verification (2026-06-11 port plan §1). The depth options reach the sampler via `startDepthCapture(config)` → `DepthSampler.updateConfig` — before that plumbing existed they were dead knobs. `depth.rgb` (default **true**) toggles the Iter-8 RGB voxel coloring (one small per-sample camera-color blit+readback); non-boolean persisted values fall back to the default, so pre-Iter-8 stored options keep the feature on.
 
@@ -80,6 +86,7 @@ User-configurable recording options for controlling high-frequency data streams 
 | `images.quality`           | 0.3  | 1.0   |
 | `images.resolutionDivisor` | 1    | 8     |
 | `occupancy.cellSizeM` (m)  | 0.01 | 0.20  |
+| `frameTileDisplay.divisor` | 1    | 8     |
 | `qr.intervalMs` (ms)       | 50   | 1000  |
 | `qr.captureSize` (px)      | 256  | 2048  |
 

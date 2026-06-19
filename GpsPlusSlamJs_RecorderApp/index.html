@@ -962,6 +962,27 @@ No errors</pre
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
+              <!-- Frame-tile DISPLAY resolution (D7-resolution, 2026-06-16    -->
+              <!-- user feedback). Distinct from the capture "Resolution"      -->
+              <!-- slider above: this only downscales the in-AR/replay tile    -->
+              <!-- texture to save GPU memory; the saved JPEG is unchanged.    -->
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Display resolution (AR tiles)</span>
+                  <span id="frame-tile-display-divisor-value">÷2 (half)</span>
+                </div>
+                <input
+                  type="range"
+                  id="frame-tile-display-divisor"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <p class="text-xs text-gray-500">
+                  The floating images shown in AR are captured photogrammetry
+                  frames (not a camera zoom). This only changes how sharply
+                  they’re drawn, to save memory — the saved image quality is set
+                  by “Resolution” above.
+                </p>
+              </div>
             </div>
           </div>
 

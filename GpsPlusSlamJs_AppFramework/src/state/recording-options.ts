@@ -22,6 +22,7 @@ export interface RecordingOptionsInput {
   images?: Partial<ImageCaptureOptions>;
   arCrashIsolation?: Partial<ArCrashIsolationOptions>;
   occupancy?: Partial<OccupancyOptions>;
+  frameTileDisplay?: Partial<FrameTileDisplayOptions>;
   visualization?: Partial<VisualizationOptions>;
   qr?: Partial<QrCaptureOptions>;
 }
@@ -112,6 +113,28 @@ export interface OccupancyOptions {
 }
 
 /**
+ * Configuration for how captured frame tiles are DISPLAYED in AR (D7-resolution,
+ * 2026-06-16 RecorderApp user feedback / Q3). This is **distinct from** the
+ * capture setting `images.resolutionDivisor`: capture quality (the JPEG written
+ * to the recording) is unchanged — this only downscales the in-AR/replay display
+ * texture built from each captured frame, cutting per-tile GPU texture memory.
+ *
+ * Like {@link OccupancyOptions} it does NOT change what is recorded, so it
+ * applies to **both live and replay** (the tile texture is decoded in both). A
+ * partial memory mitigation for the OOM/crash track (the tile *count* still
+ * grows unbounded — capping/recycling is the separate Track-S fix).
+ */
+export interface FrameTileDisplayOptions {
+  /**
+   * Display-texture resolution divisor: 1 = full captured resolution, 2 = half
+   * (each dimension), 4 = quarter, 8 = eighth. Default 2 (half). Higher = less
+   * GPU memory per tile but a blurrier in-AR preview. Independent of the capture
+   * `images.resolutionDivisor`.
+   */
+  divisor: number;
+}
+
+/**
  * Visibility toggles for the live AR debug overlays (Finding B / DB-2 of
  * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md).
  *
@@ -176,6 +199,8 @@ export interface RecordingOptions {
   arCrashIsolation: ArCrashIsolationOptions;
   /** Derived occupancy-grid configuration (voxel size) */
   occupancy: OccupancyOptions;
+  /** Frame-tile display-texture resolution (live + replay; capture unchanged) */
+  frameTileDisplay: FrameTileDisplayOptions;
   /** Live AR debug-overlay visibility toggles (live-only; replay unaffected) */
   visualization: VisualizationOptions;
   /** Live QR detection + RAW recording configuration (opt-in) */
@@ -219,6 +244,11 @@ export const DEFAULT_RECORDING_OPTIONS: RecordingOptions = {
   },
   occupancy: {
     cellSizeM: 0.15, // 15 cm voxels — matches OccupancyGrid's own default (Unity parity)
+  },
+  frameTileDisplay: {
+    // Half-resolution display texture by default (D7): a noticeable per-tile
+    // memory saving with little perceptual cost on the small floating tiles.
+    divisor: 2,
   },
   visualization: {
     // All overlays ON so the group is purely additive (DB-1b) — no behaviour
@@ -264,6 +294,18 @@ export const IMAGE_CONSTRAINTS = {
  */
 export const OCCUPANCY_CONSTRAINTS = {
   cellSizeM: { min: 0.01, max: 0.2, step: 0.01 },
+} as const;
+
+/**
+ * Validation constraints for the frame-tile display-resolution divisor.
+ *
+ * Clamped to 1–8 (full down to one-eighth per dimension), mirroring the capture
+ * `IMAGE_CONSTRAINTS.resolutionDivisor` range so the settings slider behaves the
+ * same. The intended stops are 1, 2, 4, 8 (full / half / quarter / eighth); the
+ * divisor is rounded to an integer so the resize target dimensions stay clean.
+ */
+export const FRAME_TILE_DISPLAY_CONSTRAINTS = {
+  divisor: { min: 1, max: 8, step: 1 },
 } as const;
 
 /**
@@ -482,6 +524,28 @@ export function validateOccupancyOptions(
 }
 
 /**
+ * Validate and normalize frame-tile display options. `divisor` is clamped to
+ * {@link FRAME_TILE_DISPLAY_CONSTRAINTS} and rounded to an integer, with a
+ * `Number.isFinite` guard so a stored `NaN` (which is `typeof 'number'` and
+ * survives `clamp`) falls back to the default rather than producing a broken
+ * resize target.
+ */
+export function validateFrameTileDisplayOptions(
+  options: Partial<FrameTileDisplayOptions>
+): FrameTileDisplayOptions {
+  const defaults = DEFAULT_RECORDING_OPTIONS.frameTileDisplay;
+  return {
+    divisor: clamp(
+      typeof options.divisor === 'number' && Number.isFinite(options.divisor)
+        ? Math.round(options.divisor)
+        : defaults.divisor,
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.min,
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.max
+    ),
+  };
+}
+
+/**
  * Validate and normalize a full RecordingOptions object.
  * Merges with defaults and clamps invalid values.
  */
@@ -495,6 +559,9 @@ export function validateRecordingOptions(
       options.arCrashIsolation ?? {}
     ),
     occupancy: validateOccupancyOptions(options.occupancy ?? {}),
+    frameTileDisplay: validateFrameTileDisplayOptions(
+      options.frameTileDisplay ?? {}
+    ),
     visualization: validateVisualizationOptions(options.visualization ?? {}),
     qr: validateQrOptions(options.qr ?? {}),
   };
@@ -572,6 +639,7 @@ export function cloneRecordingOptions(
     images: { ...options.images },
     arCrashIsolation: { ...options.arCrashIsolation },
     occupancy: { ...options.occupancy },
+    frameTileDisplay: { ...options.frameTileDisplay },
     visualization: { ...options.visualization },
     qr: { ...options.qr },
   };

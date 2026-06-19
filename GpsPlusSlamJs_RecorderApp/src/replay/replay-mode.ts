@@ -155,11 +155,16 @@ export async function startReplayMode(
       replaySceneState.arWorldGroup
     );
     const storeRef = createStoreRef(store);
+    // D7-resolution: downscale the display texture by the CURRENT
+    // frameTileDisplay divisor (a display preference, not part of the
+    // recording — same pattern as occupancy.cellSizeM above, which also
+    // re-quantizes an old recording at the current setting).
+    const frameTileDivisor = loadRecordingOptions().frameTileDisplay.divisor;
     unsubscribeFrameTiles = wireFrameTileSubscribers({
       storeRef,
       visualizer: frameTileVisualizer,
       blobSource,
-      decodeTexture: decodeFrameTexture,
+      decodeTexture: (blob) => decodeFrameTexture(blob, frameTileDivisor),
       onError: (err, imageFile) => {
         log.warn(`Frame tile decode failed for "${imageFile}"`, err);
       },

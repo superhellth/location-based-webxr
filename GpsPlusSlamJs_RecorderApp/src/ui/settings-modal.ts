@@ -13,6 +13,7 @@ import {
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
   OCCUPANCY_CONSTRAINTS,
+  FRAME_TILE_DISPLAY_CONSTRAINTS,
   QR_CONSTRAINTS,
   type RecordingOptions,
 } from 'gps-plus-slam-app-framework/state/recording-options';
@@ -57,6 +58,8 @@ let arCameraTextureEnabledCheckbox: HTMLInputElement | null = null;
 let arChromiumProjectionLayerWorkaroundCheckbox: HTMLInputElement | null = null;
 let occupancyCellSizeSlider: HTMLInputElement | null = null;
 let occupancyCellSizeValue: HTMLElement | null = null;
+let frameTileDisplayDivisorSlider: HTMLInputElement | null = null;
+let frameTileDisplayDivisorValue: HTMLElement | null = null;
 let vizFrameTilesCheckbox: HTMLInputElement | null = null;
 let vizOccupancyCubesCheckbox: HTMLInputElement | null = null;
 let vizGpsAlignmentMarkersCheckbox: HTMLInputElement | null = null;
@@ -150,6 +153,12 @@ export function initSettingsModal(
     'occupancy-cell-size'
   ) as HTMLInputElement;
   occupancyCellSizeValue = document.getElementById('occupancy-cell-size-value');
+  frameTileDisplayDivisorSlider = document.getElementById(
+    'frame-tile-display-divisor'
+  ) as HTMLInputElement;
+  frameTileDisplayDivisorValue = document.getElementById(
+    'frame-tile-display-divisor-value'
+  );
   vizFrameTilesCheckbox = document.getElementById(
     'viz-frame-tiles'
   ) as HTMLInputElement;
@@ -239,6 +248,21 @@ export function initSettingsModal(
       const cm = parseInt(occupancyCellSizeSlider.value, 10);
       workingOptions.occupancy.cellSizeM = cm / 100;
       occupancyCellSizeValue.textContent = `${cm} cm`;
+    }
+  });
+
+  // Frame-tile DISPLAY resolution (D7-resolution) — distinct from the capture
+  // images.resolutionDivisor above; this only downscales the in-AR/replay tile
+  // texture to save GPU memory. Reuses the same ÷N label formatter.
+  frameTileDisplayDivisorSlider?.addEventListener('input', () => {
+    if (
+      workingOptions &&
+      frameTileDisplayDivisorSlider &&
+      frameTileDisplayDivisorValue
+    ) {
+      const value = parseInt(frameTileDisplayDivisorSlider.value, 10);
+      workingOptions.frameTileDisplay.divisor = value;
+      frameTileDisplayDivisorValue.textContent = formatResolutionDivisor(value);
     }
   });
 
@@ -551,6 +575,27 @@ function populateForm(options: RecordingOptions): void {
   }
   if (occupancyCellSizeValue) {
     occupancyCellSizeValue.textContent = `${Math.round(options.occupancy.cellSizeM * 100)} cm`;
+  }
+
+  // Frame-tile display-resolution divisor (D7-resolution)
+  if (frameTileDisplayDivisorSlider) {
+    frameTileDisplayDivisorSlider.min = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.min
+    );
+    frameTileDisplayDivisorSlider.max = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.max
+    );
+    frameTileDisplayDivisorSlider.step = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.step
+    );
+    frameTileDisplayDivisorSlider.value = String(
+      options.frameTileDisplay.divisor
+    );
+  }
+  if (frameTileDisplayDivisorValue) {
+    frameTileDisplayDivisorValue.textContent = formatResolutionDivisor(
+      options.frameTileDisplay.divisor
+    );
   }
 
   // Live debug-overlay toggles (Finding B)

@@ -71,6 +71,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -99,6 +100,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -313,6 +315,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -372,6 +375,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -430,6 +434,7 @@ describe('Recording Options Integration', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };

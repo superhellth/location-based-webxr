@@ -16,6 +16,7 @@ import {
   validateDepthOptions,
   validateImageOptions,
   validateOccupancyOptions,
+  validateFrameTileDisplayOptions,
   validateVisualizationOptions,
   validateQrOptions,
   validateRecordingOptions,
@@ -25,6 +26,7 @@ import {
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
   OCCUPANCY_CONSTRAINTS,
+  FRAME_TILE_DISPLAY_CONSTRAINTS,
   QR_CONSTRAINTS,
   type RecordingOptions,
 } from './recording-options';
@@ -279,6 +281,54 @@ describe('recording-options', () => {
     });
   });
 
+  describe('validateFrameTileDisplayOptions', () => {
+    /**
+     * Why these tests matter (D7-resolution, 2026-06-16 user feedback): the
+     * frame-tile display divisor feeds the decode-time downscale of every tile
+     * texture (live + replay). A corrupt stored value must clamp to 1–8 and an
+     * integer so the resize target dimensions never go fractional/negative,
+     * which would break `createImageBitmap`'s resize or blow up GPU memory.
+     */
+    it('returns defaults when given empty object', () => {
+      const result = validateFrameTileDisplayOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.frameTileDisplay);
+    });
+
+    it('preserves a valid in-range divisor', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 4 }).divisor).toBe(4);
+    });
+
+    it('rounds a fractional divisor to an integer', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 2.6 }).divisor).toBe(3);
+    });
+
+    it('clamps divisor below minimum to minimum', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 0 }).divisor).toBe(
+        FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.min
+      );
+    });
+
+    it('clamps divisor above maximum to maximum', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 99 }).divisor).toBe(
+        FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.max
+      );
+    });
+
+    it('falls back to default for NaN/Infinity/non-number', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: NaN }).divisor).toBe(
+        DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor
+      );
+      expect(
+        validateFrameTileDisplayOptions({ divisor: Infinity }).divisor
+      ).toBe(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor);
+      expect(
+        validateFrameTileDisplayOptions({
+          divisor: 'half' as unknown as number,
+        }).divisor
+      ).toBe(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor);
+    });
+  });
+
   describe('validateVisualizationOptions', () => {
     /**
      * Why these tests matter (Finding B / DB-1b of
@@ -514,6 +564,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -605,6 +656,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -628,6 +680,7 @@ describe('recording-options', () => {
         }, // invalid
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -768,6 +821,10 @@ describe('recording-options', () => {
       expect(DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM).toBe(0.15);
     });
 
+    it('has frame-tile display divisor defaulting to 2 (half resolution)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor).toBe(2);
+    });
+
     it('has every visualization overlay enabled by default (purely additive)', () => {
       expect(DEFAULT_RECORDING_OPTIONS.visualization).toEqual({
         frameTiles: true,
@@ -869,6 +926,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { cellSizeM: 0.1 },
+        frameTileDisplay: { divisor: 4 },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -890,6 +948,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
@@ -920,6 +979,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       });
@@ -978,6 +1038,7 @@ describe('recording-options', () => {
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
         occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };

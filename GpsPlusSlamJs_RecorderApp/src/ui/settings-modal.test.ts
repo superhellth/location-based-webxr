@@ -148,6 +148,15 @@ describe('settings-modal', () => {
       expect(html).toContain('id="occupancy-cell-size-value"');
     });
 
+    it('includes the frame-tile display-resolution slider and value display', () => {
+      // D7-resolution, 2026-06-16 user feedback: the in-AR/replay tile display
+      // resolution (frameTileDisplay.divisor) must be user-configurable here,
+      // distinct from the capture resolution divisor.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="frame-tile-display-divisor"');
+      expect(html).toContain('id="frame-tile-display-divisor-value"');
+    });
+
     it('includes AR crash isolation controls', () => {
       // Why this test matters:
       // The full Phase 1 diagnostic set must be present in production HTML so
@@ -797,6 +806,32 @@ describe('settings-modal', () => {
       slider.dispatchEvent(new Event('input'));
 
       expect(valueDisplay?.textContent).toBe('1× (full)');
+    });
+
+    /**
+     * Why this test matters (D7-resolution, 2026-06-16 user feedback): the
+     * frame-tile DISPLAY divisor is a separate knob from the capture
+     * resolution divisor. Moving it must update the ÷N label and write the
+     * value into `frameTileDisplay.divisor` (not `images.resolutionDivisor`),
+     * so the decode-time downscale uses it on the next Enter-AR / replay.
+     */
+    it('updates frame-tile display divisor value and working option', () => {
+      const slider = document.getElementById(
+        'frame-tile-display-divisor'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById(
+        'frame-tile-display-divisor-value'
+      );
+
+      slider.value = '4';
+      slider.dispatchEvent(new Event('input'));
+
+      expect(valueDisplay?.textContent).toBe('÷4 (quarter)');
+      expect(getWorkingOptions()?.frameTileDisplay.divisor).toBe(4);
+      // Must NOT have touched the capture resolution divisor.
+      expect(getWorkingOptions()?.images.resolutionDivisor).toBe(
+        DEFAULT_RECORDING_OPTIONS.images.resolutionDivisor
+      );
     });
 
     /**

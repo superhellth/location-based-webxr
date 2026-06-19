@@ -396,6 +396,7 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
       applyChromiumProjectionLayerWorkaround: false,
     },
     occupancy: { cellSizeM: 0.15 },
+    frameTileDisplay: { divisor: 2 },
     visualization: {
       frameTiles: true,
       occupancyCubes: true,

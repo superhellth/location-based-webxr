@@ -1220,12 +1220,17 @@ async function handleEnterAR(): Promise<void> {
           // emits raw-WebXR poses, so tiles must ride the camera's
           // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
           frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
+          // D7-resolution: downscale the live display texture by the
+          // configured frameTileDisplay divisor (default ÷2) to cut per-tile
+          // GPU memory. Read once here at Enter-AR alongside the other viz
+          // settings; capture quality (images.resolutionDivisor) is untouched.
+          const frameTileDivisor = recordingOptions.frameTileDisplay.divisor;
           unsubscribeFrameTiles = wireFrameTileSubscribers({
             storeRef,
             visualizer: frameTileVisualizer,
             blobSource: (imageFile) =>
               Promise.resolve(liveFrameBlobs.get(imageFile) ?? null),
-            decodeTexture: decodeFrameTexture,
+            decodeTexture: (blob) => decodeFrameTexture(blob, frameTileDivisor),
             onError: (err, imageFile) => {
               log.warn(`Frame tile decode failed for "${imageFile}"`, err);
             },
