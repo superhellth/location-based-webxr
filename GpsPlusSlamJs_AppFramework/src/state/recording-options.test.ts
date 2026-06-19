@@ -125,6 +125,21 @@ describe('recording-options', () => {
       expect(result.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.max);
     });
 
+    /**
+     * Why this test matters: `gridSize` is an N×N grid dimension, so it must be
+     * an integer. `DepthSampler.updateConfig` rejects a fractional gridSize, but
+     * `validateDepthOptions` previously only clamped the range — letting a value
+     * like 2.5 survive as "valid" and then silently fall back to the sampler's
+     * default at runtime (the two validation layers disagreed). The sanitizer
+     * must round so its output always applies downstream.
+     */
+    it('rounds a fractional gridSize to an integer', () => {
+      expect(
+        Number.isInteger(validateDepthOptions({ gridSize: 2.5 }).gridSize)
+      ).toBe(true);
+      expect(validateDepthOptions({ gridSize: 4.4 }).gridSize).toBe(4);
+    });
+
     it('handles non-boolean enabled by using default', () => {
       const result = validateDepthOptions({
         enabled: 'yes' as unknown as boolean,

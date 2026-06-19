@@ -407,9 +407,14 @@ export function validateDepthOptions(
       DEPTH_CONSTRAINTS.intervalMs.min,
       DEPTH_CONSTRAINTS.intervalMs.max
     ),
+    // gridSize is an N×N grid dimension, so it must be an integer: round here
+    // (and fall back to the default for non-finite input) so the sanitizer's
+    // output always applies downstream. DepthSampler.updateConfig rejects a
+    // fractional gridSize, so without this an out-of-band value would survive
+    // validation yet silently fall back to the sampler's default at runtime.
     gridSize: clamp(
-      typeof options.gridSize === 'number'
-        ? options.gridSize
+      typeof options.gridSize === 'number' && Number.isFinite(options.gridSize)
+        ? Math.round(options.gridSize)
         : defaults.gridSize,
       DEPTH_CONSTRAINTS.gridSize.min,
       DEPTH_CONSTRAINTS.gridSize.max

@@ -19,18 +19,18 @@ User-configurable recording options for controlling high-frequency data streams 
 
 ### Functions
 
-| Function                                | Input                            | Output                 | Description                                                                            |
-| --------------------------------------- | -------------------------------- | ---------------------- | -------------------------------------------------------------------------------------- |
-| `loadRecordingOptions(key?)`            | `key?: string`                   | `RecordingOptions`     | Loads from localStorage, returns defaults if not found                                 |
-| `saveRecordingOptions(options, key?)`   | `RecordingOptions, key?: string` | `void`                 | Validates and saves to localStorage                                                    |
-| `resetRecordingOptions(key?)`           | `key?: string`                   | `RecordingOptions`     | Clears storage, returns defaults                                                       |
-| `cloneRecordingOptions(options)`        | `RecordingOptions`               | `RecordingOptions`     | Deep copy                                                                              |
-| `validateDepthOptions(partial)`         | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions`  | Validates and clamps values                                                            |
-| `validateImageOptions(partial)`         | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions`  | Validates and clamps values                                                            |
-| `validateOccupancyOptions(partial)`     | `Partial<OccupancyOptions>`      | `OccupancyOptions`     | Clamps `cellSizeM`; rejects NaN/Infinity to default                                    |
-| `validateVisualizationOptions(partial)` | `Partial<VisualizationOptions>`  | `VisualizationOptions` | Boolean-or-default per field (missing/corrupted → ON)                                  |
-| `validateQrOptions(partial)`            | `Partial<QrCaptureOptions>`      | `QrCaptureOptions`     | `enabled` boolean-or-default (→ OFF); clamps `intervalMs`/`captureSize`, NaN → default |
-| `validateRecordingOptions(partial)`     | `Partial<RecordingOptions>`      | `RecordingOptions`     | Validates full options object                                                          |
+| Function                                | Input                            | Output                 | Description                                                                               |
+| --------------------------------------- | -------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| `loadRecordingOptions(key?)`            | `key?: string`                   | `RecordingOptions`     | Loads from localStorage, returns defaults if not found                                    |
+| `saveRecordingOptions(options, key?)`   | `RecordingOptions, key?: string` | `void`                 | Validates and saves to localStorage                                                       |
+| `resetRecordingOptions(key?)`           | `key?: string`                   | `RecordingOptions`     | Clears storage, returns defaults                                                          |
+| `cloneRecordingOptions(options)`        | `RecordingOptions`               | `RecordingOptions`     | Deep copy                                                                                 |
+| `validateDepthOptions(partial)`         | `Partial<DepthCaptureOptions>`   | `DepthCaptureOptions`  | Validates and clamps; rounds `gridSize` to an integer (N×N grid) so it applies downstream |
+| `validateImageOptions(partial)`         | `Partial<ImageCaptureOptions>`   | `ImageCaptureOptions`  | Validates and clamps values                                                               |
+| `validateOccupancyOptions(partial)`     | `Partial<OccupancyOptions>`      | `OccupancyOptions`     | Clamps `cellSizeM`; rejects NaN/Infinity to default                                       |
+| `validateVisualizationOptions(partial)` | `Partial<VisualizationOptions>`  | `VisualizationOptions` | Boolean-or-default per field (missing/corrupted → ON)                                     |
+| `validateQrOptions(partial)`            | `Partial<QrCaptureOptions>`      | `QrCaptureOptions`     | `enabled` boolean-or-default (→ OFF); clamps `intervalMs`/`captureSize`, NaN → default    |
+| `validateRecordingOptions(partial)`     | `Partial<RecordingOptions>`      | `RecordingOptions`     | Validates full options object                                                             |
 
 ### Constants
 
