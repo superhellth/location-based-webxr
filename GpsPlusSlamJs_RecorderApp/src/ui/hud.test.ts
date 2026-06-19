@@ -2398,7 +2398,9 @@ describe('updatePermissionStatus — Grant Permissions button visibility', () =>
       <span id="perm-webxr-status"></span>
       <span id="perm-gps-status"></span>
       <span id="perm-camera-status"></span>
-      <span id="perm-orientation-status"></span>
+      <!-- No #perm-orientation-status: the Compass row was removed in D3
+           (2026-06-19). This fixture mirrors the production DOM so the
+           permission-status update is exercised exactly as it ships. -->
       <button id="btn-request-permissions" class="hidden">Grant Permissions</button>
       <p id="permission-error" class="hidden"></p>
     `;
@@ -2618,6 +2620,27 @@ describe('updatePermissionStatus — Grant Permissions button visibility', () =>
     expect(err.textContent).toMatch(/Location/);
     expect(err.textContent).toMatch(/Camera/);
     expect(err.textContent).not.toMatch(/Compass/);
+  });
+
+  // Why: D3 (2026-06-19) removed the Compass row, so the production DOM has no
+  // #perm-orientation-status element. updatePermissionStatus must degrade
+  // gracefully — no throw — and still update the remaining rows. The shared
+  // fixture above already omits the element; this test makes that contract
+  // explicit so a hard (non-null-guarded) reference can't sneak back in.
+  it('does not throw and still updates other rows when the orientation row is absent (D3)', () => {
+    setupPermissionDOM();
+    initUI(createMockCallbacks());
+    expect(document.getElementById('perm-orientation-status')).toBeNull();
+
+    expect(() => updatePermissionStatus(makeResult())).not.toThrow();
+
+    // The remaining mandatory rows are still updated to their granted state.
+    expect(document.getElementById('perm-camera-status')!.textContent).toMatch(
+      /ready/i
+    );
+    expect(document.getElementById('perm-webxr-status')!.textContent).toMatch(
+      /ready/i
+    );
   });
 });
 

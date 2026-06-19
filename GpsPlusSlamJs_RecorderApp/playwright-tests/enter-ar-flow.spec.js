@@ -56,7 +56,11 @@ test.describe('Permission Verification', () => {
     await expect(page.locator('#perm-webxr')).toBeVisible();
     await expect(page.locator('#perm-gps')).toBeVisible();
     await expect(page.locator('#perm-camera')).toBeVisible();
-    await expect(page.locator('#perm-orientation')).toBeVisible();
+
+    // D3 (2026-06-19 round-2 feedback): the Compass/orientation row was removed
+    // — it is permanently granted (non-actionable) on every Android device that
+    // can record. Assert it is GONE so the dead row can't silently come back.
+    await expect(page.locator('#perm-orientation')).toHaveCount(0);
   });
 
   test('shows File Storage as first permission item', async ({ page }) => {

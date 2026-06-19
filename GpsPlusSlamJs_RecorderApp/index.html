@@ -549,12 +549,13 @@ No errors</pre
               <p>
                 <strong class="text-white">Purpose:</strong> Record synchronized
                 AR + GPS data — camera frames, AR poses, GPS readings and depth.
-                The resulting ZIPs can be used for: Gaussian splatting(they use COLMAP 
-                folder structure); evaluating GPS tracking accuracy (test if it
-                works for your use case and locations); re-running sessions in
-                desktop replay; and documenting a site with geo-anchored photos,
-                point clouds and reference markers. Walk around while the app
-                captures everything. Check the settings for more details.
+                The resulting ZIPs can be used for: Gaussian splatting(they use
+                COLMAP folder structure); evaluating GPS tracking accuracy (test
+                if it works for your use case and locations); re-running
+                sessions in desktop replay; and documenting a site with
+                geo-anchored photos, point clouds and reference markers. Walk
+                around while the app captures everything. Check the settings for
+                more details.
               </p>
               <p>
                 <strong class="text-white">Reference Points:</strong> Landmarks
@@ -623,23 +624,13 @@ No errors</pre
                     >Checking...</span
                   >
                 </div>
-                <!-- Orientation Status (optional) -->
-                <div
-                  id="perm-orientation"
-                  class="flex items-center justify-between text-sm"
-                >
-                  <span class="flex items-center gap-2">
-                    <span class="emoji-icon">🧭</span>
-                    <span>Compass</span>
-                    <span class="text-xs text-gray-500">(optional)</span>
-                  </span>
-                  <span
-                    id="perm-orientation-status"
-                    class="text-yellow-400"
-                    aria-live="polite"
-                    >Checking...</span
-                  >
-                </div>
+                <!-- Compass/orientation row removed (D3, 2026-06-19 round-2
+                     feedback): on every Android Chrome device — the only
+                     platform that can record — DeviceOrientationEvent needs no
+                     permission, so the row was permanently green and never
+                     actionable. Orientation is still requested by the framework
+                     (a no-op on Android) and still used for tracking; we just
+                     stop showing a non-actionable "permission". -->
                 <!-- Geolocation Status (requested LAST — D6 item 2) -->
                 <div
                   id="perm-gps"

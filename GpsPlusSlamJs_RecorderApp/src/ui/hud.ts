@@ -946,13 +946,10 @@ export function updatePermissionStatus(result: PermissionCheckResult): void {
     result.camera.error
   );
 
-  // Update Orientation status
-  updateSinglePermissionStatus(
-    'perm-orientation-status',
-    result.orientation.supported,
-    result.orientation.granted,
-    result.orientation.error
-  );
+  // No Orientation status row to update (D3, 2026-06-19): the Compass row was
+  // removed because it is permanently granted (and so non-actionable) on every
+  // device that can record. `result.orientation` is still consumed below to
+  // keep the Grant Permissions button visible while orientation is ungranted.
 
   // Show/hide "Grant Permissions" button based on whether any permissions
   // need requesting OR have been denied. The button must stay visible until
