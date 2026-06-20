@@ -196,6 +196,36 @@ describe("setupReducer — cache-hit relocalise branch", () => {
     });
     expect(canPlaceAnchor(shown)).toBe(false);
   });
+
+  // Why this matters: the cache-hit branch must be symmetric on tracking loss,
+  // mirroring the cache-miss `ready-to-place ⇄ awaiting-tracking` revert. If
+  // `anchor-shown` stayed put when tracking is lost, the placement banner would
+  // keep claiming "Your saved anchor is shown at its real-world spot." while the
+  // guidance meter (driven by the live tracking report) shows the loss — a
+  // contradictory UI, and an internally inconsistent {anchor-shown,
+  // trackingReady:false} state. (PR #53, gemini comment on setup-state-machine.)
+  it("reverts anchor-shown → relocalising when tracking is lost, then re-advances", () => {
+    const shown = setupReducer(boot(true), {
+      type: "TRACKING_READY_CHANGED",
+      ready: true,
+    });
+    expect(shown.phase).toBe("anchor-shown");
+
+    const lost = setupReducer(shown, {
+      type: "TRACKING_READY_CHANGED",
+      ready: false,
+    });
+    expect(lost.phase).toBe("relocalising");
+    expect(lost.trackingReady).toBe(false);
+
+    // Round-trip: regaining tracking shows the anchor again.
+    const reshown = setupReducer(lost, {
+      type: "TRACKING_READY_CHANGED",
+      ready: true,
+    });
+    expect(reshown.phase).toBe("anchor-shown");
+    expect(reshown.trackingReady).toBe(true);
+  });
 });
 
 describe("setupReducer — robustness", () => {
