@@ -143,7 +143,7 @@ vi.mock('gps-plus-slam-js', () => ({
 vi.mock('gps-plus-slam-app-framework/ar/xr-error-handler', () => ({
   getXrErrorMessage: vi.fn(),
 }));
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./storage/scenario-storage', () => ({
   initStorage: vi.fn().mockResolvedValue([]),
   getCurrentScenarioHandle: vi.fn(),
   setCurrentScenario: vi.fn(),

@@ -12,7 +12,7 @@
  */
 
 import { getCurrentArPose } from 'gps-plus-slam-app-framework/ar/webxr-session';
-import { getCurrentScenarioHandle } from 'gps-plus-slam-app-framework/storage/file-system';
+import { getCurrentScenarioHandle } from '../storage/scenario-storage';
 import {
   saveRefPointObservation,
   type RefPointObservation,

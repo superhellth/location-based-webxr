@@ -28,14 +28,18 @@ import {
 const writtenActions: unknown[] = [];
 let pendingWrites: Promise<void>[] = [];
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
-  writeAction: vi.fn().mockImplementation((action) => {
-    writtenActions.push(action);
-    const p = Promise.resolve();
-    pendingWrites.push(p);
-    return p;
-  }),
-}));
+vi.mock(
+  'gps-plus-slam-app-framework/storage/opfs-storage',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeAction: vi.fn().mockImplementation((action) => {
+      writtenActions.push(action);
+      const p = Promise.resolve();
+      pendingWrites.push(p);
+      return p;
+    }),
+  })
+);
 
 async function flushWrites(): Promise<void> {
   await Promise.all(pendingWrites);

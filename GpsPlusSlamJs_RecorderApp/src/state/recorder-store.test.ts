@@ -28,10 +28,16 @@ import { addRefPointEntry, type RefPointEntry } from './ref-points-slice';
 import { navigateTo } from './routing-slice';
 import { NullStorageBackend } from 'gps-plus-slam-app-framework/storage/null-storage-backend';
 
-// Mock the file-system module to avoid actual file operations
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
-  writeAction: vi.fn().mockResolvedValue(undefined),
-}));
+// Persistence writes flow through ScenarioWrappingStorageBackend → opfs-storage.
+// Mock only writeAction so the store's action-persistence path can be asserted
+// without touching real OPFS; the rest of opfs-storage stays real (partial mock).
+vi.mock(
+  'gps-plus-slam-app-framework/storage/opfs-storage',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeAction: vi.fn().mockResolvedValue(undefined),
+  })
+);
 
 describe('Recorder Store', () => {
   let store: RecorderStore;
@@ -294,7 +300,7 @@ describe('Recorder Store', () => {
      */
     it('should persist gpsData and recorder actions when recording', async () => {
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
 
       // Start session to enable persistence
       store.dispatch(
@@ -338,7 +344,7 @@ describe('Recorder Store', () => {
      */
     it('should persist refPoints/ mark actions when recording', async () => {
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
 
       store.dispatch(
         startSession({
@@ -375,7 +381,7 @@ describe('Recorder Store', () => {
 
     it('should NOT persist actions when not recording', async () => {
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       vi.mocked(writeAction).mockClear();
 
       // Dispatch without starting a session
@@ -393,7 +399,7 @@ describe('Recorder Store', () => {
        * passes 1-based indices to writeAction, not 0-based.
        */
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       vi.mocked(writeAction).mockClear();
 
       // Start session - this is the first persisted action
@@ -553,7 +559,7 @@ describe('Recorder Store', () => {
     it('should call onWriteFailure callback when write fails during persistence', async () => {
       // Why: UI layer needs to know about failures to show toast
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       const mockError = new Error('NoModificationAllowedError: read-only');
       vi.mocked(writeAction).mockRejectedValueOnce(mockError);
 
@@ -579,7 +585,7 @@ describe('Recorder Store', () => {
     it('should dispatch recordWriteFailure when write fails', async () => {
       // Why: Failed write count needs to be tracked in state for summary
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       const mockError = new Error('Write failed');
       vi.mocked(writeAction).mockRejectedValueOnce(mockError);
 
@@ -612,7 +618,7 @@ describe('Recorder Store', () => {
        * instead of manually updating state, addressing the code duplication concern.
        */
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       vi.mocked(writeAction).mockClear();
 
       store = createRecorderStore();
@@ -643,7 +649,7 @@ describe('Recorder Store', () => {
       // UI feedback must work regardless of rejection type - without this fix,
       // non-Error rejections would skip the onWriteFailure callback entirely
       const { writeAction } =
-        await import('gps-plus-slam-app-framework/storage/file-system');
+        await import('gps-plus-slam-app-framework/storage/opfs-storage');
       const nonErrorRejection = 'string rejection value';
       vi.mocked(writeAction).mockRejectedValueOnce(nonErrorRejection);
 

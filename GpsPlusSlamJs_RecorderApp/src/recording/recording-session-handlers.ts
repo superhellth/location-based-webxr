@@ -26,7 +26,7 @@ import { formatTimestamp } from 'gps-plus-slam-app-framework/storage/file-system
 import {
   startSession as startStorageSession,
   getCurrentScenarioHandle,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from '../storage/scenario-storage';
 import {
   getSaveFileHandle,
   getSaveFileName,

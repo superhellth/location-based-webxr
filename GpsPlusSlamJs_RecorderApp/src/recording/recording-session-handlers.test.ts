@@ -213,7 +213,7 @@ vi.mock('gps-plus-slam-app-framework/storage/file-system-utils', () => ({
   formatTimestamp: mockFormatTimestamp,
 }));
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('../storage/scenario-storage', () => ({
   startSession: mockStartStorageSession,
   getCurrentScenarioHandle: mockGetCurrentScenarioHandle,
 }));

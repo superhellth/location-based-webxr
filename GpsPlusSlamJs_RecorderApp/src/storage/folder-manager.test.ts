@@ -36,7 +36,7 @@ vi.mock('../storage/ref-point-importer', () => ({
   importRefPointsFromFolder: vi.fn(),
 }));
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./scenario-storage', () => ({
   setCurrentScenario: vi.fn(),
   ensureScenarioDirectory: vi.fn(),
 }));
@@ -78,7 +78,7 @@ import {
 import {
   setCurrentScenario,
   ensureScenarioDirectory,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from './scenario-storage';
 
 // ============================================================================
 // Helpers

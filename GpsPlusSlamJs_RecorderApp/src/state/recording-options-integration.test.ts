@@ -24,10 +24,15 @@ import {
   type RecorderStore,
 } from './recorder-store';
 
-// Mock file system to avoid actual file operations
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
-  writeAction: vi.fn().mockResolvedValue(undefined),
-}));
+// Mock the persistence write path (ScenarioWrappingStorageBackend → opfs-storage)
+// to avoid actual file operations; partial mock keeps the rest of opfs-storage real.
+vi.mock(
+  'gps-plus-slam-app-framework/storage/opfs-storage',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeAction: vi.fn().mockResolvedValue(undefined),
+  })
+);
 
 describe('Recording Options Integration', () => {
   let store: RecorderStore;

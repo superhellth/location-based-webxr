@@ -82,7 +82,7 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   getCurrentArPose: mockGetCurrentArPose,
 }));
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('../storage/scenario-storage', () => ({
   getCurrentScenarioHandle: mockGetCurrentScenarioHandle,
 }));
 

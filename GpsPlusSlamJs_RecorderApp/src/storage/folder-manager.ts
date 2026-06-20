@@ -21,7 +21,7 @@ import {
 import {
   setCurrentScenario,
   ensureScenarioDirectory,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from './scenario-storage';
 import {
   loadAllRefPoints,
   flattenRefPointsToMarks,

@@ -88,7 +88,7 @@ import {
   resetForNewSession,
   clearRefPointsCacheForAllScenarios,
   getCurrentScenarioHandle,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from './storage/scenario-storage';
 import {
   getReadFolderHandle,
   resetForNewRecording as resetExternalForNewRecording,

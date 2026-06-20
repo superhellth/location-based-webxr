@@ -170,7 +170,7 @@ vi.mock('./state/recorder-store', async () => {
 });
 
 // Mock dependencies that handleScenarioChange uses
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./storage/scenario-storage', () => ({
   setCurrentScenario: vi.fn().mockResolvedValue(null),
   getCurrentScenarioHandle: vi.fn().mockReturnValue(null),
   initStorage: vi.fn().mockResolvedValue([]),
@@ -481,8 +481,8 @@ import {
   handleReplayScenarioChangeForTesting,
   getReplaySessionEntriesForTesting,
 } from './main';
-import { startSession as storageStartSession } from 'gps-plus-slam-app-framework/storage/file-system';
-import { resetForNewSession } from 'gps-plus-slam-app-framework/storage/file-system';
+import { startSession as storageStartSession } from './storage/scenario-storage';
+import { resetForNewSession } from './storage/scenario-storage';
 import {
   resetForNewRecording as resetExternalForNewRecording,
   hasReadFolderPermission,
@@ -1642,7 +1642,7 @@ describe('Imported Reference Points in Picker (Task 1e)', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -1733,7 +1733,7 @@ describe('Imported Reference Points in Picker (Task 1e)', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -1808,7 +1808,7 @@ describe('handleMarkRefPoint concurrent call prevention', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -2132,7 +2132,7 @@ describe('handleClearRefPointCache', () => {
   it('clears stale imported ref points when re-import after cache clear fails', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { loadAllRefPoints } = await import('./storage/ref-point-loader');
 
     setImportedRefPointsForTesting([
@@ -2176,7 +2176,7 @@ describe('handleClearRefPointCache', () => {
   it('clears in-memory imported ref points when no scenario is currently selected', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
 
     setImportedRefPointsForTesting([
       {
@@ -2215,7 +2215,7 @@ describe('handleClearRefPointCache', () => {
   it('shows an error when the cache-clear operation itself fails', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { showError } = await import('./ui/hud');
 
     vi.mocked(clearRefPointsCacheForAllScenarios).mockRejectedValue(
@@ -2239,7 +2239,7 @@ describe('handleClearRefPointCache', () => {
   it('re-imports ref points for the active scenario after a successful clear', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { loadAllRefPoints, flattenRefPointsToMarks } =
       await import('./storage/ref-point-loader');
 

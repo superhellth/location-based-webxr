@@ -44,7 +44,7 @@ import type { RecordingState } from 'gps-plus-slam-app-framework/state/recording
 import type { TrackingSliceState } from 'gps-plus-slam-app-framework/state/tracking-slice';
 import type { TrackingQualitySliceState } from 'gps-plus-slam-app-framework';
 import type { StorageBackend } from 'gps-plus-slam-app-framework/storage/storage-backend';
-import { OpfsStorageBackend } from 'gps-plus-slam-app-framework/storage/opfs-storage-backend';
+import { ScenarioWrappingStorageBackend } from '../storage/scenario-storage';
 import type { SessionMetadata as OpfsSessionMetadata } from 'gps-plus-slam-app-framework/storage/opfs-storage';
 import { routingReducer, type RoutingState } from './routing-slice';
 import { scenarioReducer, type ScenarioState } from './scenario-slice';
@@ -170,7 +170,7 @@ export function createRecorderStore(
   options: RecorderStoreOptions = {}
 ): RecorderStore {
   const storageBackend: StorageBackend =
-    options.storageBackend ?? new OpfsStorageBackend();
+    options.storageBackend ?? new ScenarioWrappingStorageBackend();
 
   const store = createSlamAppStore({
     storageBackend,
