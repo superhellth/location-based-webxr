@@ -95,6 +95,15 @@ export function setupReducer(state: SetupState, event: SetupEvent): SetupState {
         else if (state.phase === "relocalising") phase = "anchor-shown";
       } else if (state.phase === "ready-to-place") {
         phase = "awaiting-tracking";
+      } else if (state.phase === "anchor-shown") {
+        // Symmetric revert (mirrors ready-to-place → awaiting-tracking): when
+        // tracking is lost the shown anchor's pose is no longer trustworthy, so
+        // drop back to relocalising. Otherwise the placement banner would keep
+        // claiming the anchor "is shown at its real-world spot" while the
+        // guidance meter reports the loss — a contradictory UI and an
+        // inconsistent {anchor-shown, trackingReady:false} state. Regaining
+        // tracking re-advances relocalising → anchor-shown above.
+        phase = "relocalising";
       }
       if (phase === state.phase && trackingReady === state.trackingReady) {
         return state;

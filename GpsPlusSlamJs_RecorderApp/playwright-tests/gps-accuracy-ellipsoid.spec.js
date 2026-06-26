@@ -96,7 +96,7 @@ test.describe('GPS accuracy ellipsoid (§3c)', () => {
     expect(ratioZ).toBeLessThan(10);
   });
 
-  test('missing accuracy falls back to legacy 8cm fixed sphere', async ({
+  test('missing accuracy falls back to legacy 4cm fixed sphere', async ({
     page,
   }) => {
     await page.evaluate(() => {
@@ -108,9 +108,10 @@ test.describe('GPS accuracy ellipsoid (§3c)', () => {
     );
 
     expect(sizes).toHaveLength(1);
-    // 2 × 8 cm = 0.16 m. Tolerance for sphere tessellation.
-    expect(sizes[0].x).toBeGreaterThan(0.1);
-    expect(sizes[0].x).toBeLessThan(0.2);
+    // Radius halved 0.08 → 0.04 (D5), so 2 × 4 cm = 0.08 m. Tolerance for
+    // sphere tessellation.
+    expect(sizes[0].x).toBeGreaterThan(0.05);
+    expect(sizes[0].x).toBeLessThan(0.1);
   });
 
   test('asymmetric accuracy produces tall narrow ellipsoid (or wide short)', async ({

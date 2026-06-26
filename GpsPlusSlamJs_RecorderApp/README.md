@@ -1,7 +1,10 @@
 # GpsPlusSlamJs Recorder App (WebXR/Three.js)
 
-> **Live:** deployed at **<https://gps.csutil.com/recorder/>** (the "Example app
-> to evaluate the tracking accuracy" linked from the landing page).
+> **Live:** deployed at **<https://gps.csutil.com/recorder/>**. It records
+> reusable AR + GPS datasets — for 3D reconstruction (COLMAP / Gaussian
+> splatting), alignment-quality evaluation, desktop replay, and geo-anchored
+> site documentation. (Linked from the landing page as the example app to
+> evaluate tracking accuracy — one of those use cases.)
 
 > **New to the framework?** This recorder is the **full** rung of the example
 > ladder (trivial → starter → full). Start smaller with the
@@ -16,7 +19,7 @@
 
 - **The Problem:** AR systems (like ARCore/ARKit) provide precise local tracking but drift over time and have no concept of global coordinates (latitude/longitude). GPS provides global coordinates but is noisy and lacks precise orientation.
 - **The Solution:** The library aligns the local AR coordinate system with the global GPS frame in real-time. It uses a point-set registration algorithm to continuously compute the transformation matrix between the two worlds.
-- **Why this Recorder?** Developing and testing these alignment algorithms requires complex, real-world data (e.g., walking around large outdoor areas). This Recorder App captures raw sensor inputs (AR poses, GPS readings, device orientation) and user interactions into a format that can be replayed deterministically. This allows developers to fix bugs, tune algorithms, and verify logic without needing to physically go outside for every test run.
+- **Why this Recorder?** It captures synchronized real-world AR + GPS data — AR poses, GPS readings, device orientation, camera frames and depth, plus user-marked reference points — into a format that can be replayed deterministically. That single dataset serves several developer use cases: the resulting ZIPs are **COLMAP-conform** (the recorder emits a COLMAP `sparse/0/` model, see [`src/colmap/`](src/colmap/)), so they feed 3D reconstructions (Gaussian splatting / photogrammetry), **evaluate GPS↔AR alignment quality**, re-run sessions in desktop replay for debugging and parameter tuning without going outside for every test, and **document a site** with accurate geo-anchored photos, point clouds and reference markers. (Developing/tuning the alignment library itself is one of these use cases, not the only one.)
 
 ## ⚠️ CRITICAL: This App Uses the GpsPlusSlamJs Library
 
@@ -278,20 +281,22 @@ Permissions are requested in the **SETUP** state before entering AR:
 
 ## Replay Mode
 
-When `isWebXRSupported()` returns `false` (desktop browsers), the app automatically switches to a **Replay Mode** — no error, no dead-end. The setup modal is replaced with a replay-focused UX for loading and replaying previously recorded sessions in an interactive 3D visualization. This enables desktop-based debugging, UX verification, and parameter tuning without an AR device.
+When `isWebXRSupported()` returns `false` (desktop browsers **and iOS**, where browsers do not provide `immersive-ar` at all), the app automatically switches to a **Replay Mode** — no dead-end. The setup modal is replaced with a replay-focused UX for loading and replaying previously recorded sessions in an interactive 3D visualization. This enables desktop-based debugging, UX verification, and parameter tuning without an AR device.
+
+To avoid leaving mobile users confused about why recording is unavailable, a prominent **unsupported-platform notice** (`#unsupported-platform-notice`, revealed by `showUnsupportedPlatformNotice()`) explains the cause (the browser lacks the AR camera tracking the recorder needs — notably iOS) and the fix (open the app in **Chrome on Android** with ARCore), while making clear that replay still works on the current device (D1, [docs/2026-06-16-user-feedback-team1.md](../GpsPlusSlamJs_Docs/docs/2026-06-16-user-feedback-team1.md)). **Recording is supported only on Chromium-based browsers on Android with WebXR `immersive-ar` (ARCore).**
 
 For the full design investigation, code analysis, and alternatives considered, see [docs/2026-02-19-replay-mode.md](../GpsPlusSlamJs_Docs/docs/2026-02-19-replay-mode.md).
 
 ### Design Decisions
 
-| Area                | Decision                                                    | Key Detail                                                                               |
-| ------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Entry**           | Auto-switch when WebXR not supported                        | Setup modal replaced with replay UX; no error shown                                      |
-| **Replay engine**   | Cancellable async replay controller                         | Async loop with `AbortController`; play/pause/resume; speed as closure variable          |
-| **Playback speed**  | Adjustable during playback (0.1x–10x)                       | Preset buttons (0.1x, 0.2x, 0.5x, 1x, 2x, 5x, 10x)                                       |
-| **Scene init**      | Separate `initReplayScene()` in `src/ar/replay-scene.ts`    | Reuses `createSceneHierarchy()`; standard `WebGLRenderer` + `requestAnimationFrame` loop |
-| **Camera**          | `OrbitControls` + FPS toggle (`PointerLockControls` + WASD) | Camera in `scene` root (not `arWorldGroup`); orbit auto-follows latest GPS event         |
-| **Session browser** | Scenario dropdown + session list                            | Reuses `listScenarios()`, `loadSessionMetadata()`, enumerates `*.zip` files              |
+| Area                | Decision                                                    | Key Detail                                                                                                      |
+| ------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Entry**           | Auto-switch when WebXR not supported                        | Setup modal replaced with replay UX; a prominent unsupported-platform notice explains why recording is off (D1) |
+| **Replay engine**   | Cancellable async replay controller                         | Async loop with `AbortController`; play/pause/resume; speed as closure variable                                 |
+| **Playback speed**  | Adjustable during playback (0.1x–10x)                       | Preset buttons (0.1x, 0.2x, 0.5x, 1x, 2x, 5x, 10x)                                                              |
+| **Scene init**      | Separate `initReplayScene()` in `src/ar/replay-scene.ts`    | Reuses `createSceneHierarchy()`; standard `WebGLRenderer` + `requestAnimationFrame` loop                        |
+| **Camera**          | `OrbitControls` + FPS toggle (`PointerLockControls` + WASD) | Camera in `scene` root (not `arWorldGroup`); orbit auto-follows latest GPS event                                |
+| **Session browser** | Scenario dropdown + session list                            | Reuses `listScenarios()`, `loadSessionMetadata()`, enumerates `*.zip` files                                     |
 
 ### Live vs. Replay Comparison
 

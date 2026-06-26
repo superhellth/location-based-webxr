@@ -270,6 +270,49 @@ describe('createEnableGpsArController — enable() failure paths', () => {
     expect(seen.indexOf('starting')).toBeLessThan(seen.indexOf('error'));
   });
 
+  it('rolls back the AR session and started watches when a watch start throws after initAR', async () => {
+    // If a sensor-watch start throws synchronously *after* initAR has already
+    // started the XR session (e.g. geolocation absent on a locked-down browser),
+    // the catch must tear down what was started — otherwise the session and the
+    // already-started GPS watch are stranded (disable() only runs from
+    // 'running', and a retry from 'error' re-enters enable() without cleaning
+    // up first, so the leak accumulates).
+    const deps = makeDeps({
+      startOrientationWatch: vi.fn(() => {
+        throw new Error('orientation sensor unavailable');
+      }),
+    });
+    const controller = createEnableGpsArController(deps);
+
+    const result = await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+      onOrientation: vi.fn(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(controller.getState().status).toBe('error');
+    // initAR succeeded and the GPS watch started before orientation threw, so
+    // both the session and the started watch must be unwound, not left active.
+    expect(deps.endARSession).toHaveBeenCalledTimes(1);
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not tear down the session when the failure is before initAR', async () => {
+    // Symmetry guard: a permission denial (pre-initAR) must NOT call
+    // endARSession — there is no session to tear down, and doing so would be a
+    // spurious teardown of nothing.
+    const deps = makeDeps({
+      requestGeolocationPermission: vi.fn(() => Promise.resolve(denied)),
+    });
+    const controller = createEnableGpsArController(deps);
+
+    await controller.enable({ container: fakeContainer() });
+
+    expect(deps.initAR).not.toHaveBeenCalled();
+    expect(deps.endARSession).not.toHaveBeenCalled();
+  });
+
   it('proceeds when orientation is denied (best-effort, non-blocking)', async () => {
     const deps = makeDeps({
       requestOrientationPermission: vi.fn(() => Promise.resolve(denied)),
@@ -350,6 +393,39 @@ describe('createEnableGpsArController — enable() failure paths', () => {
     expect(result.ok).toBe(false);
     expect(deps.startGpsWatch).not.toHaveBeenCalled();
     expect(deps.startOrientationWatch).not.toHaveBeenCalled();
+  });
+
+  // Why this test matters: a *later* enable() failure (after initAR resolved)
+  // rolls back the started session + watches. Those cleanup steps must be
+  // isolated — if stopGpsWatch() throws, the previously-shared try block bypassed
+  // endARSession(), stranding the WebXR session and leaking the renderer. The
+  // most important cleanup step (ending the session) must always run.
+  it('still ends the AR session when a watch-stop throws during cleanup', async () => {
+    const deps = makeDeps({
+      // Fails the enable() *after* initAR + startGpsWatch succeeded, so cleanup
+      // runs with gpsWatchActive === true.
+      startOrientationWatch: vi.fn(() => {
+        throw new Error('orientation watch failed to start');
+      }),
+      // The cleanup step that previously masked the rest when it threw.
+      stopGpsWatch: vi.fn(() => {
+        throw new Error('stopGpsWatch blew up');
+      }),
+    });
+    const controller = createEnableGpsArController(deps);
+
+    const result = await controller.enable({
+      container: fakeContainer(),
+      onGpsPosition: vi.fn(),
+      onOrientation: vi.fn(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(deps.startGpsWatch).toHaveBeenCalledTimes(1);
+    expect(deps.stopGpsWatch).toHaveBeenCalledTimes(1);
+    // The bug: a throwing stopGpsWatch bypassed endARSession, leaking the session.
+    expect(deps.endARSession).toHaveBeenCalledTimes(1);
+    expect(controller.getState().status).toBe('error');
   });
 });
 

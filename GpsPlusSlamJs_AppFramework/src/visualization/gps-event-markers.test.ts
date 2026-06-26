@@ -210,14 +210,14 @@ describe('GpsEventVisualizer', () => {
       expect(raw.scale.z).toBeCloseTo(4.5);
     });
 
-    it('falls back to legacy fixed 8 cm sphere when accuracy is omitted', () => {
+    it('falls back to legacy fixed 4 cm sphere when accuracy is omitted', () => {
       setupZero();
 
       visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
 
       const raw = findRaw();
       const geo = raw.geometry as THREE.SphereGeometry;
-      expect(geo.parameters.radius).toBeCloseTo(0.08);
+      expect(geo.parameters.radius).toBeCloseTo(0.04);
       // Identity scale
       expect(raw.scale.x).toBeCloseTo(1);
       expect(raw.scale.y).toBeCloseTo(1);
@@ -235,7 +235,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
       expect(raw.scale.y).toBeCloseTo(1);
       expect(raw.scale.z).toBeCloseTo(1);
@@ -252,7 +252,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
     });
 
@@ -267,7 +267,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
     });
 
@@ -277,7 +277,7 @@ describe('GpsEventVisualizer', () => {
     // Before the `== null` guard, the `=== undefined` check let `null` through
     // and the subsequent destructuring (`const { horizontal, vertical } =
     // accuracy`) threw a TypeError, crashing the marker render. This asserts
-    // `null` falls back to the legacy fixed 8 cm sphere instead of throwing.
+    // `null` falls back to the legacy fixed 4 cm sphere instead of throwing.
     it('treats explicit null accuracy as missing (no crash, legacy sphere)', () => {
       setupZero();
 
@@ -292,7 +292,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
       expect(raw.scale.y).toBeCloseTo(1);
       expect(raw.scale.z).toBeCloseTo(1);
@@ -313,7 +313,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
       expect(raw.scale.y).toBeCloseTo(1);
       expect(raw.scale.z).toBeCloseTo(1);
@@ -330,7 +330,7 @@ describe('GpsEventVisualizer', () => {
       const raw = findRaw();
       expect(
         (raw.geometry as THREE.SphereGeometry).parameters.radius
-      ).toBeCloseTo(0.08);
+      ).toBeCloseTo(0.04);
       expect(raw.scale.x).toBeCloseTo(1);
     });
 
@@ -369,8 +369,8 @@ describe('GpsEventVisualizer', () => {
 
       const fused = findFused();
       const geo = fused.geometry as THREE.SphereGeometry;
-      // Cyan keeps the legacy fixed 8 cm radius and identity scale.
-      expect(geo.parameters.radius).toBeCloseTo(0.08);
+      // Cyan keeps the fixed 4 cm radius and identity scale.
+      expect(geo.parameters.radius).toBeCloseTo(0.04);
       expect(fused.scale.x).toBeCloseTo(1);
       expect(fused.scale.y).toBeCloseTo(1);
       expect(fused.scale.z).toBeCloseTo(1);
@@ -389,7 +389,7 @@ describe('GpsEventVisualizer', () => {
         c.name.startsWith('alignment-snapshot-')
       ) as THREE.Mesh;
       const geo = snap.geometry as THREE.SphereGeometry;
-      expect(geo.parameters.radius).toBeCloseTo(0.1);
+      expect(geo.parameters.radius).toBeCloseTo(0.05);
       expect(snap.scale.x).toBeCloseTo(1);
       expect(snap.scale.y).toBeCloseTo(1);
       expect(snap.scale.z).toBeCloseTo(1);
@@ -615,19 +615,20 @@ describe('GpsEventVisualizer', () => {
       expect(sizes[1].x / sizes[0].x).toBeLessThan(10);
     });
 
-    it('legacy fixed sphere has ~16cm bbox (2 × 8cm radius)', () => {
+    it('legacy fixed sphere has ~8cm bbox (2 × 4cm radius)', () => {
       visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
       visualizer.addGpsEvent([0, 0, 0], [0, 0, 0]); // no accuracy → legacy
 
       const sizes = visualizer.getRawMarkerWorldSizes();
       expect(sizes).toHaveLength(1);
-      expect(sizes[0].x).toBeGreaterThan(0.1);
-      expect(sizes[0].x).toBeLessThan(0.2);
+      // Radius halved 0.08 → 0.04 (D5), so the tessellated bbox is ~8 cm.
+      expect(sizes[0].x).toBeGreaterThan(0.05);
+      expect(sizes[0].x).toBeLessThan(0.1);
     });
   });
 
   describe('marker sizing', () => {
-    it('creates spheres with 8cm radius (smaller than ref points)', () => {
+    it('creates spheres with 4cm radius (smaller than ref points)', () => {
       visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
 
       visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
@@ -638,7 +639,7 @@ describe('GpsEventVisualizer', () => {
 
       // SphereGeometry stores radius in parameters
       const geometry = rawMarker.geometry as THREE.SphereGeometry;
-      expect(geometry.parameters.radius).toBeCloseTo(0.08);
+      expect(geometry.parameters.radius).toBeCloseTo(0.04);
     });
   });
 
@@ -709,6 +710,99 @@ describe('GpsEventVisualizer', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Visibility toggle (Finding B / Slice 3 of
+  // 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md)
+  // ---------------------------------------------------------------------------
+  // Why these tests matter: the recorder's new `visualization.gpsAlignmentMarkers`
+  // toggle must be able to hide ALL GPS+VIO debug spheres live — raw (yellow),
+  // fused (cyan), AND alignment-snapshot (red) — without touching capture or
+  // replay. The markers are created at different times, so the contract is:
+  // setVisible(false) hides every existing marker AND every marker added
+  // afterwards (the live store-subscriber keeps adding events during recording);
+  // setVisible(true) restores them. This is the load-bearing new framework
+  // capability the recorder's Enter-AR gating depends on.
+  describe('setVisible', () => {
+    const findRaw = (): THREE.Mesh[] =>
+      mockScene.children.filter((c) =>
+        c.name.startsWith('raw-gps-')
+      ) as THREE.Mesh[];
+    const findFused = (): THREE.Mesh[] =>
+      mockArWorldGroup.children.filter((c) =>
+        c.name.startsWith('fused-')
+      ) as THREE.Mesh[];
+    const findSnapshots = (): THREE.Mesh[] =>
+      mockScene.children.filter((c) =>
+        c.name.startsWith('alignment-snapshot-')
+      ) as THREE.Mesh[];
+
+    it('markers are visible by default (purely additive — no behaviour change)', () => {
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
+      visualizer.addAlignmentSnapshot([10, 0, 5]);
+
+      expect(findRaw()[0].visible).toBe(true);
+      expect(findFused()[0].visible).toBe(true);
+      expect(findSnapshots()[0].visible).toBe(true);
+    });
+
+    it('setVisible(false) hides existing raw, fused, and snapshot markers; setVisible(true) restores', () => {
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
+      visualizer.addGpsEvent([15, 6, 25], [4, 5, 6]);
+      visualizer.addAlignmentSnapshot([10, 0, 5]);
+
+      visualizer.setVisible(false);
+      for (const m of [...findRaw(), ...findFused(), ...findSnapshots()]) {
+        expect(m.visible).toBe(false);
+      }
+
+      visualizer.setVisible(true);
+      for (const m of [...findRaw(), ...findFused(), ...findSnapshots()]) {
+        expect(m.visible).toBe(true);
+      }
+    });
+
+    it('markers added AFTER setVisible(false) inherit the hidden state', () => {
+      // The live store-subscriber keeps adding events during recording — a
+      // marker spawned after the operator opted out must NOT pop into view.
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.setVisible(false);
+
+      visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
+      visualizer.addAlignmentSnapshot([10, 0, 5]);
+
+      expect(findRaw()[0].visible).toBe(false);
+      expect(findFused()[0].visible).toBe(false);
+      expect(findSnapshots()[0].visible).toBe(false);
+    });
+
+    it('markers added AFTER setVisible(true) are visible again', () => {
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.setVisible(false);
+      visualizer.setVisible(true);
+
+      visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
+      expect(findRaw()[0].visible).toBe(true);
+      expect(findFused()[0].visible).toBe(true);
+    });
+
+    it('clearAll resets visibility to visible (replay safety after a live opt-out)', () => {
+      // The visualizer is a singleton shared by live + replay. If a live
+      // session opted out (setVisible(false)) and then replay started, replay
+      // markers must still show — clearAll restores the pristine visible state.
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.setVisible(false);
+      visualizer.clearAll();
+
+      // A fresh marker (e.g. the first replay event) is visible again.
+      visualizer.setZeroRef({ lat: 48.8566, lon: 2.3522 });
+      visualizer.addGpsEvent([10, 5, 20], [1, 2, 3]);
+      expect(findRaw()[0].visible).toBe(true);
+      expect(findFused()[0].visible).toBe(true);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Alignment Snapshot Markers (Issue #1 — feedback session 2026-03-21)
   // ---------------------------------------------------------------------------
   describe('addAlignmentSnapshot / getAlignmentSnapshotPositions', () => {
@@ -730,15 +824,15 @@ describe('GpsEventVisualizer', () => {
       expect(snapshotMarker.position.z).toBeCloseTo(5);
     });
 
-    it('uses 10cm radius for snapshot spheres (slightly larger than GPS markers)', () => {
-      // Why: snapshots should stand out from the 8cm GPS marker spheres
+    it('uses 5cm radius for snapshot spheres (slightly larger than GPS markers)', () => {
+      // Why: snapshots should stand out from the 4cm GPS marker spheres
       visualizer.addAlignmentSnapshot([0, 0, 0]);
 
       const snapshotMarker = mockScene.children.find((c) =>
         c.name.startsWith('alignment-snapshot-')
       ) as THREE.Mesh;
       const geometry = snapshotMarker.geometry as THREE.SphereGeometry;
-      expect(geometry.parameters.radius).toBeCloseTo(0.1);
+      expect(geometry.parameters.radius).toBeCloseTo(0.05);
     });
 
     it('creates snapshot markers with 50% opacity', () => {

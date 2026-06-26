@@ -512,6 +512,137 @@ describe('discoverScenariosFromZipMetadata', () => {
     expect(sessions[0].fileHandle.kind).toBe('file');
   });
 
+  it('attaches h3Cells from session.json metadata to each entry', async () => {
+    // Why: the map-centric browser (Step 3 / D2) reads the per-tour coverage
+    // index straight from session.json during discovery, so it can place a tour
+    // without unzipping its GPS data. The discovered entry must carry h3Cells.
+    const cells = ['8b1fa1da1d64fff', '8b1fa1da1d4afff', '8b1fa1da1c09fff'];
+    const testZip = await produceTestZip({
+      scenarioName: 'Covered',
+      h3Cells: cells,
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('Covered')![0]!;
+    expect(entry.h3Cells).toEqual(cells);
+  });
+
+  it('leaves h3Cells undefined for legacy recordings without the field', async () => {
+    // Why: recordings made before the coverage index existed have no h3Cells.
+    // Discovery must leave the field undefined so the browser knows to backfill
+    // from the GPS path rather than treating it as "no coverage".
+    const testZip = await produceTestZip({ scenarioName: 'Legacy' }); // no h3Cells
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('Legacy')![0]!;
+    expect(entry.h3Cells).toBeUndefined();
+  });
+
+  it('preserves an empty h3Cells array as "no coverage" (not undefined)', async () => {
+    // Why: an empty array is a valid, intended state meaning "the recording has
+    // no GPS coverage". It MUST stay distinct from undefined (legacy, needs
+    // backfill) — conflating them would force a needless GPS re-read on every
+    // genuinely-empty recording. This guards the boundary against an
+    // over-broad "empty -> undefined" parse fix.
+    const testZip = await produceTestZip({
+      scenarioName: 'Empty',
+      h3Cells: [],
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('Empty')![0]!;
+    expect(entry.h3Cells).toEqual([]);
+  });
+
+  it('treats a malformed h3Cells array (no string entries) as legacy', async () => {
+    // Why: session.json comes from a file on disk and may be corrupt. An array
+    // whose entries are not strings (e.g. [123]) is untrustworthy metadata — it
+    // must yield undefined so the coverage index falls back to deriving coverage
+    // from the authoritative GPS path, NOT be misread as valid "no coverage".
+    const testZip = await produceTestZip({
+      scenarioName: 'Malformed',
+      h3Cells: [123, 456] as unknown as string[],
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('Malformed')![0]!;
+    expect(entry.h3Cells).toBeUndefined();
+  });
+
+  it('treats a partially-malformed h3Cells array as legacy', async () => {
+    // Why: if any entry is a non-string, the array is evidence of corruption.
+    // Silently keeping the valid strings would surface a wrong (truncated)
+    // coverage that looks valid; treating the whole array as untrustworthy and
+    // backfilling from GPS recovers the correct, complete coverage instead.
+    const testZip = await produceTestZip({
+      scenarioName: 'PartlyBad',
+      h3Cells: ['8b1fa1da1d64fff', 123] as unknown as string[],
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('PartlyBad')![0]!;
+    expect(entry.h3Cells).toBeUndefined();
+  });
+
+  it('treats an array of string-typed but invalid H3 ids as legacy', async () => {
+    // Why: corruption is not limited to wrong-typed entries. A string that is
+    // not a valid H3 id (e.g. "garbage") is just as untrustworthy as a number,
+    // but is *string-typed* so the type-only filter would let it through. It
+    // must be rejected at the boundary so coverage is re-derived from the
+    // authoritative GPS path.
+    //
+    // This matters because the invalid id does NOT crash downstream and so
+    // would fail silently: `cellToLatLng('garbage')` does not throw — it
+    // returns a garbage coordinate (~79N), which would mis-frame the map in
+    // `map-browser.ts` `fitToCoverage`; and `clusterCellsByZoom` already drops
+    // invalid cells, so the corruption would never surface as an error. The
+    // only safe place to catch it is here, at the parse boundary.
+    const testZip = await produceTestZip({
+      scenarioName: 'BadIds',
+      h3Cells: ['garbage', 'not-an-h3-cell'],
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('BadIds')![0]!;
+    expect(entry.h3Cells).toBeUndefined();
+  });
+
+  it('treats a mix of valid and invalid H3 id strings as legacy', async () => {
+    // Why: all-or-nothing — one invalid id makes the whole array untrustworthy
+    // (same rationale as the partially-malformed/non-string case above). Keeping
+    // only the valid ids would surface a truncated-but-valid-looking coverage,
+    // which is worse than backfilling the complete coverage from GPS.
+    const testZip = await produceTestZip({
+      scenarioName: 'MixedIds',
+      h3Cells: ['8b1fa1da1d64fff', 'garbage'],
+    });
+    const root = new MockFSDirectoryHandle('Recordings');
+    root.addFile('2026-03-01_09-08-48utc.zip', testZip.zipData);
+
+    const result = await discoverScenariosFromZipMetadata(root);
+
+    const entry = result.scenarioSessions.get('MixedIds')![0]!;
+    expect(entry.h3Cells).toBeUndefined();
+  });
+
   it('groups multiple zips by their scenarioName from metadata', async () => {
     // Why: A folder may contain multiple zips from different scenarios.
     // The function must group them correctly by the scenarioName in session.json.

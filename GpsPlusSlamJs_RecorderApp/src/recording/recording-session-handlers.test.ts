@@ -18,6 +18,10 @@ import {
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import type { StoreSubscriberDeps } from 'gps-plus-slam-app-framework/state/store-subscribers';
 import type { MapData } from 'gps-plus-slam-app-framework/visualization/map-data';
+import {
+  gpsPathToCoverageCells,
+  H3_RESOLUTION,
+} from 'gps-plus-slam-app-framework/geo';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -157,6 +161,7 @@ const {
     mockShowConfirmDialog: vi.fn().mockResolvedValue(false),
     mockGpsEventVisualizer: {
       clearAll: vi.fn(),
+      setVisible: vi.fn(),
       getCounts: vi.fn().mockReturnValue({ raw: 0, fused: 0, snapshots: 0 }),
       getAlignmentSnapshotPositions: vi.fn().mockReturnValue([]),
     },
@@ -208,7 +213,7 @@ vi.mock('gps-plus-slam-app-framework/storage/file-system-utils', () => ({
   formatTimestamp: mockFormatTimestamp,
 }));
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('../storage/scenario-storage', () => ({
   startSession: mockStartStorageSession,
   getCurrentScenarioHandle: mockGetCurrentScenarioHandle,
 }));
@@ -250,9 +255,9 @@ vi.mock('../storage/sync-manager', () => ({
   createSyncManager: mockCreateSyncManager,
 }));
 
-vi.mock('gps-plus-slam-app-framework/storage/zip-export', () => ({
-  syncToExternalZip: mockSyncToExternalZip,
-  exportSessionAsZip: mockExportSessionAsZip,
+vi.mock('../storage/scenario-zip-export', () => ({
+  syncScenarioSessionToExternalZip: mockSyncToExternalZip,
+  exportScenarioSessionAsZip: mockExportSessionAsZip,
 }));
 
 vi.mock('../ui/navigation', () => ({
@@ -337,7 +342,7 @@ function createMockStore(): RecorderStore {
       },
       recording: {
         sessionMetadata: {
-          scenarioName: 'TestScenario',
+          contextTag: 'TestScenario',
           sessionName: 'test-session',
           startTime: 1000000,
         },
@@ -365,6 +370,10 @@ const defaultOptions: RecordingOptions = {
   },
   depth: { enabled: false, intervalMs: 1000, gridSize: 3, rgb: true },
   arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+  occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+  frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+  visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+  qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
 };
 
 function createMockDeps(
@@ -453,6 +462,46 @@ describe('handleStartRecording', () => {
     // Why: Previous recording markers must be cleared
     await handlers.handleStartRecording();
     expect(mockGpsEventVisualizer.clearAll).toHaveBeenCalled();
+  });
+
+  it('re-applies the gpsAlignmentMarkers opt-out AFTER clearAll (regression)', async () => {
+    // Bug (2026-06-18): Enter-AR applies the operator's `gpsAlignmentMarkers`
+    // opt-out via gpsEventVisualizer.setVisible(false), but handleStartRecording
+    // then calls clearAll(), which resets the shared visualizer to its pristine
+    // VISIBLE state (a replay-safety reset). Markers spawned by the live
+    // store-subscriber during recording therefore reappeared despite the toggle
+    // being OFF. The handler must re-assert the opt-out AFTER clearAll, or the
+    // reset wins.
+    const localDeps = createMockDeps({
+      getRecordingOptions: () => ({
+        ...defaultOptions,
+        visualization: {
+          ...defaultOptions.visualization,
+          gpsAlignmentMarkers: false,
+        },
+      }),
+    });
+    const localHandlers = createRecordingSessionHandlers(localDeps);
+
+    await localHandlers.handleStartRecording();
+
+    expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(false);
+    // Crucially AFTER clearAll — otherwise clearAll's reset-to-visible wins and
+    // the markers reappear (the exact reported symptom).
+    const clearOrder =
+      mockGpsEventVisualizer.clearAll.mock.invocationCallOrder[0];
+    const setVisibleOrder =
+      mockGpsEventVisualizer.setVisible.mock.invocationCallOrder[0];
+    expect(setVisibleOrder).toBeGreaterThan(clearOrder);
+  });
+
+  it('re-applies the current gpsAlignmentMarkers value (visible) after clearAll', async () => {
+    // Symmetry: with the toggle ON the re-assert is harmless (clearAll already
+    // left markers visible) but keeps the visibility explicit and order-safe.
+    await handlers.handleStartRecording();
+    expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(
+      defaultOptions.visualization.gpsAlignmentMarkers
+    );
   });
 
   it('should create a new store via deps', async () => {
@@ -579,7 +628,7 @@ describe('handleStartRecording', () => {
     expect(newStore.dispatch).toHaveBeenCalled();
     expect(mockStartSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        scenarioName: 'TestScenario',
+        contextTag: 'TestScenario',
         sessionName: 'recording-2026-01-01_12-00-00',
       })
     );
@@ -637,6 +686,10 @@ describe('handleStartRecording', () => {
       },
       depth: { enabled: false, intervalMs: 1000, gridSize: 3, rgb: true },
       arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+      frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+      visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+      qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
     };
     deps = createMockDeps({ getRecordingOptions: () => opts });
     handlers = createRecordingSessionHandlers(deps);
@@ -671,6 +724,10 @@ describe('handleStartRecording', () => {
       },
       depth: { enabled: true, intervalMs: 500, gridSize: 3, rgb: false },
       arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+      frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+      visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+      qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
     };
     deps = createMockDeps({ getRecordingOptions: () => opts });
     handlers = createRecordingSessionHandlers(deps);
@@ -790,7 +847,7 @@ describe('handleStartRecording', () => {
     // Storage session and startSession action should both use 'Paris'
     expect(mockStartStorageSession).toHaveBeenCalledWith('Paris');
     expect(mockStartSession).toHaveBeenCalledWith(
-      expect.objectContaining({ scenarioName: 'Paris' })
+      expect.objectContaining({ contextTag: 'Paris' })
     );
   });
 });
@@ -852,6 +909,54 @@ describe('handleStopRecording', () => {
     await handlers.handleStopRecording();
     expect(mockEndSession).toHaveBeenCalled();
     expect(mockStore.dispatch).toHaveBeenCalled();
+  });
+
+  it('should persist the H3 coverage index from the GPS path', async () => {
+    // Why: the map-centric recording browser (Step 2 / D1) reads h3Cells from
+    // session.json to show roughly where each tour was recorded WITHOUT
+    // unzipping GPS data. The stored cells are the deduped res-11 coverage of
+    // the walked path; h3Resolution records the capture resolution so older
+    // readers stay self-describing if it ever changes.
+    (mockStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
+      gpsData: {
+        gpsEvents: {
+          gpsPositions: [
+            { latitude: 50.7495, longitude: 6.4793, timestamp: 1 },
+            { latitude: 50.7475, longitude: 6.4812, timestamp: 2 },
+            { latitude: 50.7475, longitude: 6.4812, timestamp: 3 }, // dwell → dedup
+            { latitude: 50.7451, longitude: 6.4804, timestamp: 4 },
+          ],
+          odometryPositions: [],
+        },
+        referencePoints: [],
+      },
+      recording: {
+        sessionMetadata: {
+          contextTag: 'TestScenario',
+          sessionName: 'test-session',
+          startTime: 1000000,
+        },
+        failedWriteCount: 0,
+      },
+      scenario: { currentScenarioName: 'TestScenario' },
+      refPoints: { entries: [] },
+    });
+
+    await handlers.handleStopRecording();
+
+    const expectedCells = gpsPathToCoverageCells([
+      { lat: 50.7495, lng: 6.4793 },
+      { lat: 50.7475, lng: 6.4812 },
+      { lat: 50.7475, lng: 6.4812 },
+      { lat: 50.7451, lng: 6.4804 },
+    ]);
+    expect(expectedCells).toHaveLength(3); // dwell deduped away
+    expect(mockStore.writeSessionMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        h3Cells: expectedCells,
+        h3Resolution: H3_RESOLUTION,
+      })
+    );
   });
 
   it('should call collectTrackerErrors for both trackers', async () => {
@@ -962,6 +1067,39 @@ describe('handleStopRecording', () => {
     await handlers.handleStopRecording();
 
     expect(mockSetStopButtonBusy).toHaveBeenCalledWith(true);
+  });
+
+  it('restores the Stop button to idle when performStop throws, so the UI is not bricked', async () => {
+    // UI feedback for async actions (CLAUDE.md): if teardown throws *after* the
+    // button is marked busy but *before* hideRecordingControls() runs (e.g. the
+    // summary screen fails to render, or an end-session subscriber throws), the
+    // recording controls stay on screen with the Stop button stuck disabled +
+    // "Stopping…" forever — a bricked UI. The busy state set on entry must be
+    // symmetrically restored on the error path, and the error must still
+    // propagate so it is reported (Sentry) rather than swallowed.
+    mockGetSaveFileHandle.mockReturnValue(null);
+    await handlers.handleStartRecording();
+    vi.clearAllMocks();
+
+    // Inject the throw in the unguarded tail *before* hideRecordingControls()
+    // runs (computeFusedPath builds the summary at performStop line ~709, the
+    // controls are hidden at ~734), so the recording controls genuinely stay on
+    // screen and the stuck button is the only thing keeping the UI usable.
+    const tailError = new Error('summary build failed');
+    mockComputeFusedPath.mockImplementationOnce(() => {
+      throw tailError;
+    });
+
+    await expect(handlers.handleStopRecording()).rejects.toThrow(tailError);
+
+    // Busy on entry, then restored to idle on the failure path.
+    expect(mockSetStopButtonBusy).toHaveBeenCalledWith(true);
+    expect(mockSetStopButtonBusy).toHaveBeenCalledWith(false);
+    // We threw before the terminal transition, so the recording controls are
+    // still visible (and the summary never rendered) — the idle restoration of
+    // the Stop button is what un-bricks the UI.
+    expect(mockHideRecordingControls).not.toHaveBeenCalled();
+    expect(mockShowSessionSummary).not.toHaveBeenCalled();
   });
 
   it('is unaffected by cleanupForNewRecording racing the in-flight final sync', async () => {
@@ -1172,7 +1310,7 @@ describe('handleStopRecording', () => {
       },
       recording: {
         sessionMetadata: {
-          scenarioName: 'Test',
+          contextTag: 'Test',
           sessionName: 'test-session',
           startTime: Date.now() - 60000,
         },

@@ -35,6 +35,18 @@ export interface SessionEntry {
   fileHandle: FileSystemFileHandle;
   /** Parsed UTC date from filename, or null if filename doesn't match pattern */
   date: Date | null;
+  /**
+   * Per-tour H3 coverage index (res-11 cells the GPS path crossed), read from
+   * the recording's `session.json` during metadata discovery. Powers the
+   * map-centric recording browser (tile → which tours cross it) without
+   * unzipping GPS data.
+   *
+   * - An array (possibly empty) when the recording carries an `h3Cells` field.
+   *   An empty array means the recording genuinely had no GPS coverage.
+   * - `undefined` for legacy recordings that predate the field — the browser
+   *   backfills these in memory from the GPS path (see `recording-index.ts`).
+   */
+  h3Cells?: readonly string[];
 }
 
 /**
@@ -72,6 +84,7 @@ const SESSION_DATE_PATTERN =
 const SCENARIO_PREFIX_PATTERN =
   /^(.+)-session-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}utc\.zip$/;
 
+import { isValidCell } from 'h3-js';
 import { loadSessionMetadataFromBlob } from 'gps-plus-slam-app-framework/storage/zip-reader';
 import { mapWithConcurrencyLimit } from 'gps-plus-slam-app-framework/utils/concurrency';
 
@@ -213,6 +226,47 @@ const METADATA_SCAN_CONCURRENCY = 4;
  * @param rootHandle - FileSystemDirectoryHandle from showDirectoryPicker()
  * @returns Discovery result with scenario→sessions map and sorted scenario names
  */
+/**
+ * Defensively parse the `h3Cells` field read from a recording's `session.json`.
+ *
+ * Returns the array of H3 id strings when the field is present and well-formed
+ * (an array whose entries are *all* valid H3 cell ids — including an empty
+ * array, which means "no GPS coverage"), or `undefined` when the field is
+ * absent (legacy recording) or malformed.
+ *
+ * Malformed is treated as all-or-nothing: if *any* entry is not a valid H3 cell
+ * id — whether it is not a string at all (e.g. `123`) or a string that does not
+ * decode to a real cell (e.g. `"garbage"`) — the whole array is rejected
+ * (returns `undefined`), rather than silently keeping the good entries. The
+ * metadata comes from a file on disk and must not be assumed well-formed
+ * (defensive boundary per CLAUDE.md); a partially-corrupt array is
+ * untrustworthy, and surfacing a truncated-but-valid-looking coverage is worse
+ * than falling back to deriving coverage from the authoritative GPS path.
+ * `undefined` is what triggers that legacy backfill downstream
+ * (`recording-index.ts`), so a non-empty array that filters to empty must NOT
+ * be returned as a valid empty `[]` (which means "no coverage", no backfill).
+ *
+ * Validating the cell ids here (not just their type) is the only safe place to
+ * catch this class of corruption: an invalid id does not fail loudly
+ * downstream. `cellToLatLng('garbage')` does not throw — it returns a garbage
+ * coordinate that would mis-frame the map in `map-browser.ts` `fitToCoverage`,
+ * and `clusterCellsByZoom` silently drops invalid cells — so a bad id would
+ * otherwise corrupt the view without ever raising an error.
+ */
+function parseH3Cells(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const cells = value.filter(
+    (c): c is string => typeof c === 'string' && isValidCell(c)
+  );
+  // All-or-nothing: a non-empty array that lost entries to filtering contained
+  // a non-string or an invalid H3 id and is untrustworthy — reject it
+  // (undefined) so coverage is backfilled from the GPS path, rather than
+  // surfaced as a valid (possibly empty/truncated) array.
+  return cells.length === value.length ? cells : undefined;
+}
+
 export async function discoverScenariosFromZipMetadata(
   rootHandle: FileSystemDirectoryHandle
 ): Promise<ZipMetadataDiscoveryResult> {
@@ -267,10 +321,12 @@ export async function discoverScenariosFromZipMetadata(
       scenarioName = DEFAULT_SCENARIO;
     }
 
+    const h3Cells = parseH3Cells(metadata?.h3Cells);
     const entry: SessionEntry = {
       filename: name,
       fileHandle: handle,
       date: parseDateFromSessionFilename(name),
+      ...(h3Cells !== undefined ? { h3Cells } : {}),
     };
 
     const existing = scenarioSessions.get(scenarioName);

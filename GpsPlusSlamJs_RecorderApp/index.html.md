@@ -141,8 +141,6 @@ Every ID below is referenced by TypeScript code. Removing or renaming any of the
 | `perm-gps-status` | `span` | `hud.ts` | `.textContent` set. `aria-live="polite"` |
 | `perm-camera` | `div` | `hud.ts` | Permission row container |
 | `perm-camera-status` | `span` | `hud.ts` | `.textContent` set. `aria-live="polite"` |
-| `perm-orientation` | `div` | `hud.ts` | Permission row container |
-| `perm-orientation-status` | `span` | `hud.ts` | `.textContent` set. `aria-live="polite"` |
 | `btn-request-permissions` | `button` | `hud.ts` | `.hidden` toggled; click requests device permissions. `aria-label` set |
 | `permission-error` | `p` | `hud.ts` | `.hidden` toggled; `.textContent` set to error messages |
 | `btn-enter-ar` | `button` | `hud.ts` | `.disabled` toggled; click enters WebXR session |

@@ -3,11 +3,27 @@
 F3.5b of the [tracking-quality regression & replay-gaps
 feedback](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-05-26-tracking-quality-regression-and-replay-gaps-user-feedback.md).
 
-`decodeFrameTexture(blob)` is the production decoder paired with
+`decodeFrameTexture(blob, divisor = 1)` is the production decoder paired with
 [`createZipFrameBlobSource`](../storage/zip-frame-blob-source.ts.md)
 (replay) or the live in-memory blob cache (F3.5d). It plugs into
 the `decodeTexture` slot of
-[`wireFrameTileSubscribers`](./wire-frame-tile-subscribers.ts.md).
+[`wireFrameTileSubscribers`](./wire-frame-tile-subscribers.ts.md) — both call
+sites wire it as `(blob) => decodeFrameTexture(blob, divisor)`.
+
+## Display-resolution downscale (D7-resolution)
+
+The optional `divisor` (>1) re-samples the decoded bitmap to `1/divisor` of each
+dimension before wrapping it in a `THREE.Texture`, cutting per-tile GPU texture
+memory (a partial mitigation for the OOM/crash track; the tile _count_ still
+grows unbounded — capping is the separate Track-S fix). It is sourced from the
+`frameTileDisplay.divisor` recording option (default 2), read at Enter-AR (live,
+`main.ts`) and at replay start (`replay/replay-mode.ts` via
+`loadRecordingOptions()`). This is **distinct from** the capture
+`images.resolutionDivisor`: the saved JPEG is untouched — only the in-AR/replay
+display texture is downscaled. The resize re-uses `createImageBitmap` with
+`resizeWidth/Height` and **omits** `imageOrientation` on the second pass (the
+full bitmap is already upright; a second `flipY` would re-flip it); the full-res
+bitmap is `close()`d once the resized copy exists.
 
 ## Soft-failure contract
 
@@ -47,6 +63,8 @@ Finding 2 / D2 and the lessons-learned texture-orientation entry.
 
 ## Tested in `frame-texture-decoder.test.ts`
 
-Four cases: happy path (texture wraps bitmap & `needsUpdate=true`),
-the orientation contract (decode passes `imageOrientation: 'flipY'`),
-decode rejection → `null`, missing global → `null`.
+Cases: happy path (texture wraps bitmap & `needsUpdate=true`), the orientation
+contract (decode passes `imageOrientation: 'flipY'`), the display downscale
+(divisor>1 resizes to source/divisor, frees the full bitmap, wraps the resized
+one, no second `imageOrientation`), divisor=1 skips the resize pass, decode
+rejection → `null`, missing global → `null`.

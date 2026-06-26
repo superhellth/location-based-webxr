@@ -44,7 +44,9 @@ import {
   showSetupModal,
   updateRefPointButtonLabel,
   setNewRefPointButtonVisible,
+  updateRefPointHint,
   updateTrackingQuality,
+  showUnsupportedPlatformNotice,
 } from './ui/hud';
 import {
   initSessionSummary,
@@ -65,6 +67,7 @@ import {
   endARSession,
   setImageCaptureCallback,
   setDepthCaptureCallback,
+  setCameraFrameCallback,
   setFrameCallback,
   setTrackingLostCallback,
   setTrackingCallbacks,
@@ -85,7 +88,7 @@ import {
   resetForNewSession,
   clearRefPointsCacheForAllScenarios,
   getCurrentScenarioHandle,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from './storage/scenario-storage';
 import {
   getReadFolderHandle,
   resetForNewRecording as resetExternalForNewRecording,
@@ -163,6 +166,16 @@ import {
   discoverScenariosFromZipMetadata,
 } from './ui/session-browser';
 import type { SessionEntry } from './ui/session-browser';
+import { createMapBrowser, type MapBrowserInstance } from './ui/map-browser';
+import {
+  streamRecordingIndex,
+  type RecordingCoverage,
+} from './ui/recording-index';
+import {
+  backfillCoverageIntoZips,
+  type BackfillCandidate,
+} from './storage/coverage-backfill';
+import { gpsPathToCoverageCells } from 'gps-plus-slam-app-framework/geo';
 import { createReplayHandlers } from './replay/replay-handlers';
 import { createRefPointHandlers } from './ref-points/ref-point-handlers';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
@@ -171,6 +184,8 @@ import {
   type RecordingOptions,
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import { initSettingsModal } from './ui/settings-modal';
+import { wireQrRecording } from './qr/wire-qr-recording';
+import type { QrDetectionController } from 'gps-plus-slam-app-framework/ar';
 
 import { listFormatter } from 'gps-plus-slam-app-framework/utils/list-formatter';
 
@@ -246,6 +261,13 @@ let occupancyGrid: OccupancyGrid | null = null;
 let occupancyCubesVisualizer: OccupancyCubesVisualizer | null = null;
 let unsubscribeOccupancyGrid: (() => void) | null = null;
 
+// Live QR recording (opt-in, recording-options `qr`). The thin RAW producer
+// (created in handleEnterAR when enabled) receives camera frames via the
+// `setCameraFrameCallback` registered before initAR; `wireQrRecording` owns the
+// producer + the WS-5 debug-viz subscriber and returns a dispose handle.
+let qrProducer: QrDetectionController | null = null;
+let unsubscribeQrRecording: (() => void) | null = null;
+
 // HUD tracking-quality subscription. `subscribeHudToTrackingQuality` returns a
 // dispose function that detaches both the per-store subscription and the
 // store-swap listener. We keep the handle here so re-entering AR (back to
@@ -285,6 +307,8 @@ const recordingSessionHandlers = createRecordingSessionHandlers({
     const nearby = refPointHandlers.checkNearbyRefPoint(lat, lng);
     updateRefPointButtonLabel(nearby?.displayName);
     setNewRefPointButtonVisible(nearby?.isNeighborCell ?? false);
+    // D3: inline confirmation hint so the name relabel reads as "you're at X".
+    updateRefPointHint(nearby);
   },
 });
 
@@ -297,11 +321,159 @@ const refPointHandlers = createRefPointHandlers({
 
 // Folder manager — encapsulates folder selection, save location, scenario management
 // (Finding #7 decomposition Step 4: extracted from main.ts to storage/folder-manager.ts)
+// --- Map-centric recording browser (Step 4C) ---
+
+let mapBrowser: MapBrowserInstance | null = null;
+/** Aborts the in-flight coverage stream when the browser is torn down. */
+let mapBrowserAbort: AbortController | null = null;
+
+/** Remove the map browser, abort any in-flight stream, and drop its container. */
+function teardownMapBrowser(): void {
+  mapBrowserAbort?.abort();
+  mapBrowserAbort = null;
+  mapBrowser?.destroy();
+  mapBrowser = null;
+  document.getElementById('map-browser-root')?.remove();
+}
+
+/**
+ * Present the map-centric browser as the primary replay selector (D3a) for an
+ * opened replay folder. The map is mounted **immediately** (empty) and
+ * recordings are **streamed** onto it as each is indexed — metadata-present
+ * ones first/instantly, legacy ones as their GPS path is read — so the user
+ * sees and can use the map right away instead of blocking on the full index
+ * (Slice A). A progress pill counts up and then hides on completion.
+ *
+ * Picking a tour starts a single-tour replay (D3) and tears the browser down.
+ * The owned `AbortController` cancels the stream if the browser is closed or
+ * another folder is opened mid-index, so a torn-down map never receives tiles.
+ */
+async function launchMapBrowser(
+  folderHandle: FileSystemDirectoryHandle
+): Promise<void> {
+  teardownMapBrowser();
+
+  const container = ensureMapBrowserRoot();
+  const abort = new AbortController();
+  mapBrowserAbort = abort;
+
+  // Legacy recordings that carry coverage worth embedding into their zips — the
+  // one-time backfill candidates (B1), accumulated as the index streams in.
+  const backfillCandidates: BackfillCandidate[] = [];
+
+  const browser = createMapBrowser(container, {
+    onPlayTour: (recording) => {
+      teardownMapBrowser();
+      void replayHandlers.startReplayForEntry(recording.entry);
+    },
+    onClose: teardownMapBrowser,
+    onBackfill: async () => {
+      const result = await backfillCoverageIntoZips(
+        folderHandle,
+        backfillCandidates,
+        { signal: abort.signal }
+      );
+      if (result.permissionDenied) {
+        showError(
+          "Couldn't get write access — recordings will be re-indexed each open."
+        );
+      } else if (result.failed > 0) {
+        showToast(
+          `Embedded coverage into ${result.embedded} recordings (${result.failed} failed)`,
+          { severity: 'warning' }
+        );
+      } else if (result.embedded > 0) {
+        showToast(
+          `Embedded coverage into ${result.embedded} recordings — future loads will be instant`
+        );
+      }
+      return result;
+    },
+  });
+  if (!browser) {
+    teardownMapBrowser();
+    return;
+  }
+  mapBrowser = browser;
+
+  try {
+    await streamRecordingIndex(folderHandle, {
+      onTotal: (total) => {
+        if (total === 0) {
+          // Nothing to browse spatially — leave the modal list as the fallback
+          // (don't show an empty map).
+          teardownMapBrowser();
+          return;
+        }
+        browser.setIndexingProgress(0, total);
+      },
+      onRecording: (rec) => {
+        browser.addRecording(rec);
+        if (rec.backfilled && rec.cells.length > 0) {
+          backfillCandidates.push({
+            fileHandle: rec.entry.fileHandle,
+            filename: rec.entry.filename,
+            cells: rec.cells,
+          });
+        }
+      },
+      onProgress: ({ done, total }) => browser.setIndexingProgress(done, total),
+      signal: abort.signal,
+    });
+  } catch (err) {
+    // An aborted stream (browser closed / folder switched) is expected — only
+    // surface genuine failures.
+    if (!abort.signal.aborted) {
+      log.error('Map browser coverage stream failed', err);
+      showError('Failed to index recordings for the map — see logs.');
+    }
+  }
+}
+
+/** Create (or reuse) the full-bleed root container for the map browser. */
+function ensureMapBrowserRoot(): HTMLElement {
+  let container = document.getElementById('map-browser-root');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'map-browser-root';
+    container.className = 'fixed inset-0 z-[80]';
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+/**
+ * Reduce a fixture tour (GPS path of `{lat,lng}`) to a `RecordingCoverage` so
+ * Playwright can mount/stream the browser without a real recordings folder.
+ */
+function fixtureToRecordingCoverage(
+  f: {
+    filename: string;
+    scenario: string;
+    path: Array<{ lat: number; lng: number }>;
+  },
+  index: number
+): RecordingCoverage {
+  const cells = gpsPathToCoverageCells(f.path);
+  return {
+    entry: {
+      filename: f.filename,
+      fileHandle: {} as FileSystemFileHandle,
+      date: new Date(Date.UTC(2026, 0, 1 + index)),
+      h3Cells: cells,
+    },
+    scenario: f.scenario,
+    cells,
+    backfilled: false,
+  };
+}
+
 const folderManager = createFolderManager({
   getStore: () => store,
   getIsReplayMode: () => replayHandlers.getIsReplayMode(),
   setReplayZipScenariosCache: (cache) =>
     replayHandlers.setReplayZipScenariosCache(cache),
+  onReplayFolderScanned: (folderHandle) => launchMapBrowser(folderHandle),
   showError,
   updateStatus,
   populateScenarios,
@@ -422,6 +594,12 @@ export function resetMainState(): void {
   }
   occupancyGrid = null;
   setOccupancyGrid(null);
+  // Live QR teardown — stop capture, detach the producer + debug-viz subscriber.
+  if (unsubscribeQrRecording) {
+    unsubscribeQrRecording();
+    unsubscribeQrRecording = null;
+  }
+  qrProducer = null;
   liveFrameBlobs.clear();
   recordingSessionHandlers.reset();
   refPointHandlers.reset();
@@ -814,6 +992,10 @@ async function main(): Promise<void> {
     stopGpsWatch(); // Clean up any GPS warm-up watch (Bug 5)
     replayHandlers.setIsReplayMode(true);
     switchToReplayMode();
+    // D1 (2026-06-16 user feedback, Finding 1): explain *why* recording is
+    // unavailable on this platform (typically iOS, which lacks immersive-ar)
+    // instead of silently landing on the replay screen with no guidance.
+    showUnsupportedPlatformNotice();
     initReplayUI({
       onScenarioChange: (name: string) =>
         void replayHandlers.handleReplayScenarioChange(name),
@@ -928,6 +1110,14 @@ async function handleEnterAR(): Promise<void> {
       );
     });
 
+    // Live QR (opt-in): register the camera-frame callback BEFORE initAR (the
+    // frame source is created during init). Only when QR is enabled, so a
+    // disabled session never builds the source. The producer is created after
+    // initAR (handleEnterAR's arWorldGroup block) and forwarded frames here.
+    if (recordingOptions.qr.enabled) {
+      setCameraFrameCallback((image) => qrProducer?.offerFrame(image));
+    }
+
     // Set up tracking lost callback to warn user when AR tracking fails
     setTrackingLostCallback(() => {
       updateArInfo('⚠️ LOST');
@@ -988,7 +1178,23 @@ async function handleEnterAR(): Promise<void> {
       alignmentLerper = createAlignmentLerper(arWorldGroup);
 
       cameraFollower = createCameraFollower(arScene);
-      createGpsCompassCubes(cameraFollower.object3D);
+
+      // Live debug-overlay visibility (recording-options `visualization`, read
+      // ONCE here at Enter-AR — toggling mid-session applies on the next
+      // Enter-AR, not retroactively; replay is never gated). Finding B / DB-2 of
+      // GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md.
+      const viz = recordingOptions.visualization;
+
+      // Compass cubes — recorder-side skip. Nothing non-visual depends on them.
+      if (viz.compassCubes) {
+        createGpsCompassCubes(cameraFollower.object3D);
+      }
+
+      // GPS+VIO alignment spheres — NOT skipped (their snapshot positions feed
+      // the session-summary map at stop), only hidden via the framework
+      // visibility API. Live only; replay keeps them visible because clearAll
+      // resets the shared singleton's visibility on each store swap.
+      gpsEventVisualizer.setVisible(viz.gpsAlignmentMarkers);
 
       // F3.5d — wire the frame-tile visualizer into the live AR scene so
       // captured frames appear as textured planes during recording, using
@@ -1005,20 +1211,31 @@ async function handleEnterAR(): Promise<void> {
         frameTileVisualizer?.dispose();
         frameTileVisualizer = null;
 
-        // Parent under arWorldGroup (NOT the scene root): the selector
-        // emits raw-WebXR poses, so tiles must ride the camera's
-        // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
-        frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
-        unsubscribeFrameTiles = wireFrameTileSubscribers({
-          storeRef,
-          visualizer: frameTileVisualizer,
-          blobSource: (imageFile) =>
-            Promise.resolve(liveFrameBlobs.get(imageFile) ?? null),
-          decodeTexture: decodeFrameTexture,
-          onError: (err, imageFile) => {
-            log.warn(`Frame tile decode failed for "${imageFile}"`, err);
-          },
-        });
+        // Gate creation on the toggle (teardown above stays unconditional so
+        // turning the overlay off cleanly removes a prior cycle's tiles). The
+        // live frame-blob cache is populated in handleImageCaptured,
+        // independent of this wiring, so skipping it never affects capture.
+        if (viz.frameTiles) {
+          // Parent under arWorldGroup (NOT the scene root): the selector
+          // emits raw-WebXR poses, so tiles must ride the camera's
+          // alignment × WEBXR_TO_NUE chain. See the followup frame-check doc.
+          frameTileVisualizer = new FrameTileVisualizer(arWorldGroup);
+          // D7-resolution: downscale the live display texture by the
+          // configured frameTileDisplay divisor (default ÷2) to cut per-tile
+          // GPU memory. Read once here at Enter-AR alongside the other viz
+          // settings; capture quality (images.resolutionDivisor) is untouched.
+          const frameTileDivisor = recordingOptions.frameTileDisplay.divisor;
+          unsubscribeFrameTiles = wireFrameTileSubscribers({
+            storeRef,
+            visualizer: frameTileVisualizer,
+            blobSource: (imageFile) =>
+              Promise.resolve(liveFrameBlobs.get(imageFile) ?? null),
+            decodeTexture: (blob) => decodeFrameTexture(blob, frameTileDivisor),
+            onError: (err, imageFile) => {
+              log.warn(`Frame tile decode failed for "${imageFile}"`, err);
+            },
+          });
+        }
       } catch (err) {
         log.warn(
           'Frame tile visualizer wiring skipped; recording continues without frame tiles',
@@ -1045,17 +1262,35 @@ async function handleEnterAR(): Promise<void> {
         occupancyGrid = null;
         setOccupancyGrid(null);
 
-        occupancyGrid = new OccupancyGrid();
+        // Voxel size is a user setting (recording-options `occupancy.cellSizeM`,
+        // clamped 1–20 cm); read it at construction so a changed value applies
+        // on the next Enter-AR. Same source main.ts uses for arCrashIsolation.
+        occupancyGrid = new OccupancyGrid({
+          cellSizeM: recordingOptions.occupancy.cellSizeM,
+        });
         // Publish the single live grid so non-visualizer consumers (the COLMAP
         // ZIP contributor, future floor/nav-mesh builders) can read it without a
         // one-off reference. Mirrors main.ts's `occupancyGrid` var exactly; the
         // teardown paths below clear it back to null (COLMAP export plan Q2).
         setOccupancyGrid(occupancyGrid);
-        occupancyCubesVisualizer = new OccupancyCubesVisualizer(arWorldGroup);
+
+        // The occupancyCubes toggle gates ONLY the rendered debug cubes — the
+        // grid itself is always built and fed, because COLMAP export and other
+        // non-visualizer consumers read it via getOccupancyGrid(). When the
+        // overlay is off we wire a no-op sink so the grid still folds in every
+        // depth sample without allocating the cube InstancedMesh.
+        const occupancyVisualizerSink: {
+          refresh(grid: OccupancyGrid): void;
+          clear(): void;
+        } = viz.occupancyCubes
+          ? (occupancyCubesVisualizer = new OccupancyCubesVisualizer(
+              arWorldGroup
+            ))
+          : { refresh: () => {}, clear: () => {} };
         unsubscribeOccupancyGrid = wireOccupancyGridSubscribers({
           storeRef,
           grid: occupancyGrid,
-          visualizer: occupancyCubesVisualizer,
+          visualizer: occupancyVisualizerSink,
           onError: (err) => {
             log.warn('Occupancy grid update failed', err);
           },
@@ -1063,6 +1298,32 @@ async function handleEnterAR(): Promise<void> {
       } catch (err) {
         log.warn(
           'Occupancy grid wiring skipped; recording continues without depth cubes',
+          err
+        );
+      }
+
+      // Live QR RAW recording + WS-5 debug viz (opt-in). Gated on the operator
+      // setting; the camera-frame callback was registered before initAR above.
+      // Best-effort: a wiring failure must not break the AR session. Disposed
+      // first to avoid leaking the producer/subscriber across enter-AR cycles
+      // (same leak class as the occupancy/tracking-quality wiring).
+      try {
+        unsubscribeQrRecording?.();
+        unsubscribeQrRecording = null;
+        qrProducer = null;
+        if (recordingOptions.qr.enabled) {
+          unsubscribeQrRecording = wireQrRecording({
+            storeRef,
+            getArWorldGroup,
+            qr: recordingOptions.qr,
+            setProducer: (producer) => {
+              qrProducer = producer;
+            },
+          });
+        }
+      } catch (err) {
+        log.warn(
+          'QR recording wiring skipped; recording continues without QR capture',
           err
         );
       }
@@ -1409,6 +1670,136 @@ if (
     setFolderSelected,
     setSaveLocationSelected,
     setFolderImportExpanded,
+    /**
+     * Map-centric recording browser (Step 4B). Mounts the full-bleed browser
+     * with fixture tours (GPS paths → H3 coverage), so Playwright can exercise
+     * the layout, tiles, name search, and single-tour playback without a real
+     * recordings folder. `onPlayTour` records the picked filename to
+     * `window.__mapBrowserPlayed`; the instance is exposed for tile-selection
+     * assertions on `window.__mapBrowserInstance`.
+     */
+    mountMapBrowser: (
+      fixture: Array<{
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      }>
+    ) => {
+      const container = ensureMapBrowserRoot();
+      const recordings: RecordingCoverage[] = fixture.map((f, i) =>
+        fixtureToRecordingCoverage(f, i)
+      );
+      window.__mapBrowserPlayed = [];
+      const instance = createMapBrowser(container, {
+        recordings,
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+      });
+      window.__mapBrowserInstance = instance ?? undefined;
+      return instance !== null;
+    },
+    /**
+     * Slice A — mount the browser EMPTY and prime the progress pill to
+     * `0 / total`, so the e2e test can then stream recordings in via
+     * {@link streamMapBrowserRecording} and assert progressive behaviour
+     * (map interactive before indexing, pill counts up then hides).
+     */
+    mountMapBrowserEmpty: (total: number) => {
+      const container = ensureMapBrowserRoot();
+      window.__mapBrowserPlayed = [];
+      const instance = createMapBrowser(container, {
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+      });
+      instance?.setIndexingProgress(0, total);
+      window.__mapBrowserInstance = instance ?? undefined;
+      return instance !== null;
+    },
+    /**
+     * Slice A — stream one fixture recording into the already-mounted browser
+     * and advance the progress pill to `done / total`. Mirrors what the real
+     * `streamRecordingIndex` → `addRecording`/`setIndexingProgress` wiring does.
+     */
+    streamMapBrowserRecording: (
+      item: {
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      },
+      done: number,
+      total: number
+    ) => {
+      const instance = window.__mapBrowserInstance;
+      if (!instance) {
+        return false;
+      }
+      instance.addRecording(fixtureToRecordingCoverage(item, done));
+      instance.setIndexingProgress(done, total);
+      return true;
+    },
+    /**
+     * Slice B (B1) — mount the browser with backfillable (legacy) recordings and
+     * a **deferred** `onBackfill` so Playwright can observe the transitional
+     * "Embedding…" state, then release the promise with `outcome` to assert the
+     * final state. Marks indexing complete so the CTA appears immediately.
+     * `window.__mapBrowserBackfillCalls` counts invocations;
+     * `window.__releaseBackfill()` resolves the in-flight backfill.
+     */
+    mountMapBrowserBackfill: (
+      fixture: Array<{
+        filename: string;
+        scenario: string;
+        path: Array<{ lat: number; lng: number }>;
+      }>,
+      outcome: {
+        embedded: number;
+        skipped: number;
+        failed: number;
+        permissionDenied: boolean;
+      }
+    ) => {
+      const container = ensureMapBrowserRoot();
+      window.__mapBrowserPlayed = [];
+      window.__mapBrowserBackfillCalls = 0;
+      let release: (() => void) | undefined;
+      window.__releaseBackfill = () => release?.();
+      const instance = createMapBrowser(container, {
+        onPlayTour: (r) => window.__mapBrowserPlayed?.push(r.entry.filename),
+        onClose: () => {
+          instance?.destroy();
+          container.remove();
+          window.__mapBrowserInstance = undefined;
+        },
+        onBackfill: () => {
+          window.__mapBrowserBackfillCalls =
+            (window.__mapBrowserBackfillCalls ?? 0) + 1;
+          return new Promise((resolve) => {
+            release = () => resolve(outcome);
+          });
+        },
+      });
+      window.__mapBrowserInstance = instance ?? undefined;
+      if (instance) {
+        fixture.forEach((f, i) => {
+          // Mark as legacy/backfilled so it counts toward the CTA.
+          instance.addRecording({
+            ...fixtureToRecordingCoverage(f, i),
+            backfilled: true,
+          });
+        });
+        // Mark indexing complete so the CTA appears.
+        instance.setIndexingProgress(fixture.length, fixture.length);
+      }
+      return instance !== null;
+    },
   };
 }
 

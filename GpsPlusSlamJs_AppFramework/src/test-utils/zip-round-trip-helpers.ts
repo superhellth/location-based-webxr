@@ -60,6 +60,14 @@ export interface ProduceTestZipOptions {
    * the field is left off — matching pre-accuracy recordings.
    */
   gpsAccuracy?: number;
+  /**
+   * Optional per-tour H3 coverage index written into `session.json`. When
+   * omitted, the fields are left off — matching legacy recordings that predate
+   * the coverage index (so the browser must backfill from the GPS path).
+   * When provided, `h3Resolution` defaults to 11.
+   */
+  h3Cells?: string[];
+  h3Resolution?: number;
 }
 
 /** Result of producing a test zip, with all metadata needed for assertions. */
@@ -232,6 +240,9 @@ export async function produceTestZip(
       actionCount: actionIndex,
       frameCount: options.frameCount,
       userAgent: options.deviceInfo,
+      ...(options.h3Cells
+        ? { h3Cells: options.h3Cells, h3Resolution: options.h3Resolution ?? 11 }
+        : {}),
     };
     await writeSessionMetadata(metadata);
 

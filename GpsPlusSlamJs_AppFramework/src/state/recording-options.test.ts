@@ -15,12 +15,19 @@ import {
   resetRecordingOptions,
   validateDepthOptions,
   validateImageOptions,
+  validateOccupancyOptions,
+  validateFrameTileDisplayOptions,
+  validateVisualizationOptions,
+  validateQrOptions,
   validateRecordingOptions,
   cloneRecordingOptions,
   DEFAULT_RECORDING_OPTIONS,
   STORAGE_KEY,
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
+  OCCUPANCY_CONSTRAINTS,
+  FRAME_TILE_DISPLAY_CONSTRAINTS,
+  QR_CONSTRAINTS,
   type RecordingOptions,
 } from './recording-options';
 
@@ -120,6 +127,21 @@ describe('recording-options', () => {
       expect(result.gridSize).toBe(DEPTH_CONSTRAINTS.gridSize.max);
     });
 
+    /**
+     * Why this test matters: `gridSize` is an N×N grid dimension, so it must be
+     * an integer. `DepthSampler.updateConfig` rejects a fractional gridSize, but
+     * `validateDepthOptions` previously only clamped the range — letting a value
+     * like 2.5 survive as "valid" and then silently fall back to the sampler's
+     * default at runtime (the two validation layers disagreed). The sanitizer
+     * must round so its output always applies downstream.
+     */
+    it('rounds a fractional gridSize to an integer', () => {
+      expect(
+        Number.isInteger(validateDepthOptions({ gridSize: 2.5 }).gridSize)
+      ).toBe(true);
+      expect(validateDepthOptions({ gridSize: 4.4 }).gridSize).toBe(4);
+    });
+
     it('handles non-boolean enabled by using default', () => {
       const result = validateDepthOptions({
         enabled: 'yes' as unknown as boolean,
@@ -208,10 +230,275 @@ describe('recording-options', () => {
     });
   });
 
+  describe('validateOccupancyOptions', () => {
+    /**
+     * Why these tests matter: `cellSizeM` is exposed as a recorder setting
+     * (2026-06-13 occupancy-grid-settings-and-mesh-review.md, item 1) and
+     * feeds straight into `new OccupancyGrid({ cellSizeM })`. The grid throws
+     * a RangeError on a non-finite or ≤0 cell size, so validation MUST clamp
+     * to the 1–20 cm window and reject NaN/garbage rather than passing it on.
+     */
+    it('returns defaults when given empty object', () => {
+      const result = validateOccupancyOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.occupancy);
+    });
+
+    it('preserves a valid in-range cell size', () => {
+      expect(validateOccupancyOptions({ cellSizeM: 0.05 }).cellSizeM).toBe(
+        0.05
+      );
+    });
+
+    it('clamps cellSizeM below minimum to minimum (sub-cm footgun guard)', () => {
+      // 0.5 cm — the example value from the review; below the 1 cm floor.
+      const result = validateOccupancyOptions({ cellSizeM: 0.005 });
+      expect(result.cellSizeM).toBe(OCCUPANCY_CONSTRAINTS.cellSizeM.min);
+    });
+
+    it('clamps cellSizeM above maximum to maximum', () => {
+      const result = validateOccupancyOptions({ cellSizeM: 1 });
+      expect(result.cellSizeM).toBe(OCCUPANCY_CONSTRAINTS.cellSizeM.max);
+    });
+
+    it('falls back to default for non-number cellSizeM', () => {
+      const result = validateOccupancyOptions({
+        cellSizeM: 'big' as unknown as number,
+      });
+      expect(result.cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+    });
+
+    it('falls back to default for NaN/Infinity (would crash OccupancyGrid)', () => {
+      // clamp(NaN, …) is NaN (NaN is typeof "number"); the explicit
+      // Number.isFinite guard must catch it before it reaches the grid.
+      expect(validateOccupancyOptions({ cellSizeM: NaN }).cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+      expect(validateOccupancyOptions({ cellSizeM: Infinity }).cellSizeM).toBe(
+        DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM
+      );
+    });
+  });
+
+  describe('validateFrameTileDisplayOptions', () => {
+    /**
+     * Why these tests matter (D7-resolution, 2026-06-16 user feedback): the
+     * frame-tile display divisor feeds the decode-time downscale of every tile
+     * texture (live + replay). A corrupt stored value must clamp to 1–8 and an
+     * integer so the resize target dimensions never go fractional/negative,
+     * which would break `createImageBitmap`'s resize or blow up GPU memory.
+     */
+    it('returns defaults when given empty object', () => {
+      const result = validateFrameTileDisplayOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.frameTileDisplay);
+    });
+
+    it('preserves a valid in-range divisor', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 4 }).divisor).toBe(4);
+    });
+
+    it('rounds a fractional divisor to an integer', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 2.6 }).divisor).toBe(3);
+    });
+
+    it('clamps divisor below minimum to minimum', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 0 }).divisor).toBe(
+        FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.min
+      );
+    });
+
+    it('clamps divisor above maximum to maximum', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: 99 }).divisor).toBe(
+        FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.max
+      );
+    });
+
+    it('falls back to default for NaN/Infinity/non-number', () => {
+      expect(validateFrameTileDisplayOptions({ divisor: NaN }).divisor).toBe(
+        DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor
+      );
+      expect(
+        validateFrameTileDisplayOptions({ divisor: Infinity }).divisor
+      ).toBe(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor);
+      expect(
+        validateFrameTileDisplayOptions({
+          divisor: 'half' as unknown as number,
+        }).divisor
+      ).toBe(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor);
+    });
+  });
+
+  describe('validateVisualizationOptions', () => {
+    /**
+     * Why these tests matter (Finding B / DB-1b of
+     * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md): the new
+     * `visualization` group gates the four live debug overlays (frame tiles,
+     * occupancy cubes, GPS+VIO alignment markers, compass cubes). All four MUST
+     * default ON so the change is purely additive (no behaviour change), and
+     * each field is validated boolean-or-default — a corrupted or pre-feature
+     * persisted value must fall back to ON, never silently disable an overlay.
+     */
+    it('returns all-true defaults when given empty object', () => {
+      const result = validateVisualizationOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.visualization);
+      expect(result).toEqual({
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      });
+    });
+
+    it('preserves valid boolean values', () => {
+      const result = validateVisualizationOptions({
+        frameTiles: false,
+        occupancyCubes: false,
+        gpsAlignmentMarkers: false,
+        compassCubes: false,
+      });
+      expect(result).toEqual({
+        frameTiles: false,
+        occupancyCubes: false,
+        gpsAlignmentMarkers: false,
+        compassCubes: false,
+      });
+    });
+
+    it('falls back to the ON default for non-boolean values per field', () => {
+      expect(
+        validateVisualizationOptions({
+          frameTiles: 'on' as unknown as boolean,
+        }).frameTiles
+      ).toBe(true);
+      expect(
+        validateVisualizationOptions({
+          occupancyCubes: 1 as unknown as boolean,
+        }).occupancyCubes
+      ).toBe(true);
+      expect(
+        validateVisualizationOptions({
+          gpsAlignmentMarkers: null as unknown as boolean,
+        }).gpsAlignmentMarkers
+      ).toBe(true);
+      // A genuine false must survive (not be treated as "missing").
+      expect(
+        validateVisualizationOptions({ compassCubes: false }).compassCubes
+      ).toBe(false);
+    });
+  });
+
+  describe('validateQrOptions', () => {
+    /**
+     * Why these tests matter (recorder live-QR §0): the QR-capture group is
+     * OPT-IN — `enabled` MUST default to false so an existing recording never
+     * silently gains the per-frame detector cost. `intervalMs`/`captureSize`
+     * back settings sliders and feed the camera-frame source, so a corrupt
+     * stored value (NaN, out-of-range, wrong type) must clamp/fall back rather
+     * than break capture.
+     */
+    it('returns defaults (QR OFF) when given empty object', () => {
+      const result = validateQrOptions({});
+      expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.qr);
+      expect(result.enabled).toBe(false);
+    });
+
+    it('preserves valid values', () => {
+      const result = validateQrOptions({
+        enabled: true,
+        intervalMs: 250,
+        captureSize: 512,
+      });
+      expect(result).toEqual({
+        enabled: true,
+        intervalMs: 250,
+        captureSize: 512,
+      });
+    });
+
+    it('falls back to OFF for a non-boolean enabled', () => {
+      expect(
+        validateQrOptions({ enabled: 'yes' as unknown as boolean }).enabled
+      ).toBe(false);
+      // A genuine true must survive.
+      expect(validateQrOptions({ enabled: true }).enabled).toBe(true);
+    });
+
+    it('clamps intervalMs below/above the constraint range', () => {
+      expect(validateQrOptions({ intervalMs: 10 }).intervalMs).toBe(
+        QR_CONSTRAINTS.intervalMs.min
+      );
+      expect(validateQrOptions({ intervalMs: 5000 }).intervalMs).toBe(
+        QR_CONSTRAINTS.intervalMs.max
+      );
+    });
+
+    it('clamps captureSize below/above the constraint range', () => {
+      expect(validateQrOptions({ captureSize: 16 }).captureSize).toBe(
+        QR_CONSTRAINTS.captureSize.min
+      );
+      expect(validateQrOptions({ captureSize: 9999 }).captureSize).toBe(
+        QR_CONSTRAINTS.captureSize.max
+      );
+    });
+
+    it('falls back to defaults for NaN/non-number (would break capture)', () => {
+      // clamp(NaN, …) is NaN (NaN is typeof "number"); the Number.isFinite
+      // guard must catch it before it reaches startCameraFrameCapture.
+      expect(validateQrOptions({ intervalMs: NaN }).intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.qr.intervalMs
+      );
+      expect(
+        validateQrOptions({ captureSize: 'big' as unknown as number })
+          .captureSize
+      ).toBe(DEFAULT_RECORDING_OPTIONS.qr.captureSize);
+    });
+
+    it('defaults to the demo cadence (125 ms) and 1024 px capture', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.qr.intervalMs).toBe(125);
+      expect(DEFAULT_RECORDING_OPTIONS.qr.captureSize).toBe(1024);
+    });
+  });
+
   describe('validateRecordingOptions', () => {
     it('returns defaults when given empty object', () => {
       const result = validateRecordingOptions({});
       expect(result).toEqual(DEFAULT_RECORDING_OPTIONS);
+    });
+
+    it('merges partial qr options with defaults (schema evolution)', () => {
+      // A pre-QR persisted blob (no `qr` key) must gain the OFF default group,
+      // never `undefined` — otherwise main.ts reads `qr.enabled` off undefined.
+      const result = validateRecordingOptions({ qr: { enabled: true } });
+      expect(result.qr.enabled).toBe(true);
+      expect(result.qr.intervalMs).toBe(
+        DEFAULT_RECORDING_OPTIONS.qr.intervalMs
+      );
+      expect(result.qr.captureSize).toBe(
+        DEFAULT_RECORDING_OPTIONS.qr.captureSize
+      );
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
+    });
+
+    it('merges partial visualization options with defaults', () => {
+      const result = validateRecordingOptions({
+        visualization: { frameTiles: false },
+      });
+      expect(result.visualization.frameTiles).toBe(false);
+      // Other overlays stay ON; other groups untouched.
+      expect(result.visualization.occupancyCubes).toBe(true);
+      expect(result.visualization.gpsAlignmentMarkers).toBe(true);
+      expect(result.visualization.compassCubes).toBe(true);
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
+    });
+
+    it('merges partial occupancy options with defaults', () => {
+      const result = validateRecordingOptions({
+        occupancy: { cellSizeM: 0.02 },
+      });
+      expect(result.occupancy.cellSizeM).toBe(0.02);
+      // Other groups untouched
+      expect(result.depth).toEqual(DEFAULT_RECORDING_OPTIONS.depth);
     });
 
     it('includes default AR crash isolation flags', () => {
@@ -276,6 +563,10 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
       localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(stored));
 
@@ -296,6 +587,13 @@ describe('recording-options', () => {
         DEFAULT_RECORDING_OPTIONS.depth.intervalMs
       );
       expect(result.images).toEqual(DEFAULT_RECORDING_OPTIONS.images);
+      // Pre-occupancy persisted blobs gain the default voxel size, not undefined.
+      expect(result.occupancy).toEqual(DEFAULT_RECORDING_OPTIONS.occupancy);
+      // Pre-visualization persisted blobs gain the all-ON overlay group, so
+      // upgrading the app never silently turns an overlay off.
+      expect(result.visualization).toEqual(
+        DEFAULT_RECORDING_OPTIONS.visualization
+      );
     });
 
     it('merges partial stored AR isolation options with defaults', () => {
@@ -357,6 +655,10 @@ describe('recording-options', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       saveRecordingOptions(options);
@@ -377,6 +679,10 @@ describe('recording-options', () => {
           resolutionDivisor: 0,
         }, // invalid
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       saveRecordingOptions(options);
@@ -498,6 +804,10 @@ describe('recording-options', () => {
       expect(DEFAULT_RECORDING_OPTIONS.images.enabled).toBe(true);
     });
 
+    it('has QR detection DISABLED by default (opt-in)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.qr.enabled).toBe(false);
+    });
+
     it('has reasonable default intervals', () => {
       expect(DEFAULT_RECORDING_OPTIONS.depth.intervalMs).toBe(1000);
       expect(DEFAULT_RECORDING_OPTIONS.images.intervalMs).toBe(2000);
@@ -505,6 +815,23 @@ describe('recording-options', () => {
 
     it('has resolutionDivisor defaulting to 1 (full resolution)', () => {
       expect(DEFAULT_RECORDING_OPTIONS.images.resolutionDivisor).toBe(1);
+    });
+
+    it('has occupancy cell size defaulting to 0.15 m (OccupancyGrid parity)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.occupancy.cellSizeM).toBe(0.15);
+    });
+
+    it('has frame-tile display divisor defaulting to 2 (half resolution)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.frameTileDisplay.divisor).toBe(2);
+    });
+
+    it('has every visualization overlay enabled by default (purely additive)', () => {
+      expect(DEFAULT_RECORDING_OPTIONS.visualization).toEqual({
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      });
     });
   });
 
@@ -525,6 +852,37 @@ describe('recording-options', () => {
       expect(IMAGE_CONSTRAINTS.quality.min).toBeLessThan(
         IMAGE_CONSTRAINTS.quality.max
       );
+    });
+
+    it('OCCUPANCY_CONSTRAINTS spans 1–20 cm and brackets the default', () => {
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.min).toBe(0.01);
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.max).toBe(0.2);
+      expect(OCCUPANCY_CONSTRAINTS.cellSizeM.min).toBeLessThan(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.max
+      );
+      const { cellSizeM } = DEFAULT_RECORDING_OPTIONS.occupancy;
+      expect(cellSizeM).toBeGreaterThanOrEqual(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.min
+      );
+      expect(cellSizeM).toBeLessThanOrEqual(
+        OCCUPANCY_CONSTRAINTS.cellSizeM.max
+      );
+    });
+
+    it('QR_CONSTRAINTS has valid ranges that bracket the defaults', () => {
+      expect(QR_CONSTRAINTS.intervalMs.min).toBeLessThan(
+        QR_CONSTRAINTS.intervalMs.max
+      );
+      expect(QR_CONSTRAINTS.captureSize.min).toBeLessThan(
+        QR_CONSTRAINTS.captureSize.max
+      );
+      const { intervalMs, captureSize } = DEFAULT_RECORDING_OPTIONS.qr;
+      expect(intervalMs).toBeGreaterThanOrEqual(QR_CONSTRAINTS.intervalMs.min);
+      expect(intervalMs).toBeLessThanOrEqual(QR_CONSTRAINTS.intervalMs.max);
+      expect(captureSize).toBeGreaterThanOrEqual(
+        QR_CONSTRAINTS.captureSize.min
+      );
+      expect(captureSize).toBeLessThanOrEqual(QR_CONSTRAINTS.captureSize.max);
     });
 
     it('defaults are within constraint bounds', () => {
@@ -567,6 +925,10 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { cellSizeM: 0.1 },
+        frameTileDisplay: { divisor: 4 },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       saveRecordingOptions(customOptions);
@@ -585,6 +947,10 @@ describe('recording-options', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       saveRecordingOptions(options1);
@@ -612,6 +978,10 @@ describe('recording-options', () => {
           resolutionDivisor: 4,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       });
 
       // Reset
@@ -667,6 +1037,10 @@ describe('recording-options', () => {
           resolutionDivisor: 2,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
       localStorageMock.setItem(CUSTOM_KEY, JSON.stringify(custom));
 

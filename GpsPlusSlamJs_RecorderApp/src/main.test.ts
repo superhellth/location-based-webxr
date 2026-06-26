@@ -39,7 +39,7 @@ const {
     };
     recording?: {
       sessionMetadata?: {
-        scenarioName?: string;
+        contextTag?: string;
         sessionName?: string;
         startTime?: number;
       };
@@ -59,7 +59,7 @@ const {
   } = {
     recording: {
       sessionMetadata: {
-        scenarioName: 'TestScenario',
+        contextTag: 'TestScenario',
         sessionName: 'recording-test',
         startTime: Date.now(),
       },
@@ -170,7 +170,7 @@ vi.mock('./state/recorder-store', async () => {
 });
 
 // Mock dependencies that handleScenarioChange uses
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./storage/scenario-storage', () => ({
   setCurrentScenario: vi.fn().mockResolvedValue(null),
   getCurrentScenarioHandle: vi.fn().mockReturnValue(null),
   initStorage: vi.fn().mockResolvedValue([]),
@@ -212,13 +212,12 @@ vi.mock('./storage/sync-manager', () => ({
   DEFAULT_SYNC_INTERVAL_MS: 60000,
 }));
 
-// Mock zip-export for sync integration tests
-vi.mock('gps-plus-slam-app-framework/storage/zip-export', () => ({
-  syncToExternalZip: vi.fn().mockResolvedValue(undefined),
-  exportSessionAsZip: vi
+// Mock the recorder's scenario ZIP export for sync/stop integration tests.
+vi.mock('./storage/scenario-zip-export', () => ({
+  syncScenarioSessionToExternalZip: vi.fn().mockResolvedValue(undefined),
+  exportScenarioSessionAsZip: vi
     .fn()
     .mockResolvedValue({ blob: new Blob(['test']), fileCount: 1 }),
-  downloadZip: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock session-summary for stop recording tests
@@ -384,6 +383,7 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
 
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
+    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
     depth: { enabled: false, intervalMs: 1000 },
     arCrashIsolation: {
@@ -393,6 +393,14 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
       enableCss3dRenderer: true,
       enableCameraTextureAcquisition: true,
       applyChromiumProjectionLayerWorkaround: false,
+    },
+    occupancy: { cellSizeM: 0.15 },
+    frameTileDisplay: { divisor: 2 },
+    visualization: {
+      frameTiles: true,
+      occupancyCubes: true,
+      gpsAlignmentMarkers: true,
+      compassCubes: true,
     },
   }),
 }));
@@ -472,8 +480,8 @@ import {
   handleReplayScenarioChangeForTesting,
   getReplaySessionEntriesForTesting,
 } from './main';
-import { startSession as storageStartSession } from 'gps-plus-slam-app-framework/storage/file-system';
-import { resetForNewSession } from 'gps-plus-slam-app-framework/storage/file-system';
+import { startSession as storageStartSession } from './storage/scenario-storage';
+import { resetForNewSession } from './storage/scenario-storage';
 import {
   resetForNewRecording as resetExternalForNewRecording,
   hasReadFolderPermission,
@@ -1501,8 +1509,8 @@ describe('ZIP generation without external save location (Issue 3)', () => {
    * always has ZIP data.
    */
   it('should call exportSessionAsZip when no save file handle exists', async () => {
-    const { exportSessionAsZip } =
-      await import('gps-plus-slam-app-framework/storage/zip-export');
+    const { exportScenarioSessionAsZip: exportSessionAsZip } =
+      await import('./storage/scenario-zip-export');
     const { getSaveFileHandle } =
       await import('./storage/external-file-storage');
     const {
@@ -1541,8 +1549,8 @@ describe('ZIP generation without external save location (Issue 3)', () => {
    */
   it('should pass ZIP data to showSessionSummary when no save file handle', async () => {
     const { showSessionSummary } = await import('./ui/session-summary');
-    const { exportSessionAsZip } =
-      await import('gps-plus-slam-app-framework/storage/zip-export');
+    const { exportScenarioSessionAsZip: exportSessionAsZip } =
+      await import('./storage/scenario-zip-export');
     const { getSaveFileHandle } =
       await import('./storage/external-file-storage');
     const {
@@ -1589,8 +1597,8 @@ describe('ZIP generation without external save location (Issue 3)', () => {
    */
   it('should handle exportSessionAsZip failure gracefully', async () => {
     const { showSessionSummary } = await import('./ui/session-summary');
-    const { exportSessionAsZip } =
-      await import('gps-plus-slam-app-framework/storage/zip-export');
+    const { exportScenarioSessionAsZip: exportSessionAsZip } =
+      await import('./storage/scenario-zip-export');
     const { getSaveFileHandle } =
       await import('./storage/external-file-storage');
     const {
@@ -1633,7 +1641,7 @@ describe('Imported Reference Points in Picker (Task 1e)', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -1724,7 +1732,7 @@ describe('Imported Reference Points in Picker (Task 1e)', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -1799,7 +1807,7 @@ describe('handleMarkRefPoint concurrent call prevention', () => {
     const { getCurrentArPose } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { getCurrentScenarioHandle } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const {
       handleMarkRefPointForTesting,
       setImportedRefPointsForTesting,
@@ -2123,7 +2131,7 @@ describe('handleClearRefPointCache', () => {
   it('clears stale imported ref points when re-import after cache clear fails', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { loadAllRefPoints } = await import('./storage/ref-point-loader');
 
     setImportedRefPointsForTesting([
@@ -2167,7 +2175,7 @@ describe('handleClearRefPointCache', () => {
   it('clears in-memory imported ref points when no scenario is currently selected', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
 
     setImportedRefPointsForTesting([
       {
@@ -2206,7 +2214,7 @@ describe('handleClearRefPointCache', () => {
   it('shows an error when the cache-clear operation itself fails', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { showError } = await import('./ui/hud');
 
     vi.mocked(clearRefPointsCacheForAllScenarios).mockRejectedValue(
@@ -2230,7 +2238,7 @@ describe('handleClearRefPointCache', () => {
   it('re-imports ref points for the active scenario after a successful clear', async () => {
     const { handleClearRefPointCache } = await import('./main');
     const { getCurrentScenarioHandle, clearRefPointsCacheForAllScenarios } =
-      await import('gps-plus-slam-app-framework/storage/file-system');
+      await import('./storage/scenario-storage');
     const { loadAllRefPoints, flattenRefPointsToMarks } =
       await import('./storage/ref-point-loader');
 

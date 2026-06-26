@@ -15,6 +15,7 @@ import type { RefPointPickerResult } from './ui/ref-point-picker';
 import type { PermissionCheckResult } from 'gps-plus-slam-app-framework/sensors/permission-checker';
 import type { TrackingQualityReport } from 'gps-plus-slam-app-framework';
 import type { SessionSummaryData } from './ui/session-summary';
+import type { RecordingCoverage } from './ui/recording-index';
 
 declare global {
   var __BUILD_COMMIT__: string | undefined;
@@ -75,7 +76,81 @@ declare global {
       setFolderSelected: (selected: boolean) => void;
       setFolderImportExpanded: (expanded: boolean, hint?: string) => void;
       setSaveLocationSelected: (selected: boolean) => void;
+      /**
+       * Step 4B — mount the map-centric recording browser with fixture tours
+       * (each `path` of `{lat,lng}` is reduced to H3 coverage cells). Returns
+       * `true` on success. See `window.__mapBrowserInstance` /
+       * `window.__mapBrowserPlayed` for the e2e assertion surface.
+       */
+      mountMapBrowser: (
+        fixture: Array<{
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        }>
+      ) => boolean;
+      /**
+       * Slice A — mount the browser empty and prime the progress pill to
+       * `0 / total`, then stream recordings via `streamMapBrowserRecording`.
+       */
+      mountMapBrowserEmpty: (total: number) => boolean;
+      /**
+       * Slice A — stream one fixture recording into the mounted browser and
+       * advance the progress pill to `done / total`. Returns `false` if no
+       * browser is mounted.
+       */
+      streamMapBrowserRecording: (
+        item: {
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        },
+        done: number,
+        total: number
+      ) => boolean;
+      /**
+       * Slice B (B1) — mount the browser with backfillable recordings and a
+       * deferred onBackfill returning `outcome` once `window.__releaseBackfill`
+       * is called. Drives the "Speed up future loads" CTA e2e.
+       */
+      mountMapBrowserBackfill: (
+        fixture: Array<{
+          filename: string;
+          scenario: string;
+          path: Array<{ lat: number; lng: number }>;
+        }>,
+        outcome: {
+          embedded: number;
+          skipped: number;
+          failed: number;
+          permissionDenied: boolean;
+        }
+      ) => boolean;
     };
+
+    /**
+     * Imperative handle for the mounted map browser (Step 4B), exposed for
+     * Playwright tile-selection / rendered-tile assertions. Methods mirror
+     * `MapBrowserInstance` in `ui/map-browser.ts`.
+     */
+    __mapBrowserInstance?: {
+      destroy(): void;
+      getRes(): number;
+      getRenderedTiles(): string[];
+      selectTile(tileCell: string | null): void;
+      setNameQuery(query: string): void;
+      addRecording(recording: RecordingCoverage): void;
+      setIndexingProgress(done: number, total: number): void;
+    };
+
+    /** Filenames the user "played" via the map browser, in click order (e2e). */
+    __mapBrowserPlayed?: string[];
+
+    /** Count of backfill (onBackfill) invocations, for the B1 CTA e2e. */
+    __mapBrowserBackfillCalls?: number;
+
+    /** Resolve the deferred backfill mounted by `mountMapBrowserBackfill` (e2e). */
+    __releaseBackfill?: () => void;
 
     /**
      * Reference point picker API exposed for E2E testing.

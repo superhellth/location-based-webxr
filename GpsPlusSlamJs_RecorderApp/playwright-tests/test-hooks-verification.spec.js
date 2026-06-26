@@ -24,6 +24,12 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.locator('#setup-modal').waitFor({ state: 'visible' });
   await waitForTestHooks(page);
+  // D6 item 3: scenario/session controls are in a collapsed <details>; open it
+  // so the dropdown + new-scenario name input are actionable in these tests.
+  await page.evaluate(() => {
+    const section = document.getElementById('scenario-section');
+    if (section) section.open = true;
+  });
 });
 
 test.describe('Test Hooks Match Real Behavior', () => {
@@ -244,6 +250,13 @@ test.describe('Test Hooks Match Real Behavior', () => {
       'setSaveLocationSelected',
       // Optional folder-import collapse hook (D5)
       'setFolderImportExpanded',
+      // Map-centric recording browser (Step 4B)
+      'mountMapBrowser',
+      // Progressive map-browser streaming (Slice A)
+      'mountMapBrowserEmpty',
+      'streamMapBrowserRecording',
+      // Coverage backfill CTA (Slice B / B1)
+      'mountMapBrowserBackfill',
     ];
 
     // Verify no hook is missing from our wait condition

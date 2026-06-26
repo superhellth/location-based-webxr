@@ -9,7 +9,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mapWithConcurrencyLimit } from './concurrency';
+import {
+  mapWithConcurrencyLimit,
+  forEachWithConcurrencyLimit,
+} from './concurrency';
 
 describe('mapWithConcurrencyLimit', () => {
   it('maps all items and returns results in order', async () => {
@@ -79,6 +82,92 @@ describe('mapWithConcurrencyLimit', () => {
     ).rejects.toThrow('boom');
   });
 
+  it('stops pulling new items once a mapper fails (fail-fast)', async () => {
+    // Why: the docs promise fail-fast, but Promise.all only makes the *caller*
+    // see the first rejection — the sibling worker loops keep pulling new items
+    // and running the mapper in the background, wasting I/O after the operation
+    // has already been reported as failed. With a shared failure flag, surviving
+    // workers stop pulling once any worker has thrown.
+    const items = [1, 2, 3, 4, 5, 6, 7, 8];
+    const processed: number[] = [];
+
+    const promise = mapWithConcurrencyLimit(items, 2, async (x, i) => {
+      processed.push(x);
+      if (i === 0) {
+        throw new Error('boom');
+      }
+      // Slow enough that, without fail-fast, the surviving worker would loop
+      // back and drain the rest of the queue after the failure is observed.
+      await new Promise((r) => setTimeout(r, 10));
+      return x;
+    });
+
+    await expect(promise).rejects.toThrow('boom');
+
+    // Let any background loops settle; with the bug they drain all 8 items.
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(processed.length).toBeLessThan(items.length);
+  });
+
+  it('rejects only after in-flight workers settle (error path mirrors abort)', async () => {
+    // Why: a junior-dev review flagged "leaked background work" on the error
+    // path. Promise.all rejects on the FIRST worker rejection, so the function
+    // used to throw while sibling workers were still mid-await — their results
+    // (and side effects) settled AFTER the caller had already observed the
+    // failure. The abort path drains in-flight work before settling; the error
+    // path must do the same, so that once `await` returns no worker is still
+    // running. This test asserts the in-flight worker settles BEFORE the
+    // function rejects.
+    const order: string[] = [];
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+
+    const promise = mapWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('boom');
+      }
+      await slow;
+      order.push('inflight-settled');
+      return x;
+    });
+
+    const settled = promise.then(
+      () => order.push('fn-resolved'),
+      () => order.push('fn-rejected')
+    );
+
+    // Let the failing worker throw and propagate. The in-flight worker is still
+    // blocked on `slow`; if the function already rejected here it abandoned it.
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSlow();
+    await settled;
+
+    expect(order).toEqual(['inflight-settled', 'fn-rejected']);
+  });
+
+  it('rejects with the first error when multiple mappers throw', async () => {
+    // Why: refutes the review's "unhandled rejection" concern and pins the
+    // semantics. The first error wins; a later sibling throw is consumed (no
+    // unhandled rejection — vitest would fail the run if one leaked).
+    let releaseSecond!: () => void;
+    const second = new Promise<void>((r) => (releaseSecond = r));
+
+    const promise = mapWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('first');
+      }
+      await second;
+      throw new Error('second');
+    });
+    const caught = promise.catch((e) => (e as Error).message);
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSecond();
+
+    expect(await caught).toBe('first');
+  });
+
   it('handles concurrency limit of 1 (sequential execution)', async () => {
     // Why: Limit=1 means tasks run one at a time. This is the most restrictive
     // setting and should still produce correct, ordered results.
@@ -118,5 +207,174 @@ describe('mapWithConcurrencyLimit', () => {
     await expect(
       mapWithConcurrencyLimit([1], 0, (x) => Promise.resolve(x))
     ).rejects.toThrow('Concurrency limit must be >= 1, got 0');
+  });
+});
+
+describe('forEachWithConcurrencyLimit', () => {
+  // Why these tests matter: unlike mapWithConcurrencyLimit (which resolves the
+  // whole array before returning), forEachWithConcurrencyLimit invokes its
+  // worker per item as the pool pulls it. The map-centric browser's progressive
+  // index (`streamRecordingIndex`) needs this "emit as each settles" shape plus
+  // an AbortSignal so closing the browser stops pulling new work mid-stream.
+
+  it('invokes the worker exactly once per item', async () => {
+    // Why: streaming must place every recording exactly once — no drops, no
+    // duplicates — even though completion order is not guaranteed.
+    const items = [1, 2, 3, 4, 5];
+    const seen: number[] = [];
+    await forEachWithConcurrencyLimit(items, 2, (x) => {
+      seen.push(x);
+      return Promise.resolve();
+    });
+    expect([...seen].sort((a, b) => a - b)).toEqual(items);
+  });
+
+  it('is a no-op for empty input', async () => {
+    let calls = 0;
+    await forEachWithConcurrencyLimit([], 3, () => {
+      calls++;
+      return Promise.resolve();
+    });
+    expect(calls).toBe(0);
+  });
+
+  it('caps the number of concurrently active workers', async () => {
+    // Why: legacy backfill reads every GPS action file; an uncapped fan-out over
+    // 70 zips would thrash browser I/O. The cap is the whole point.
+    let active = 0;
+    let peak = 0;
+    await forEachWithConcurrencyLimit([1, 2, 3, 4, 5, 6], 2, async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 10));
+      active--;
+    });
+    expect(peak).toBe(2);
+  });
+
+  it('stops pulling new items once the signal is aborted', async () => {
+    // Why: closing the browser (or opening another folder) must abort the
+    // in-flight stream so it stops reading zips into a destroyed map. In-flight
+    // workers may finish, but no NEW items are pulled after the abort.
+    const items = [1, 2, 3, 4, 5, 6, 7, 8];
+    const controller = new AbortController();
+    const processed: number[] = [];
+    await forEachWithConcurrencyLimit(
+      items,
+      2,
+      async (x) => {
+        processed.push(x);
+        await new Promise((r) => setTimeout(r, 10));
+        // Abort partway through: after the first batch, no further items start.
+        if (processed.length === 2) {
+          controller.abort();
+        }
+      },
+      controller.signal
+    );
+    // Only the first concurrent batch (2 workers) ran; the rest were never pulled.
+    expect(processed.length).toBeLessThan(items.length);
+    expect(processed.length).toBeLessThanOrEqual(4);
+  });
+
+  it('does not start any work when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    await forEachWithConcurrencyLimit(
+      [1, 2, 3],
+      2,
+      () => {
+        calls++;
+        return Promise.resolve();
+      },
+      controller.signal
+    );
+    expect(calls).toBe(0);
+  });
+
+  it('stops pulling new items once a worker fails (fail-fast)', async () => {
+    // Why: streaming workers are side-effecting (they emit recordings into a
+    // consumer). Once one worker throws and the caller observes the rejection,
+    // the surviving workers must stop pulling new items — otherwise they keep
+    // emitting into a consumer that is already tearing down. This mirrors the
+    // abort path ("stop pulling new items") for the internal-failure case.
+    const items = [1, 2, 3, 4, 5, 6, 7, 8];
+    const processed: number[] = [];
+
+    const promise = forEachWithConcurrencyLimit(items, 2, async (x, i) => {
+      processed.push(x);
+      if (i === 0) {
+        throw new Error('boom');
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await expect(promise).rejects.toThrow('boom');
+
+    // Let any background loops settle; with the bug they drain all 8 items.
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(processed.length).toBeLessThan(items.length);
+  });
+
+  it('rejects only after in-flight workers settle (error path mirrors abort)', async () => {
+    // Why: streaming workers are side-effecting (they emit recordings into a
+    // consumer). On the error path the function used to reject on the FIRST
+    // worker rejection while siblings were still mid-await, so an in-flight
+    // worker would emit into a consumer the caller already saw fail and began
+    // tearing down. The abort path drains in-flight work before settling; the
+    // error path must mirror that, so `await` returns only once no worker is
+    // still running. Asserts the in-flight worker settles BEFORE the rejection.
+    const order: string[] = [];
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+
+    const promise = forEachWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('boom');
+      }
+      await slow;
+      order.push('inflight-settled');
+    });
+
+    const settled = promise.then(
+      () => order.push('fn-resolved'),
+      () => order.push('fn-rejected')
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSlow();
+    await settled;
+
+    expect(order).toEqual(['inflight-settled', 'fn-rejected']);
+  });
+
+  it('rejects with the first error when multiple workers throw', async () => {
+    // Why: refutes the review's "unhandled rejection" concern and pins the
+    // semantics. The first error wins; a later sibling throw is consumed (no
+    // unhandled rejection — vitest would fail the run if one leaked).
+    let releaseSecond!: () => void;
+    const second = new Promise<void>((r) => (releaseSecond = r));
+
+    const promise = forEachWithConcurrencyLimit([0, 1], 2, async (x) => {
+      if (x === 0) {
+        throw new Error('first');
+      }
+      await second;
+      throw new Error('second');
+    });
+    const caught = promise.catch((e) => (e as Error).message);
+
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSecond();
+
+    expect(await caught).toBe('first');
+  });
+
+  it('throws RangeError when limit is below 1', async () => {
+    await expect(
+      forEachWithConcurrencyLimit([1, 2], 0, () => Promise.resolve())
+    ).rejects.toThrow(RangeError);
   });
 });

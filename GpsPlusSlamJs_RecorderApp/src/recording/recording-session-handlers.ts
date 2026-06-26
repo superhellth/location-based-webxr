@@ -26,7 +26,7 @@ import { formatTimestamp } from 'gps-plus-slam-app-framework/storage/file-system
 import {
   startSession as startStorageSession,
   getCurrentScenarioHandle,
-} from 'gps-plus-slam-app-framework/storage/file-system';
+} from '../storage/scenario-storage';
 import {
   getSaveFileHandle,
   getSaveFileName,
@@ -34,11 +34,13 @@ import {
 } from '../storage/external-file-storage';
 import { createSyncManager, type SyncManager } from '../storage/sync-manager';
 import {
-  syncToExternalZip,
-  exportSessionAsZip,
   type ZipExportResult,
   type ZipExportContributor,
 } from 'gps-plus-slam-app-framework/storage/zip-export';
+import {
+  syncScenarioSessionToExternalZip,
+  exportScenarioSessionAsZip,
+} from '../storage/scenario-zip-export';
 import { createRefPointsZipContributor } from '../storage/ref-points-zip-contributor';
 import { createColmapZipContributor } from '../colmap/colmap-zip-contributor';
 import { selectFrameTilesInWebXR } from 'gps-plus-slam-app-framework/state';
@@ -91,6 +93,10 @@ import {
 import { gpsEventVisualizer } from 'gps-plus-slam-app-framework/visualization/gps-event-markers';
 import { refPointVisualizer } from '../visualization/ref-point-visualizer';
 import { computeFusedPath } from 'gps-plus-slam-app-framework/utils/fused-path';
+import {
+  gpsPathToCoverageCells,
+  H3_RESOLUTION,
+} from 'gps-plus-slam-app-framework/geo';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
 import type { LatLong, Matrix4 } from 'gps-plus-slam-app-framework/core';
 import { calcGpsCoords } from 'gps-plus-slam-app-framework/core';
@@ -299,6 +305,15 @@ export function createRecordingSessionHandlers(
 
     resetCoordinatorState();
     gpsEventVisualizer.clearAll();
+    // clearAll() resets the shared visualizer to its pristine VISIBLE state (so a
+    // prior live opt-out can't leak into replay). This clearAll runs AFTER
+    // Enter-AR already applied the operator's `visualization.gpsAlignmentMarkers`
+    // opt-out via setVisible(), so without re-asserting it here the markers spawned
+    // by the live store-subscriber during recording reappear despite the toggle
+    // being off (regression 2026-06-18). Re-apply the current option now.
+    gpsEventVisualizer.setVisible(
+      deps.getRecordingOptions().visualization.gpsAlignmentMarkers
+    );
 
     // Cleanup previous store subscription if any
     if (unsubscribeStore) {
@@ -371,7 +386,9 @@ export function createRecordingSessionHandlers(
     // Dispatch session start
     store.dispatch(
       startSession({
-        scenarioName,
+        // The recorder's scenario name rides along in the framework's opaque
+        // `contextTag` slot (renamed from `scenarioName` on 2026-06-21).
+        contextTag: scenarioName,
         sessionName: currentSessionName,
         startTime: now.getTime(),
         deviceInfo: navigator.userAgent,
@@ -428,7 +445,7 @@ export function createRecordingSessionHandlers(
     if (saveFileHandle) {
       syncManager = createSyncManager(
         async () => {
-          lastSyncResult = await syncToExternalZip(
+          lastSyncResult = await syncScenarioSessionToExternalZip(
             saveFileHandle,
             scenarioName,
             currentSessionName,
@@ -483,6 +500,15 @@ export function createRecordingSessionHandlers(
     setStopButtonBusy(true);
     try {
       await performStop();
+    } catch (err) {
+      // performStop guards its slow I/O (metadata write, final sync, ZIP export)
+      // individually, but its tail (end-session dispatch, summary build/render)
+      // is unguarded and runs *before* hideRecordingControls(). If it throws,
+      // the recording controls stay on screen with the Stop button stuck busy
+      // + "Stopping…" — a bricked UI. Restore the button to idle so the user can
+      // retry, then re-throw so the failure is still reported (Sentry).
+      setStopButtonBusy(false);
+      throw err;
     } finally {
       stopInProgress = false;
     }
@@ -539,6 +565,13 @@ export function createRecordingSessionHandlers(
         log.warn('Build metadata unavailable for session metadata', error);
       }
 
+      // Per-tour H3 coverage index (Step 2 / D1): deduped res-11 cells the GPS
+      // path crossed, so the map-centric browser can place this tour without
+      // unzipping its GPS data. Computed here at stop while the path is in state.
+      const h3Cells = gpsPathToCoverageCells(
+        gpsPositions.map((p) => ({ lat: p.latitude, lng: p.longitude }))
+      );
+
       await store.writeSessionMetadata({
         version: 1,
         odomCoordVersion: 5,
@@ -546,12 +579,14 @@ export function createRecordingSessionHandlers(
           ? new Date(sessionMetadata.startTime).toISOString()
           : new Date(endTime).toISOString(),
         endedAt: new Date(endTime).toISOString(),
-        contextTag: sessionMetadata?.scenarioName ?? FALLBACK_SCENARIO,
+        contextTag: sessionMetadata?.contextTag ?? FALLBACK_SCENARIO,
         actionCount: gpsPositions.length,
         frameCount: imageCount,
         userAgent: navigator.userAgent,
         ...(buildInfo ? { build: buildInfo } : {}),
         pageUrl: getSanitizedPageUrl(),
+        h3Cells,
+        h3Resolution: H3_RESOLUTION,
       });
     } catch (err) {
       log.error('Failed to write session metadata:', err);
@@ -615,7 +650,7 @@ export function createRecordingSessionHandlers(
         const scenarioName =
           deps.getStore().getState().scenario.currentScenarioName ||
           FALLBACK_SCENARIO;
-        const result = await exportSessionAsZip(
+        const result = await exportScenarioSessionAsZip(
           scenarioName,
           currentSessionName,
           {

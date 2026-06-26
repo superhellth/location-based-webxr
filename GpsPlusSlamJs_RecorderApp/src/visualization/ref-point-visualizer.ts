@@ -37,14 +37,28 @@ function refPointToItem(refPoint: RefPointMark): GpsAnchoredItem | null {
   };
 }
 
+// D5 (2026-06-16 user feedback): ref-point marker spheres GROW to double the
+// default radius (DEFAULT_RADIUS 0.1 → explicit 0.2) so they stay spottable
+// from a distance while the *other* GPS-anchored debug spheres
+// (`gps-event-markers.ts`) halve. The field tester "barely saw" the marker
+// amid the compass + point-cloud cubes; making it the only sphere that grows
+// keeps the scene informative without losing the marker. Set on every opts that
+// can render today: the live + replay path is `syncRefPoints` → REF_POINT_OPTS;
+// PRIOR_OPTS / CURRENT_OPTS are the legacy prior/current methods (slated for
+// removal in the 2026-05-27 slice-collapse plan) and get the radius too while
+// still wired, otherwise the change would silently do nothing on those paths.
+const REF_POINT_MARKER_RADIUS = 0.2;
+
 const PRIOR_OPTS = {
   color: VIS_COLORS.PRIOR_REF_POINT.hex,
   namePrefix: 'prior-ref',
+  radius: REF_POINT_MARKER_RADIUS,
 } as const;
 
 const CURRENT_OPTS = {
   color: VIS_COLORS.CURRENT_REF_POINT.hex,
   namePrefix: 'current-ref',
+  radius: REF_POINT_MARKER_RADIUS,
 } as const;
 
 // Used by `syncRefPoints`, the unified entry point that consumes the
@@ -56,6 +70,7 @@ const CURRENT_OPTS = {
 const REF_POINT_OPTS = {
   color: VIS_COLORS.CURRENT_REF_POINT.hex,
   namePrefix: 'ref-point',
+  radius: REF_POINT_MARKER_RADIUS,
 } as const;
 
 /** Duration of the brief scale-up animation played when a new ref point appears. */

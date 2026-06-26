@@ -17,16 +17,17 @@ Visualizes GPS events as 3D markers during recording and replay. Shows three typ
 
 ### GpsEventVisualizer Class
 
-- `setZeroRef(zero: LatLong): void` — set GPS origin for coordinate conversion.
-- `getZeroRef(): LatLong | null` — get current GPS origin.
+- `setZeroRef(zero: LatLong): void` — record that a GPS origin exists. This is a **readiness gate only**: `addGpsEvent` refuses to add markers until a zero is set. It is **NOT** used for any coordinate math — `gpsCoords` arrive already converted to metres-from-origin by the library reducer (`rawGpsPointToGpsPoint` → `calcRelativeCoordsInMeters`), frozen at record time. Consequently a stale or changed zero on this visualizer can **not** offset existing markers (contrast `RefPointVisualizer`, whose `zeroRef` IS load-bearing for lat/lon → metres conversion). See the [state-outside-store audit](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-18-state-outside-store-audit.md) F2.
+- `getZeroRef(): LatLong | null` — return the readiness-gate value (null until set).
 - `addGpsEvent(gpsCoords: [x,y,z], odomPos: [x,y,z], accuracy?: GpsEventAccuracy): void` — add markers for a GPS event.
-  - When `accuracy` is omitted (recording mode), the yellow raw-GPS marker is a fixed 8 cm sphere at opacity 0.3 (legacy behaviour, all existing call sites unchanged).
+  - When `accuracy` is omitted (recording mode), the yellow raw-GPS marker is a fixed 4 cm sphere at opacity 0.3 (legacy behaviour, all existing call sites unchanged).
   - When **both** `accuracy.horizontal` and `accuracy.vertical` are positive numbers, the yellow marker becomes a unit-sphere scaled to `(h, v, h)` metres at opacity 0.13 with `renderOrder = -1` so cyan/red markers stay visible inside it.
   - Half-populated, non-positive, non-finite (`NaN`/`Infinity`), or explicit `null` accuracy falls back to the legacy fixed sphere (defensive — same policy as `preview-map.ts`). `Infinity` is rejected explicitly because scaling a mesh by `Infinity` corrupts its world matrix and can crash rendering. `null` is rejected via a `== null` guard because — although the parameter type forbids it — a non-TS caller (or a nullable API response) could pass it, and destructuring `null` would throw a `TypeError`.
   - Cyan fused and red snapshot markers are NEVER affected by the `accuracy` argument.
 - `addAlignmentSnapshot(nuePosition: readonly number[]): void` — add a red snapshot sphere at scene root.
 - `getAlignmentSnapshotPositions(): number[][]` — return positions of all snapshot markers as arrays.
-- `clearAll(): void` — remove all markers (including snapshots) and reset.
+- `setVisible(visible: boolean): void` — show/hide **all** debug markers (raw + fused + snapshot) and remember the state so markers added later inherit it. Backs the recorder's `visualization.gpsAlignmentMarkers` opt-out (Finding B), read once at Enter-AR (live only — replay keeps markers visible). Affects rendering only: capture, GPS-event recording, counts, and snapshot positions are unchanged. Default visible; `clearAll()` resets it to visible so a live opt-out never leaks into a subsequent replay on the shared singleton.
+- `clearAll(): void` — remove all markers (including snapshots), reset counters/zero-ref, and restore visibility to the default (visible).
 - `getCounts(): { raw, fused, snapshots }` — get marker counts including alignment snapshots.
 - `getRawMarkerWorldSizes(): Array<{ x, y, z }>` — diagnostic accessor returning the world-space bounding-box size (`THREE.Box3.setFromObject`) of each raw-GPS marker in insertion order. Used by the §3c Playwright spec to verify accuracy-ellipsoid scaling.
 
@@ -38,7 +39,7 @@ export const gpsEventVisualizer: GpsEventVisualizer;
 
 ## Invariants & Assumptions
 
-1. **Zero reference must be set** before adding GPS events
+1. **Zero reference must be set** before adding GPS events — but purely as a readiness gate (see `setZeroRef` above); marker positions come from the pre-computed `gpsCoords`, not from this field.
 2. **Scene must be available** (from `getScene()`) for raw GPS markers to be created
 3. **arWorldGroup must be available** (from `getArWorldGroup()`) for fused markers; if unavailable, only raw GPS marker is created
 4. **Raw GPS markers are immutable** — they never move after creation (scene root)
@@ -55,9 +56,11 @@ export const gpsEventVisualizer: GpsEventVisualizer;
 
 ## Marker Sizing
 
-- **Cyan fused** and **red snapshot** spheres: fixed radius (8 cm / 10 cm), identity scale, opacity 0.3 / 0.5. Geometry is `SphereGeometry` with 12 segments; `MeshBasicMaterial` is transparent with `depthWrite: false` to prevent z-fighting.
+> **Sizes halved 2026-06-16 (D5).** The raw-GPS / fused / snapshot debug spheres were shrunk (`GPS_MARKER_RADIUS` 0.08 → **0.04**, `SNAPSHOT_MARKER_RADIUS` 0.1 → **0.05**) so they stop cluttering the AR scene and hiding the ref-point markers — which, in the RecorderApp, grow to double instead (`ref-point-visualizer.ts`). This framework constant renders in **both live recording and replay**, so replays of older recordings also show the smaller debug spheres (intended and accepted; a plain constant change, no live-vs-replay flag). See [`2026-06-16-user-feedback-team1.md`](../../../GpsPlusSlamJs_Docs/docs/2026-06-16-user-feedback-team1.md) D5.
+
+- **Cyan fused** and **red snapshot** spheres: fixed radius (4 cm / 5 cm), identity scale, opacity 0.3 / 0.5. Geometry is `SphereGeometry` with 12 segments; `MeshBasicMaterial` is transparent with `depthWrite: false` to prevent z-fighting.
 - **Yellow raw-GPS** sphere has two rendering modes:
-  - **Legacy fixed mode** (no `accuracy` arg): radius 8 cm, identity scale, opacity 0.3. Used by recording mode and any caller that does not opt in.
+  - **Legacy fixed mode** (no `accuracy` arg): radius 4 cm, identity scale, opacity 0.3. Used by recording mode and any caller that does not opt in.
   - **Accuracy-aware ellipsoid mode** (`accuracy = { horizontal, vertical }` both > 0): unit-radius sphere (radius 1 m) scaled non-uniformly to `(horizontal, vertical, horizontal)` metres, opacity 0.13, `renderOrder = -1`. The lower opacity and earlier render order keep the smaller cyan / red markers visible inside large ellipsoids (e.g. 20 m altitude jumps with growing GPS accuracy in rec31). Falls back to the legacy fixed mode when the argument is `null`, or either field is missing, non-positive, or non-finite (`NaN`/`Infinity`) — the boundary check lives in `resolveEllipsoidScale()`, which uses a `== null` guard then `Number.isFinite` before the `> 0` test.
 
 ## Examples
@@ -105,9 +108,10 @@ Unit tests in `gps-event-markers.test.ts`:
 - `addGpsEvent` — marker creation, colors, placement, guard checks.
 - `addGpsEvent accuracy-aware ellipsoid (§3)` — non-uniform scale on the raw marker, defensive fallback on missing/non-positive accuracy, lowered opacity, `renderOrder = -1`, cyan/red unaffected. See [`2026-05-19-investigate-rec31-altitude-drop.md`](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-05-19-investigate-rec31-altitude-drop.md) §3 for the motivation.
 - `scene-graph propagation` — world position via `arWorldGroup.matrix`.
+- `setVisible` — hides/shows all three marker types, later-added markers inherit the state, and `clearAll` restores visibility (replay safety). See [`2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md`](../../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md) (Finding B / Slice 3).
 - `clearAll` — cleanup and disposal.
 - `getCounts` — counter functionality.
-- `marker sizing` — verify legacy 8 cm radius on default code path.
+- `marker sizing` — verify legacy 4 cm radius on default code path.
 - `marker transparency` — opacity and depthWrite settings.
 
 ## Architecture

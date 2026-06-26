@@ -24,10 +24,15 @@ import {
   type RecorderStore,
 } from './recorder-store';
 
-// Mock file system to avoid actual file operations
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
-  writeAction: vi.fn().mockResolvedValue(undefined),
-}));
+// Mock the persistence write path (ScenarioWrappingStorageBackend → opfs-storage)
+// to avoid actual file operations; partial mock keeps the rest of opfs-storage real.
+vi.mock(
+  'gps-plus-slam-app-framework/storage/opfs-storage',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeAction: vi.fn().mockResolvedValue(undefined),
+  })
+);
 
 describe('Recording Options Integration', () => {
   let store: RecorderStore;
@@ -49,7 +54,7 @@ describe('Recording Options Integration', () => {
     it('should include default options when not specified', () => {
       store.dispatch(
         startSession({
-          scenarioName: 'Test',
+          contextTag: 'Test',
           sessionName: 'test-session',
           startTime: Date.now(),
         })
@@ -57,7 +62,7 @@ describe('Recording Options Integration', () => {
 
       const state = store.getState().recording;
       // recordingOptions may be undefined if not explicitly passed
-      expect(state.sessionMetadata?.scenarioName).toBe('Test');
+      expect(state.sessionMetadata?.contextTag).toBe('Test');
     });
 
     it('should include custom options in session metadata', () => {
@@ -70,6 +75,10 @@ describe('Recording Options Integration', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       store.dispatch(
@@ -95,6 +104,10 @@ describe('Recording Options Integration', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       store.dispatch(
@@ -306,6 +319,10 @@ describe('Recording Options Integration', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       store.dispatch(
@@ -362,6 +379,10 @@ describe('Recording Options Integration', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       store.dispatch(
@@ -417,6 +438,10 @@ describe('Recording Options Integration', () => {
           resolutionDivisor: 1,
         },
         arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+        occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+        frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+        visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+        qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
       };
 
       store.dispatch(

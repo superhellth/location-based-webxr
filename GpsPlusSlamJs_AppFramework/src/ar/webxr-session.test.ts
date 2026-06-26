@@ -45,6 +45,12 @@ import {
   startDepthCapture,
   stopDepthCapture,
   getDepthSampleCount,
+  setCameraFrameCallback,
+  startCameraFrameCapture,
+  stopCameraFrameCapture,
+  getCameraFrameCount,
+  getCameraFrameCaptureSize,
+  DEFAULT_CAMERA_FRAME_CAPTURE_SIZE,
   setFrameCallback,
   getLiveCss3dManager,
   type ARPose,
@@ -1224,6 +1230,53 @@ describe('depth capture functions', () => {
   });
 });
 
+describe('camera frame capture (B2)', () => {
+  beforeEach(() => {
+    resetWebXRState();
+  });
+
+  /**
+   * Why this test matters:
+   * setCameraFrameCallback must be callable before AR is initialized (it only
+   * stashes the callback; the source is created in initAR), mirroring
+   * setDepthCaptureCallback.
+   */
+  it('setCameraFrameCallback does not throw before AR init', () => {
+    expect(() => setCameraFrameCallback(vi.fn())).not.toThrow();
+    expect(() => setCameraFrameCallback(null)).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * startCameraFrameCapture must gracefully no-op when the frame source was
+   * never created (callback not set before initAR), not throw.
+   */
+  it('startCameraFrameCapture does not throw when source not initialized', () => {
+    expect(() => startCameraFrameCapture()).not.toThrow();
+    expect(() =>
+      startCameraFrameCapture({ intervalMs: 100, captureSize: 256 })
+    ).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * stopCameraFrameCapture must be safe to call when nothing is running (e.g.
+   * teardown after a failed start).
+   */
+  it('stopCameraFrameCapture does not throw when not running', () => {
+    expect(() => stopCameraFrameCapture()).not.toThrow();
+  });
+
+  /**
+   * Why this test matters:
+   * getCameraFrameCount returns 0 when no capture has happened — the default
+   * the Recorder/demo read before any frame is delivered.
+   */
+  it('getCameraFrameCount returns 0 when not capturing', () => {
+    expect(getCameraFrameCount()).toBe(0);
+  });
+});
+
 describe('frame callback', () => {
   beforeEach(() => {
     resetWebXRState();
@@ -1510,5 +1563,24 @@ describe('DOM hardcoding audit regressions', () => {
     expect(source).toContain(
       'if (currentArCrashIsolationOptions.enableCss3dRenderer && css3dManager)'
     );
+  });
+});
+
+describe('camera-frame capture-size default (WS-C on-device sweep)', () => {
+  /**
+   * Why this test matters: the camera-frame blit resolution is the QR-detection
+   * lever. The on-device sweep (2026-06-17, `?capture=`) showed 512 only decoded
+   * a small/out-of-focus QR at very close range, while 1024 decoded it reliably
+   * with no perceptible cadence cost. This locks the tuned default so a silent
+   * revert to 512 (which reintroduces the "must move very close" symptom) trips a
+   * test rather than shipping. See the QR-size-accuracy plan WS-C.
+   */
+  it('defaults the long-edge blit to 1024 px', () => {
+    expect(DEFAULT_CAMERA_FRAME_CAPTURE_SIZE).toBe(1024);
+  });
+
+  it('resetWebXRState restores the live capture size to the tuned default', () => {
+    resetWebXRState();
+    expect(getCameraFrameCaptureSize()).toBe(DEFAULT_CAMERA_FRAME_CAPTURE_SIZE);
   });
 });

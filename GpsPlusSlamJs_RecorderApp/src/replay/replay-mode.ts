@@ -47,6 +47,7 @@ import { FrameTileVisualizer } from '../visualization/frame-tile-visualizer';
 import { decodeFrameTexture } from '../visualization/frame-texture-decoder';
 import { wireFrameTileSubscribers } from '../visualization/wire-frame-tile-subscribers';
 import { OccupancyGrid } from 'gps-plus-slam-app-framework/ar/occupancy-grid';
+import { loadRecordingOptions } from 'gps-plus-slam-app-framework/state/recording-options';
 import { OccupancyCubesVisualizer } from '../visualization/occupancy-cubes-visualizer';
 import { wireOccupancyGridSubscribers } from '../visualization/wire-occupancy-grid-subscribers';
 import { createZipFrameBlobSource } from '../storage/zip-frame-blob-source';
@@ -154,11 +155,16 @@ export async function startReplayMode(
       replaySceneState.arWorldGroup
     );
     const storeRef = createStoreRef(store);
+    // D7-resolution: downscale the display texture by the CURRENT
+    // frameTileDisplay divisor (a display preference, not part of the
+    // recording — same pattern as occupancy.cellSizeM above, which also
+    // re-quantizes an old recording at the current setting).
+    const frameTileDivisor = loadRecordingOptions().frameTileDisplay.divisor;
     unsubscribeFrameTiles = wireFrameTileSubscribers({
       storeRef,
       visualizer: frameTileVisualizer,
       blobSource,
-      decodeTexture: decodeFrameTexture,
+      decodeTexture: (blob) => decodeFrameTexture(blob, frameTileDivisor),
       onError: (err, imageFile) => {
         log.warn(`Frame tile decode failed for "${imageFile}"`, err);
       },
@@ -181,7 +187,15 @@ export async function startReplayMode(
   let unsubscribeOccupancyGrid: (() => void) | null = null;
   let occupancyCubesVisualizer: OccupancyCubesVisualizer | null = null;
   try {
-    const occupancyGrid = new OccupancyGrid();
+    // Re-derive the grid from the recorded depth points at the user's current
+    // voxel size (recording-options `occupancy.cellSizeM`, clamped 1–20 cm).
+    // Reading it here lets the same recording be re-quantized at a different
+    // resolution without re-capturing — 2026-06-13 occupancy-grid-settings
+    // review, item 1. `loadRecordingOptions` is self-defending (returns the
+    // validated default on any storage error), so this stays best-effort.
+    const occupancyGrid = new OccupancyGrid({
+      cellSizeM: loadRecordingOptions().occupancy.cellSizeM,
+    });
     occupancyCubesVisualizer = new OccupancyCubesVisualizer(
       replaySceneState.arWorldGroup
     );

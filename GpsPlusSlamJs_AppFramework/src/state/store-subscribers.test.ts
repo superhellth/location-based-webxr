@@ -271,7 +271,9 @@ describe('wireStoreSubscribers', () => {
   // --- GPS event visualization ---
 
   it('sets zero ref on gpsEventVisualizer when available and not yet set', () => {
-    // Why: the visualizer needs the zero reference to convert GPS coords
+    // Why: the visualizer uses the zero reference as a readiness gate
+    // (addGpsEvent refuses to add markers until one is set). It is NOT used
+    // for coordinate math — coords arrive pre-baked from the library reducer.
     deps.gpsEventVisualizer.getZeroRef.mockReturnValue(null);
     const zero = { lat: 50.1, lon: 8.2 };
 
@@ -296,7 +298,9 @@ describe('wireStoreSubscribers', () => {
   });
 
   it('does not set zero ref if already set', () => {
-    // Why: setZeroRef should only be called once (idempotent guard)
+    // Why: setZeroRef is one-shot (idempotent guard). This is safe — not a
+    // divergence trap — because the field is only a readiness gate, never a
+    // coordinate source, so it never needs to track later store changes.
     deps.gpsEventVisualizer.getZeroRef.mockReturnValue({ lat: 50.1, lon: 8.2 });
     const zero = { lat: 50.1, lon: 8.2 };
 

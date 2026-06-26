@@ -47,6 +47,15 @@ between calls plus a single `zeroRef` field; no other state.
 
 ## Invariants & assumptions
 
+- **Marker radius `REF_POINT_MARKER_RADIUS = 0.2` m (D5, 2026-06-16 user
+  feedback).** Ref-point markers are the **only** GPS-anchored spheres that
+  grow — to double the `syncGpsAnchoredMeshes` default (`DEFAULT_RADIUS` 0.1) —
+  set on `REF_POINT_OPTS` (the live + replay `syncRefPoints` path) and on the
+  legacy `PRIOR_OPTS` / `CURRENT_OPTS` while still wired. The other
+  GPS-anchored debug spheres (`gps-event-markers.ts` in AppFramework) halve, so
+  the marker the user cares about stays spottable amid the compass +
+  point-cloud cubes (which stay ON). A test locks the **rendered geometry
+  radius**, not just the opts literal.
 - Mesh name format: `ref-point-${id}` (unified) and `prior-ref-${id}` /
   `current-ref-${id}` (legacy, removed in Step 5).
 - The insert animation fires **exactly once per id** — a re-render with

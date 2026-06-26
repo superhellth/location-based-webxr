@@ -13,6 +13,7 @@ import {
   CameraBlitCapture,
   DEFAULT_BLIT_CONFIG,
   computeCaptureSize,
+  computeAspectFitSize,
   type CameraBlitCaptureConfig,
 } from './camera-blit-capture';
 
@@ -327,6 +328,73 @@ describe('camera-blit-capture', () => {
           mockTexture as never
         );
         expect(result).toBeNull();
+      });
+    });
+
+    describe('captureToRgba', () => {
+      /**
+       * Why this test matters (B2 / QR detection):
+       * QR detection needs top-left-origin RGBA without the lossy JPEG
+       * round-trip. captureToRgba must run the blit, then apply the SAME
+       * vertical flip the JPEG encoder uses (readPixels is bottom-row-first),
+       * and return an OWNED copy (not the internal y-flipped buffer).
+       */
+      it('returns a flipped (top-left) owned RGBA copy', () => {
+        const renderer = createMockRenderer();
+        renderer.readRenderTargetPixels.mockImplementation(
+          (
+            _rt: unknown,
+            _x: number,
+            _y: number,
+            _w: number,
+            _h: number,
+            buffer: Uint8Array
+          ) => {
+            // 2×2, bottom-row-first:
+            //  row0(bottom): [10,20,30,255, 40,50,60,255]
+            //  row1(top):    [70,80,90,255, 100,110,120,255]
+            buffer.set([
+              10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 100, 110, 120,
+              255,
+            ]);
+          }
+        );
+
+        blitCapture = new CameraBlitCapture({ width: 2, height: 2 });
+        const rgba = blitCapture.captureToRgba(
+          renderer as never,
+          mockTexture as never
+        );
+
+        expect(rgba).not.toBeNull();
+        expect(rgba!.width).toBe(2);
+        expect(rgba!.height).toBe(2);
+        expect(rgba!.data).toBeInstanceOf(Uint8ClampedArray);
+        // Flipped: new row0 = old top row, new row1 = old bottom row.
+        expect(Array.from(rgba!.data)).toEqual([
+          70, 80, 90, 255, 100, 110, 120, 255, 10, 20, 30, 255, 40, 50, 60, 255,
+        ]);
+      });
+
+      it('returns null after dispose', () => {
+        blitCapture = new CameraBlitCapture({ width: 4, height: 4 });
+        blitCapture.dispose();
+        expect(
+          blitCapture.captureToRgba(mockRenderer as never, mockTexture as never)
+        ).toBeNull();
+      });
+
+      it('returns an independent copy that survives the next capture', () => {
+        blitCapture = new CameraBlitCapture({ width: 2, height: 2 });
+        const first = blitCapture.captureToRgba(
+          mockRenderer as never,
+          mockTexture as never
+        );
+        expect(first).not.toBeNull();
+        const snapshot = Array.from(first!.data);
+        // A second capture must not mutate the first result's buffer.
+        blitCapture.captureToRgba(mockRenderer as never, mockTexture as never);
+        expect(Array.from(first!.data)).toEqual(snapshot);
       });
     });
 
@@ -832,6 +900,170 @@ describe('camera-blit-capture', () => {
       const result = computeCaptureSize(10, 10, 100);
       expect(result.width).toBeGreaterThanOrEqual(1);
       expect(result.height).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('computeAspectFitSize', () => {
+    /**
+     * Why this test matters (B2 Option 1 — aspect-correct QR blit):
+     * A 4:3 camera must NOT be squashed into a square (which would stretch the
+     * QR for the detector). The longer edge is fixed at maxEdge; the shorter
+     * edge scales to preserve aspect.
+     */
+    it('fits a 4:3 landscape camera to maxEdge on the long (width) edge', () => {
+      expect(computeAspectFitSize(640, 480, 512)).toEqual({
+        width: 512,
+        height: 384,
+      });
+    });
+
+    it('fits a 16:9 landscape camera', () => {
+      expect(computeAspectFitSize(1920, 1080, 512)).toEqual({
+        width: 512,
+        height: 288,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * Portrait orientation must fix maxEdge on HEIGHT (the longer edge), not
+     * width — otherwise a rotated device would over- or under-size the blit.
+     */
+    it('fits a portrait (3:4) camera to maxEdge on the long (height) edge', () => {
+      expect(computeAspectFitSize(480, 640, 512)).toEqual({
+        width: 384,
+        height: 512,
+      });
+    });
+
+    it('returns a square for a square camera', () => {
+      expect(computeAspectFitSize(1000, 1000, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+    });
+
+    /**
+     * Why this test matters (WS-C detection-resolution sweep):
+     * `captureSize` is the QR-detection lever — the longer-edge blit budget the
+     * BarcodeDetector sees. The on-device sweep varies it across {512, 768,
+     * 1024}; lock that each candidate stays aspect-correct (long edge == size,
+     * 4:3 short edge = 3/4·size) so a bigger budget puts more pixels on a small
+     * QR without ever stretching it. See the thin-demo/size plan WS-C.
+     */
+    it('keeps each sweep-candidate capture size aspect-correct (4:3)', () => {
+      expect(computeAspectFitSize(640, 480, 512)).toEqual({
+        width: 512,
+        height: 384,
+      });
+      expect(computeAspectFitSize(640, 480, 768)).toEqual({
+        width: 768,
+        height: 576,
+      });
+      expect(computeAspectFitSize(640, 480, 1024)).toEqual({
+        width: 1024,
+        height: 768,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * Invalid camera dimensions (texture not ready) must fall back to a safe
+     * maxEdge-square rather than producing a 0-sized render target.
+     */
+    it('falls back to a maxEdge square for invalid camera dimensions', () => {
+      expect(computeAspectFitSize(0, 0, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+      expect(computeAspectFitSize(-10, 480, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * `NaN <= 0` is false, so a NaN camera dimension would slip past the
+     * `<= 0` guard and produce {NaN, NaN} — which crashes downstream render
+     * target allocation. NaN dimensions are "invalid" exactly like ≤ 0, so they
+     * must take the same safe-square fallback.
+     */
+    it('falls back to a maxEdge square for NaN camera dimensions', () => {
+      expect(computeAspectFitSize(Number.NaN, 480, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+      expect(computeAspectFitSize(640, Number.NaN, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+      expect(computeAspectFitSize(Number.NaN, Number.NaN, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * A nonsensical maxEdge must fall back to the default blit EDGE LENGTH (so
+     * we never build a 0×0/NaN target) while still preserving the camera aspect
+     * — a 4:3 frame stays 4:3 at the default edge, not forced to a square.
+     */
+    it('falls back to the default edge length (still aspect-fit) when maxEdge is invalid', () => {
+      // 640×480 (4:3) at the 512 default edge → 512×384, NOT a 512² square.
+      expect(computeAspectFitSize(640, 480, 0)).toEqual({
+        width: DEFAULT_BLIT_CONFIG.width,
+        height: 384,
+      });
+      expect(computeAspectFitSize(640, 480, Number.NaN)).toEqual({
+        width: DEFAULT_BLIT_CONFIG.width,
+        height: 384,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * `Infinity > 0` is true, so an Infinity camera dimension slips past the
+     * negated `> 0` guard exactly like NaN once did. With a finite maxEdge that
+     * yields `scale = maxEdge / Infinity = 0` → `round(Infinity * 0) = NaN`
+     * (and a NaN/0 partner), i.e. a non-finite render-target size that crashes
+     * allocation downstream. Infinity is "invalid" exactly like NaN/≤ 0, so it
+     * must take the same safe-square fallback.
+     */
+    it('falls back to a maxEdge square for Infinity camera dimensions', () => {
+      expect(computeAspectFitSize(Number.POSITIVE_INFINITY, 480, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+      expect(computeAspectFitSize(640, Number.POSITIVE_INFINITY, 512)).toEqual({
+        width: 512,
+        height: 512,
+      });
+    });
+
+    /**
+     * Why this test matters:
+     * `Infinity >= 1` is true, so an Infinity maxEdge slips past the edge guard
+     * and `Math.floor(Infinity) = Infinity` becomes the long edge — producing
+     * {Infinity, Infinity}. An infinite pixel budget is nonsensical, so it must
+     * fall back to the default edge length while preserving aspect, exactly like
+     * the NaN/0 maxEdge cases.
+     */
+    it('falls back to the default edge length when maxEdge is Infinity', () => {
+      expect(computeAspectFitSize(640, 480, Number.POSITIVE_INFINITY)).toEqual({
+        width: DEFAULT_BLIT_CONFIG.width,
+        height: 384,
+      });
+    });
+
+    it('floors the longer edge and clamps the shorter to ≥ 1', () => {
+      // Extreme aspect: the short edge rounds below 1 → clamped to 1.
+      const r = computeAspectFitSize(1000, 1, 512);
+      expect(r.width).toBe(512);
+      expect(r.height).toBe(1);
+      expect(Number.isInteger(r.width)).toBe(true);
+      expect(Number.isInteger(r.height)).toBe(true);
     });
   });
 });

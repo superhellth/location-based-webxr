@@ -18,6 +18,16 @@ import {
  * with, and proper flow is critical for a good user experience.
  */
 
+// D6 item 3 (2026-06-16 user feedback): the scenario/session controls now live
+// in a collapsed <details id="scenario-section">. Open it so the <select> is
+// actionable for tests that interact with the dropdown.
+async function expandScenarioSection(page) {
+  await page.evaluate(() => {
+    const section = document.getElementById('scenario-section');
+    if (section) section.open = true;
+  });
+}
+
 // Shared setup for all tests - wait for app to be ready
 test.beforeEach(async ({ page }) => {
   // Fake WebXR so app stays in recording mode (Playwright has no WebXR)
@@ -54,10 +64,27 @@ test.describe('Setup Modal Flow', () => {
   test('scenario dropdown is populated after OPFS auto-init', async ({
     page,
   }) => {
+    // Scenario controls are collapsed by default (D6 item 3); expand to view.
+    await expandScenarioSection(page);
     const scenarioSelect = page.locator('#scenario-select');
     // After OPFS auto-initialization, dropdown should be enabled (not disabled)
     // It may have "Loading..." initially then switch to available scenarios
     await expect(scenarioSelect).toBeVisible();
+  });
+
+  // D6 item 3 (2026-06-16 user feedback): the scenario/session controls are
+  // tucked into a self-contained <details> that is COLLAPSED by default so the
+  // first viewport shows the real actions, not advanced grouping config.
+  test('scenario section is a collapsed details by default', async ({
+    page,
+  }) => {
+    const section = page.locator('#scenario-section');
+    await expect(section).toBeVisible(); // the <summary> chevron is shown
+    // The <details> must NOT be open on first paint.
+    const isOpen = await section.evaluate((el) => el.open);
+    expect(isOpen).toBe(false);
+    // Consequently the dropdown inside it is hidden until expanded.
+    await expect(page.locator('#scenario-select')).toBeHidden();
   });
 
   test('enter AR button is disabled before scenario selection', async ({
@@ -68,6 +95,26 @@ test.describe('Setup Modal Flow', () => {
     await expect(enterButton).toContainText('Enter AR');
   });
 
+  // D2 (2026-06-19 round-2 feedback): session notes is an optional,
+  // session-level field, so it now lives INSIDE the collapsed scenario/session
+  // <details> — hidden by default, revealed only when the user expands the
+  // section. Mirrors "scenario section is a collapsed details by default".
+  test('session notes is hidden by default and revealed when the section expands', async ({
+    page,
+  }) => {
+    const notes = page.locator('#session-notes');
+    // Inside the collapsed <details> → not visible on first paint.
+    await expect(notes).toBeHidden();
+    // It is a descendant of the scenario/session section, not a sibling after it.
+    const insideSection = await notes.evaluate(
+      (el) => !!el.closest('#scenario-section')
+    );
+    expect(insideSection).toBe(true);
+    // Expanding the section reveals it.
+    await expandScenarioSection(page);
+    await expect(notes).toBeVisible();
+  });
+
   test('session notes textarea is enabled after storage is ready', async ({
     page,
   }) => {
@@ -75,6 +122,10 @@ test.describe('Setup Modal Flow', () => {
     const notesTextarea = page.locator('#session-notes');
     // Simulate mandatory storage selection (Task 1a-fix)
     await setStorageReady(page);
+    // Notes now lives in the collapsed scenario/session section (D2) — expand
+    // it so the textarea is actually visible, then assert it is editable.
+    await expandScenarioSection(page);
+    await expect(notesTextarea).toBeVisible();
     await expect(notesTextarea).toBeEnabled();
   });
 
@@ -102,9 +153,21 @@ test.describe('Setup Modal Flow', () => {
     await expect(folderStatus).toContainText('No folder selected');
   });
 
-  test('save status shows not selected initially', async ({ page }) => {
+  // D6 item 8 (2026-06-16 user feedback): the "choose a save location" blocker
+  // is stated ONCE, on the disabled Enter AR button's hint — NOT duplicated in
+  // #save-status. So #save-status starts empty (it is a pure path-status line)
+  // and the single authoritative blocker lives in #enter-ar-hint.
+  test('save-location blocker is stated once (on the Enter AR hint, not save-status)', async ({
+    page,
+  }) => {
     const saveStatus = page.locator('#save-status');
-    await expect(saveStatus).toContainText('No save location chosen');
+    // Pure status line: empty until a save location is chosen.
+    await expect(saveStatus).toHaveText('');
+
+    // The single authoritative blocker is on the disabled primary action.
+    const enterHint = page.locator('#enter-ar-hint');
+    await expect(enterHint).toBeVisible();
+    await expect(enterHint).toContainText(/save location/i);
   });
 
   test('new scenario name input shown when no existing scenarios', async ({
@@ -155,7 +218,9 @@ test.describe('Setup Modal Flow', () => {
     const folderStatus = page.locator('#folder-status');
     const saveStatus = page.locator('#save-status');
     await expect(folderStatus).toContainText('No folder selected');
-    await expect(saveStatus).toContainText('No save location chosen');
+    // #save-status is a pure path-status line and starts empty (D6 item 8);
+    // the save-location blocker is on #enter-ar-hint instead.
+    await expect(saveStatus).toHaveText('');
   });
 
   test('WebXR warning is hidden when WebXR not checked', async ({ page }) => {
@@ -166,9 +231,26 @@ test.describe('Setup Modal Flow', () => {
     await expect(warning).toBeAttached();
   });
 
+  // D6 item 1 (2026-06-16 user feedback): the Required Permissions section is
+  // the upfront action on the setup screen — it must render ABOVE the storage,
+  // scenario and notes blocks (it used to be the last block). Codifies the
+  // structural reorder so it can't silently regress.
+  test('permissions section renders above storage setup', async ({ page }) => {
+    const permSection = page.locator('#permission-section');
+    const storageSetup = page.locator('#storage-setup');
+    await expect(permSection).toBeVisible();
+    await expect(storageSetup).toBeVisible();
+    const permBox = await permSection.boundingBox();
+    const storageBox = await storageSetup.boundingBox();
+    expect(permBox).not.toBeNull();
+    expect(storageBox).not.toBeNull();
+    // Permissions must sit above storage (smaller top y).
+    expect(permBox.y).toBeLessThan(storageBox.y);
+  });
+
   test('setup modal title is correct', async ({ page }) => {
     await expect(
-      page.getByRole('heading', { name: 'GpsPlusSlamJs Recorder' })
+      page.getByRole('heading', { name: 'GPS + SLAM Recorder' })
     ).toBeVisible();
   });
 
@@ -183,6 +265,7 @@ test.describe('Setup Modal Flow', () => {
 
 test.describe('Scenario Dropdown Interaction', () => {
   test('dropdown has options after storage is selected', async ({ page }) => {
+    await expandScenarioSection(page);
     const scenarioSelect = page.locator('#scenario-select');
     // Simulate mandatory storage selection
     await setStorageReady(page);
@@ -201,6 +284,8 @@ test.describe('Scenario Dropdown Interaction', () => {
     // Set permissions as ready (required for Enter AR button to be enabled)
     await setPermissionsReady(page);
 
+    // Expand the collapsed scenario controls (D6 item 3) before selecting.
+    await expandScenarioSection(page);
     // Select the existing scenario to enable the Enter AR button
     const scenarioSelect = page.locator('#scenario-select');
     await scenarioSelect.selectOption('Test Scenario');
@@ -224,6 +309,7 @@ test.describe('Scenario Dropdown Interaction', () => {
 
     // Select the new scenario option - this triggers the real change handler
     // which was attached by initUI (now called before WebXR check)
+    await expandScenarioSection(page);
     const scenarioSelect = page.locator('#scenario-select');
     await scenarioSelect.selectOption('__new__');
 
@@ -237,6 +323,7 @@ test.describe('Scenario Dropdown Interaction', () => {
     await callRealPopulateScenarios(page, ['Existing']);
 
     // Select "__new__" to trigger the real change handler and show the section
+    await expandScenarioSection(page);
     const scenarioSelect = page.locator('#scenario-select');
     await scenarioSelect.selectOption('__new__');
 
@@ -252,6 +339,7 @@ test.describe('Scenario Dropdown Interaction', () => {
     // Populate the dropdown with options using real app function
     await callRealPopulateScenarios(page, ['Existing Scenario']);
 
+    await expandScenarioSection(page);
     const scenarioSelect = page.locator('#scenario-select');
     const newScenarioSection = page.locator('#new-scenario-section');
 
@@ -272,7 +360,11 @@ test.describe('Session Notes Interaction', () => {
     // Enable the textarea by populating scenarios (simulates folder selection)
     await callRealPopulateScenarios(page, ['Test Scenario']);
 
+    // Notes now lives in the collapsed scenario/session section (D2) — fill()
+    // requires the element to be visible, so expand the section first.
+    await expandScenarioSection(page);
     const notes = page.locator('#session-notes');
+    await expect(notes).toBeVisible();
     await expect(notes).toBeEnabled();
 
     // Type multiline text
@@ -286,5 +378,57 @@ test.describe('Session Notes Interaction', () => {
     const notes = page.locator('#session-notes');
     const placeholder = await notes.getAttribute('placeholder');
     expect(placeholder).toContain('Weather');
+  });
+});
+
+// D4 (2026-06-19 round-2 feedback, Finding 4): the setup modal splits into a
+// scrollable content area (#setup-scroll) + a pinned CTA footer, so the primary
+// action (Enter AR) stays visible without scrolling — users were missing it
+// below the fold on short screens. These assert the structural/transitional
+// contract per the UI-feedback rule; the dominant-CTA *styling* is a visual
+// concern checked on-device.
+test.describe('Pinned Enter AR footer', () => {
+  test('Enter AR stays in the viewport without scrolling on a short screen', async ({
+    page,
+  }) => {
+    // Force a short viewport so the modal content genuinely overflows — that is
+    // the exact situation where the old layout pushed Enter AR below the fold.
+    await page.setViewportSize({ width: 390, height: 480 });
+    // Open the help section to guarantee the content area overflows.
+    await page.evaluate(() => {
+      document.getElementById('help-section')?.setAttribute('open', '');
+    });
+
+    // The content area must actually be scrollable (otherwise the test would
+    // pass trivially and prove nothing about pinning).
+    const overflow = await page.evaluate(() => {
+      const s = document.getElementById('setup-scroll');
+      return s ? s.scrollHeight > s.clientHeight + 1 : false;
+    });
+    expect(overflow).toBe(true);
+
+    // The core claim: Enter AR is visible in the viewport without scrolling.
+    const enterButton = page.locator('#btn-enter-ar');
+    await expect(enterButton).toBeVisible();
+    await expect(enterButton).toBeInViewport();
+  });
+
+  test('Enter AR and its hint share the pinned footer (outside the scroll area)', async ({
+    page,
+  }) => {
+    // The hint must travel with the button in the footer, and neither may be a
+    // descendant of the scrollable content area.
+    const shareFooter = await page.evaluate(() => {
+      const btn = document.getElementById('btn-enter-ar');
+      const hint = document.getElementById('enter-ar-hint');
+      const scroll = document.getElementById('setup-scroll');
+      if (!btn || !hint || !scroll) return false;
+      return (
+        btn.parentElement === hint.parentElement &&
+        !scroll.contains(btn) &&
+        !scroll.contains(hint)
+      );
+    });
+    expect(shareFooter).toBe(true);
   });
 });

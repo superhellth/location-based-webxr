@@ -21,7 +21,10 @@ state machine for the first-user-experience, replacing inline `if`/flag glue.
 - **cache-miss:** `booting → awaiting-tracking ⇄ ready-to-place →
 (PLACE_REQUESTED) saving → (PLACE_SUCCEEDED) saved` /
   `(PLACE_FAILED) back to placeable + errorMessage`.
-- **cache-hit:** `booting → relocalising → (tracking ready) anchor-shown`.
+- **cache-hit:** `booting → relocalising ⇄ anchor-shown` (tracking ready
+  advances to `anchor-shown`; tracking loss reverts to `relocalising`, mirroring
+  the cache-miss `awaiting-tracking ⇄ ready-to-place` symmetry so the banner
+  never claims the anchor is shown while tracking is lost).
 
 ## Invariants & assumptions
 

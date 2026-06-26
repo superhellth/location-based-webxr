@@ -95,6 +95,39 @@ describe('OccupancyGrid properties', () => {
     );
   });
 
+  /**
+   * Why this property matters (follow-up Item A): `getCellPoint` is a centroid
+   * of the exact points that fell in the cell, so it must always lie INSIDE
+   * the cell — within cellSizeM/2 of the center per axis. A drifting or
+   * mis-divided average (e.g. dividing by the wrong count) would push the
+   * exported point outside its voxel.
+   */
+  it('getCellPoint stays within cellSizeM/2 of the cell center for every occupied cell', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 0.05, max: 2, noNaN: true }),
+        fc.array(fc.double({ min: 0.3, max: 50, noNaN: true }), {
+          minLength: 1,
+          maxLength: 20,
+        }),
+        (cellSizeM, depths) => {
+          const grid = new OccupancyGrid({ cellSizeM });
+          grid.addSample(makeSample([0, 0, 0], depths));
+          for (const cell of grid.getOccupiedCells()) {
+            const point = grid.getCellPoint(cell);
+            expect(point).not.toBeNull();
+            const center = grid.getCellCenter(cell);
+            for (let axis = 0; axis < 3; axis++) {
+              expect(Math.abs(point![axis] - center[axis])).toBeLessThanOrEqual(
+                cellSizeM / 2 + 1e-9
+              );
+            }
+          }
+        }
+      )
+    );
+  });
+
   it('an observed cell survives any number of repeat observations from any camera distance (incl. same-cell case)', () => {
     fc.assert(
       fc.property(

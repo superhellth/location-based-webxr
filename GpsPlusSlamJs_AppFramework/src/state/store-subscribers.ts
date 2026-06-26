@@ -229,7 +229,18 @@ export function wireStoreSubscribers(
         const prevCount = prevPositions?.length ?? 0;
         const state = store.getState();
 
-        // Set zero reference if not already set
+        // Set the visualizer's zero reference once, as a readiness gate.
+        //
+        // This is intentionally one-shot (guarded by `!getZeroRef()`) and is
+        // NOT a divergence trap despite mirroring the store value: the
+        // GpsEventVisualizer never uses this field for coordinate math — each
+        // GpsPoint's `coordinates` are baked to metres-from-origin by the
+        // library reducer at record time (`calcRelativeCoordsInMeters`), so a
+        // stale/changed store zero cannot offset markers here. (The
+        // load-bearing zero reference is RefPointVisualizer's, kept in sync via
+        // the recorder's wireRefPointSubscribers.) See state-outside-store
+        // audit F2 — do not "fix" this into an unconditional re-push; that adds
+        // redundant calls for zero behavioural gain.
         const zeroRef = selectZeroReference(state);
         if (zeroRef && !deps.gpsEventVisualizer.getZeroRef()) {
           deps.gpsEventVisualizer.setZeroRef(zeroRef);

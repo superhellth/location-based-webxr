@@ -54,6 +54,7 @@ Factory function. Returns a handlers object that owns the recording lifecycle.
 ## Invariants
 
 - `handleStartRecording` always creates a **new store** via `deps.createNewStore()` and pushes it via `deps.setStore()`.
+- `handleStartRecording` calls `gpsEventVisualizer.clearAll()` (disposes prior markers) and **immediately re-asserts** the `visualization.gpsAlignmentMarkers` opt-out via `setVisible(...)`. This is load-bearing: `clearAll()` resets the shared visualizer to its pristine _visible_ state (a replay-safety reset), and this path runs **after** Enter-AR already applied the opt-out — without the re-assert, GPS spheres reappear during recording despite the toggle being off (regression fixed 2026-06-18).
 - Tracker proxy methods are null-safe — they do nothing if trackers haven't been created yet (i.e., before first recording starts).
 - `cleanupForNewRecording` stops sync manager, resets trackers, and clears `currentSessionName`.
 - `reset` sets everything to initial state (null trackers, empty session name, no sync manager).

@@ -28,18 +28,23 @@ import {
   type DepthSample,
 } from './recorder-store';
 
-// Mock file-system to capture what would be written
+// Mock opfs-storage's writeAction to capture what would be written
+// (ScenarioWrappingStorageBackend → opfs-storage; partial mock keeps the rest real).
 const writtenActions: unknown[] = [];
 let pendingWrites: Promise<void>[] = [];
 
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
-  writeAction: vi.fn().mockImplementation((action) => {
-    writtenActions.push(action);
-    const p = Promise.resolve();
-    pendingWrites.push(p);
-    return p;
-  }),
-}));
+vi.mock(
+  'gps-plus-slam-app-framework/storage/opfs-storage',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeAction: vi.fn().mockImplementation((action) => {
+      writtenActions.push(action);
+      const p = Promise.resolve();
+      pendingWrites.push(p);
+      return p;
+    }),
+  })
+);
 
 /**
  * Flushes all pending writeAction calls.
@@ -62,7 +67,7 @@ describe('Action Schema Validation', () => {
   describe('startSession action', () => {
     it('should have correct type and payload structure', async () => {
       const metadata: SessionMetadata = {
-        scenarioName: 'Test Scenario',
+        contextTag: 'Test Scenario',
         sessionName: 'recording-2025-01-01_12-00-00utc',
         startTime: 1704110400000,
         deviceInfo: 'Pixel 7',

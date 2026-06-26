@@ -65,13 +65,16 @@ export interface FrameTileVisualizerOptions {
    * image shape (the longer edge equals this value, the shorter edge is
    * `sizeMeters × shorter/longer`). Frames without persisted dimensions
    * (legacy recordings) fall back to a square `sizeMeters × sizeMeters`
-   * tile. Defaults to 0.2 m (20 cm) — visible without dominating the scene
-   * at typical walking-pace capture cadence.
+   * tile. Defaults to 0.1 m (10 cm) — halved from 0.2 (D7, 2026-06-16 user
+   * feedback) so the floating captured-frame tiles are "less in your face"
+   * (the field tester read a tile spawning at the pose as the camera "zooming
+   * in"). Plane-size only — this does NOT reduce per-tile texture memory; the
+   * separate display-resolution divisor (Slice 4b) does.
    */
   readonly sizeMeters?: number;
 }
 
-const DEFAULT_SIZE = 0.2;
+const DEFAULT_SIZE = 0.1;
 const NAME_PREFIX = 'frame-tile';
 /** Name of the internal `WEBXR_TO_NUE` basis node tiles hang off. */
 const BASIS_NODE_NAME = 'frame-tile-basis';
@@ -131,11 +134,17 @@ export class FrameTileVisualizer {
     const mesh = new THREE.Mesh(SHARED_GEOMETRY, material);
     // Non-uniform scale to the frame's aspect ratio so a non-square JPEG is
     // not stretched onto a square plane (Finding 1 / D1). The longer edge is
-    // sizeMeters; a frame without persisted dimensions falls back to square.
+    // sizeMeters. Dimension precedence (DA-1, 2026-06-14 follow-up):
+    // persisted frame.width/height → decoded texture.image dimensions →
+    // square. The bitmap fallback closes the legacy-recording gap (records
+    // predating the persisted fields) without a schema change; persisted dims
+    // stay authoritative where present.
+    const width = frame.width ?? bitmapDim(texture, 'width');
+    const height = frame.height ?? bitmapDim(texture, 'height');
     const { x: scaleX, y: scaleY } = tileScaleXY(
       this.sizeMeters,
-      frame.width,
-      frame.height
+      width,
+      height
     );
     mesh.scale.set(scaleX, scaleY, this.sizeMeters);
     mesh.name = `${NAME_PREFIX}-${frame.imageFile}`;
@@ -203,6 +212,32 @@ function tileScaleXY(
   return aspect >= 1
     ? { x: sizeMeters, y: sizeMeters / aspect } // landscape: width is the long edge
     : { x: sizeMeters * aspect, y: sizeMeters }; // portrait: height is the long edge
+}
+
+/**
+ * Read a positive, finite pixel dimension from a decoded texture's `.image`
+ * (DA-1 legacy fallback). In production the texture wraps an `ImageBitmap`
+ * whose `.width`/`.height` are the authoritative rendered pixel dimensions —
+ * the data Finding A falls back to for legacy recordings that predate the
+ * persisted `width`/`height` fields. The `.image` shape is **not** guaranteed
+ * (`ImageBitmap` | `HTMLImageElement` | `HTMLCanvasElement` | a bare jsdom
+ * stub | `null`), so read defensively: never assume `instanceof ImageBitmap`,
+ * and return `undefined` when the axis is absent, non-finite, or non-positive
+ * so the caller falls through to the square (`tileScaleXY`'s last resort).
+ */
+function bitmapDim(
+  texture: THREE.Texture,
+  axis: 'width' | 'height'
+): number | undefined {
+  const image = texture.image as
+    | { width?: unknown; height?: unknown }
+    | null
+    | undefined;
+  if (!image) return undefined;
+  const value = image[axis];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
 }
 
 function disposeTileMaterial(mesh: THREE.Mesh): void {
