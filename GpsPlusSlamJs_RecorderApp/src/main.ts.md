@@ -51,6 +51,35 @@ This module is the entry point that runs on page load. It also exports the follo
   is parented under `arWorldGroup` (NOT the scene root): the grid's cells are
   raw-WebXR coordinates that must ride the alignment matrix like the camera
   (port plan Iter 7 reparenting fix).
+- **Live QR recording + debug viz** (opt-in, `recording-options.qr.enabled`;
+  recorder live-QR WS-2/WS-5). When enabled, `handleEnterAR` registers the
+  camera-frame callback **before** `initAR` (`setCameraFrameCallback`, forwarding
+  frames to the producer held in `qrProducer`) and, after AR init inside its own
+  best-effort `try/catch`, calls `wireQrRecording` (under `arWorldGroup`) to build
+  the thin RAW producer + the WS-5 debug axis+cube subscriber. Torn down in
+  `resetMainState()` and disposed-first on re-entry (same leak-guard pattern as
+  the occupancy/frame-tile layers). See
+  [qr/wire-qr-recording.ts.md](qr/wire-qr-recording.ts.md). Disabled by default,
+  so an existing recording is byte-for-byte unaffected.
+- **Live debug-overlay toggles** (`recording-options.visualization.*`, Finding B
+  of the [2026-06-14 follow-up](../../../gps-plus-slam/GpsPlusSlamJs_Docs/docs/2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md)):
+  `handleEnterAR` reads the four toggles ONCE at Enter-AR (toggling mid-session
+  applies on the next Enter-AR; replay is never gated). Each uses the mechanism
+  that fits its consumer:
+  - **frameTiles** / **compassCubes** — skipped entirely when off (no
+    non-visual consumer; the frame-blob cache is filled in
+    `handleImageCaptured`, independent of the tile wiring). The frame-tile
+    teardown still runs unconditionally so turning it off cleanly removes a
+    prior cycle's tiles.
+  - **gpsAlignmentMarkers** — NOT skipped; `gpsEventVisualizer.setVisible(flag)`
+    only hides the spheres, because their alignment-snapshot positions feed the
+    session-summary map at stop.
+  - **occupancyCubes** — gates only the rendered cube `InstancedMesh`. The
+    `OccupancyGrid` is **always** built, published via `setOccupancyGrid`, and
+    fed by `wireOccupancyGridSubscribers`, because the COLMAP export and other
+    non-visualizer consumers read it through `getOccupancyGrid()`. When off, the
+    wirer gets a no-op visualizer sink so the grid still folds in every depth
+    sample without allocating GPU geometry.
 
 ## Examples
 

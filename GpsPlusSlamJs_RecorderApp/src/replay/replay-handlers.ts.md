@@ -16,21 +16,22 @@ Factory that creates replay handlers with injected dependencies.
 
 **`ReplayHandlers`** returned object:
 
-| Method                       | Signature                                 | Description                                                    |
-| ---------------------------- | ----------------------------------------- | -------------------------------------------------------------- |
-| `handleReplayScenarioChange` | `(scenarioName: string) => Promise<void>` | Lists session ZIPs in selected scenario (directory + cache).   |
-| `handleReplaySessionSelect`  | `(index: number) => Promise<void>`        | Stores selected index; loads GPS path and shows preview map.   |
-| `handleStartReplay`          | `(speedFactor: number) => Promise<void>`  | Reads ZIP, starts replay orchestrator, replaces store.         |
-| `handleReplayPlayPause`      | `() => void`                              | Toggles play/pause on the replay controller.                   |
-| `handleReplaySpeedChange`    | `(speed: number) => void`                 | Changes playback speed.                                        |
-| `handleReplayCameraToggle`   | `() => void`                              | Toggles orbit/FPS camera mode.                                 |
-| `getSessionEntries`          | `() => SessionEntry[]`                    | Returns current session list.                                  |
-| `getSelectedSessionIndex`    | `() => number`                            | Returns selected session index.                                |
-| `getIsReplayMode`            | `() => boolean`                           | Returns replay mode flag.                                      |
-| `setIsReplayMode`            | `(value: boolean) => void`                | Sets replay mode flag.                                         |
-| `setReplayZipScenariosCache` | `(cache: ScenarioSessionMap) => void`     | Sets the zip→scenario cache (populated by `handleOpenFolder`). |
-| `handleReplayMapToggle`      | `() => void`                              | Lazily creates & toggles 2D map overlay (Issue 4).             |
-| `reset`                      | `() => void`                              | Clears all replay state.                                       |
+| Method                       | Signature                                              | Description                                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handleReplayScenarioChange` | `(scenarioName: string) => Promise<void>`              | Lists session ZIPs in selected scenario (directory + cache).                                                                                                                                    |
+| `handleReplaySessionSelect`  | `(index: number) => Promise<void>`                     | Stores selected index; loads GPS path and shows preview map.                                                                                                                                    |
+| `handleStartReplay`          | `(speedFactor: number) => Promise<void>`               | Reads ZIP, starts replay orchestrator, replaces store.                                                                                                                                          |
+| `startReplayForEntry`        | `(entry: SessionEntry, speedFactor?) => Promise<void>` | Replay a specific recording directly (map-browser single-tour playback, Step 4C). Bypasses the dropdown/list selection; shares the same start core as `handleStartReplay`. Speed defaults to 1. |
+| `handleReplayPlayPause`      | `() => void`                                           | Toggles play/pause on the replay controller.                                                                                                                                                    |
+| `handleReplaySpeedChange`    | `(speed: number) => void`                              | Changes playback speed.                                                                                                                                                                         |
+| `handleReplayCameraToggle`   | `() => void`                                           | Toggles orbit/FPS camera mode.                                                                                                                                                                  |
+| `getSessionEntries`          | `() => SessionEntry[]`                                 | Returns current session list.                                                                                                                                                                   |
+| `getSelectedSessionIndex`    | `() => number`                                         | Returns selected session index.                                                                                                                                                                 |
+| `getIsReplayMode`            | `() => boolean`                                        | Returns replay mode flag.                                                                                                                                                                       |
+| `setIsReplayMode`            | `(value: boolean) => void`                             | Sets replay mode flag.                                                                                                                                                                          |
+| `setReplayZipScenariosCache` | `(cache: ScenarioSessionMap) => void`                  | Sets the zip→scenario cache (populated by `handleOpenFolder`).                                                                                                                                  |
+| `handleReplayMapToggle`      | `() => void`                                           | Lazily creates & toggles 2D map overlay (Issue 4).                                                                                                                                              |
+| `reset`                      | `() => void`                                           | Clears all replay state.                                                                                                                                                                        |
 
 ## Invariants & Assumptions
 

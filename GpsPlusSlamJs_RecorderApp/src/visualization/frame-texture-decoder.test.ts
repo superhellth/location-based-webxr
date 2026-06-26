@@ -61,6 +61,69 @@ describe('decodeFrameTexture', () => {
     );
   });
 
+  // Why (D7-resolution, 2026-06-16 user feedback): a divisor > 1 must
+  // re-sample the decoded bitmap to 1/divisor of each dimension before building
+  // the texture, cutting per-tile GPU memory. We assert the resize createImage-
+  // Bitmap call targets width/height = source / divisor, that the full-res
+  // bitmap is closed (memory freed), and that the texture wraps the RESIZED
+  // bitmap — not the full one.
+  it('downscales the display texture by the divisor (resizeWidth/Height = source / divisor)', async () => {
+    const fullBitmap = {
+      width: 800,
+      height: 600,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    const resizedBitmap = {
+      width: 400,
+      height: 300,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    const createImageBitmapSpy = vi
+      .fn()
+      .mockResolvedValueOnce(fullBitmap) // first decode (flipY)
+      .mockResolvedValueOnce(resizedBitmap); // resize pass
+    vi.stubGlobal('createImageBitmap', createImageBitmapSpy);
+
+    const blob = new Blob(['fake'], { type: 'image/jpeg' });
+    const texture = await decodeFrameTexture(blob, 2);
+
+    // Second call resizes the already-upright bitmap to half each dimension,
+    // WITHOUT re-applying imageOrientation (that would re-flip it).
+    expect(createImageBitmapSpy).toHaveBeenNthCalledWith(
+      2,
+      fullBitmap,
+      expect.objectContaining({ resizeWidth: 400, resizeHeight: 300 })
+    );
+    const secondCallOpts = createImageBitmapSpy.mock.calls[1]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(secondCallOpts).not.toHaveProperty('imageOrientation');
+    // The full-res bitmap is freed once the resized copy exists.
+    expect(
+      (fullBitmap as unknown as { close: ReturnType<typeof vi.fn> }).close
+    ).toHaveBeenCalled();
+    expect(texture?.image).toBe(resizedBitmap);
+  });
+
+  // Why: divisor 1 (full resolution) must NOT trigger a second resize pass — the
+  // texture wraps the originally decoded bitmap directly.
+  it('does not re-sample when divisor is 1 (full resolution)', async () => {
+    const fullBitmap = {
+      width: 800,
+      height: 600,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    const createImageBitmapSpy = vi.fn().mockResolvedValue(fullBitmap);
+    vi.stubGlobal('createImageBitmap', createImageBitmapSpy);
+
+    const blob = new Blob(['fake'], { type: 'image/jpeg' });
+    const texture = await decodeFrameTexture(blob, 1);
+
+    expect(createImageBitmapSpy).toHaveBeenCalledTimes(1);
+    expect(texture?.image).toBe(fullBitmap);
+  });
+
   // Why: a corrupt blob (createImageBitmap rejects) must surface as
   // `null` so the wirer can drop the frame without unhandled errors.
   it('returns null when createImageBitmap rejects', async () => {

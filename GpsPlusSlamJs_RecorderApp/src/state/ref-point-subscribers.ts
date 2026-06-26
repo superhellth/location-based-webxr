@@ -12,6 +12,7 @@
 
 import type { RecorderStore } from './recorder-store';
 import { selectRefPointEntries } from './ref-points-slice';
+import { selectZeroReference } from 'gps-plus-slam-app-framework/state';
 import type { RefPointVisualizer } from '../visualization/ref-point-visualizer';
 
 /**
@@ -20,12 +21,34 @@ import type { RefPointVisualizer } from '../visualization/ref-point-visualizer';
  *
  * Tolerates a missing visualizer (e.g. in headless replay paths) by
  * returning a no-op unsubscribe.
+ *
+ * ## Zero reference (single source of truth — audit F2)
+ *
+ * The store is the single source of truth for the GPS zero reference. The
+ * visualizer caches it AND uses it for lat/lon → metres conversion, so a
+ * stale cache offsets every ref-point marker. This wirer therefore pushes the
+ * current store zero into the visualizer on attach and again whenever it
+ * changes (a re-zero / QR-origin override). `setZeroRef` replays the
+ * visualizer's cached entries, so the markers re-render at the new origin
+ * automatically — no extra `syncRefPoints` call is needed for a zero-only
+ * change. This replaces the previous "set the origin exactly once and ignore
+ * later store changes" wiring, which left the visualizer pinned to a stale
+ * origin if the store ever re-zeroed.
+ *
+ * @see GpsPlusSlamJs_Docs/docs/2026-06-18-state-outside-store-audit.md (F2)
  */
 export function wireRefPointSubscribers(
   store: RecorderStore,
-  visualizer: Pick<RefPointVisualizer, 'syncRefPoints'> | null
+  visualizer: Pick<RefPointVisualizer, 'syncRefPoints' | 'setZeroRef'> | null
 ): () => void {
   if (!visualizer) return () => {};
+
+  // Push the store's zero reference first so the initial sync below places
+  // entries at the correct origin. `setZeroRef` replays cached entries, but
+  // the visualizer's cache is still empty at this point, so it is a no-op
+  // until `syncRefPoints` runs.
+  let lastZero = selectZeroReference(store.getState());
+  if (lastZero) visualizer.setZeroRef(lastZero);
 
   let last = selectRefPointEntries(store.getState().refPoints);
   // Initial sync on attach so any already-present entries (e.g. imported
@@ -34,7 +57,18 @@ export function wireRefPointSubscribers(
   visualizer.syncRefPoints(last);
 
   return store.subscribe(() => {
-    const next = selectRefPointEntries(store.getState().refPoints);
+    const state = store.getState();
+
+    // Re-push a changed origin BEFORE re-syncing entries: `setZeroRef` replays
+    // the cached entries at the new origin, and the entry diff below then
+    // reconciles any list change on top of the already-correct positions.
+    const zero = selectZeroReference(state);
+    if (zero !== lastZero) {
+      lastZero = zero;
+      if (zero) visualizer.setZeroRef(zero);
+    }
+
+    const next = selectRefPointEntries(state.refPoints);
     if (next === last) return;
     last = next;
     visualizer.syncRefPoints(next);

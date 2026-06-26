@@ -98,6 +98,10 @@ declare global {
     queryPermission(descriptor?: {
       mode?: 'read' | 'readwrite';
     }): Promise<PermissionState>;
+    /** Request a permission (may prompt the user; must follow a user gesture). */
+    requestPermission(descriptor?: {
+      mode?: 'read' | 'readwrite';
+    }): Promise<PermissionState>;
   }
 
   interface FileSystemFileHandle extends FileSystemHandle {

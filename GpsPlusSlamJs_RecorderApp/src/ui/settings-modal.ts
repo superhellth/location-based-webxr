@@ -12,6 +12,9 @@ import {
   cloneRecordingOptions,
   DEPTH_CONSTRAINTS,
   IMAGE_CONSTRAINTS,
+  OCCUPANCY_CONSTRAINTS,
+  FRAME_TILE_DISPLAY_CONSTRAINTS,
+  QR_CONSTRAINTS,
   type RecordingOptions,
 } from 'gps-plus-slam-app-framework/state/recording-options';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
@@ -53,6 +56,19 @@ let arDepthSensingEnabledCheckbox: HTMLInputElement | null = null;
 let arCss3dEnabledCheckbox: HTMLInputElement | null = null;
 let arCameraTextureEnabledCheckbox: HTMLInputElement | null = null;
 let arChromiumProjectionLayerWorkaroundCheckbox: HTMLInputElement | null = null;
+let occupancyCellSizeSlider: HTMLInputElement | null = null;
+let occupancyCellSizeValue: HTMLElement | null = null;
+let frameTileDisplayDivisorSlider: HTMLInputElement | null = null;
+let frameTileDisplayDivisorValue: HTMLElement | null = null;
+let vizFrameTilesCheckbox: HTMLInputElement | null = null;
+let vizOccupancyCubesCheckbox: HTMLInputElement | null = null;
+let vizGpsAlignmentMarkersCheckbox: HTMLInputElement | null = null;
+let vizCompassCubesCheckbox: HTMLInputElement | null = null;
+let qrEnabledCheckbox: HTMLInputElement | null = null;
+let qrIntervalSlider: HTMLInputElement | null = null;
+let qrIntervalValue: HTMLElement | null = null;
+let qrCaptureSizeSlider: HTMLInputElement | null = null;
+let qrCaptureSizeValue: HTMLElement | null = null;
 
 // --- Initialization ---
 
@@ -133,6 +149,35 @@ export function initSettingsModal(
   arChromiumProjectionLayerWorkaroundCheckbox = document.getElementById(
     'ar-chromium-projection-layer-workaround'
   ) as HTMLInputElement;
+  occupancyCellSizeSlider = document.getElementById(
+    'occupancy-cell-size'
+  ) as HTMLInputElement;
+  occupancyCellSizeValue = document.getElementById('occupancy-cell-size-value');
+  frameTileDisplayDivisorSlider = document.getElementById(
+    'frame-tile-display-divisor'
+  ) as HTMLInputElement;
+  frameTileDisplayDivisorValue = document.getElementById(
+    'frame-tile-display-divisor-value'
+  );
+  vizFrameTilesCheckbox = document.getElementById(
+    'viz-frame-tiles'
+  ) as HTMLInputElement;
+  vizOccupancyCubesCheckbox = document.getElementById(
+    'viz-occupancy-cubes'
+  ) as HTMLInputElement;
+  vizGpsAlignmentMarkersCheckbox = document.getElementById(
+    'viz-gps-alignment-markers'
+  ) as HTMLInputElement;
+  vizCompassCubesCheckbox = document.getElementById(
+    'viz-compass-cubes'
+  ) as HTMLInputElement;
+  qrEnabledCheckbox = document.getElementById('qr-enabled') as HTMLInputElement;
+  qrIntervalSlider = document.getElementById('qr-interval') as HTMLInputElement;
+  qrIntervalValue = document.getElementById('qr-interval-value');
+  qrCaptureSizeSlider = document.getElementById(
+    'qr-capture-size'
+  ) as HTMLInputElement;
+  qrCaptureSizeValue = document.getElementById('qr-capture-size-value');
 
   // Wire up events
   btnSettings?.addEventListener('click', showSettingsModal);
@@ -193,6 +238,31 @@ export function initSettingsModal(
       const value = parseInt(imagesResolutionDivisorSlider.value, 10);
       workingOptions.images.resolutionDivisor = value;
       imagesResolutionDivisorValue.textContent = formatResolutionDivisor(value);
+    }
+  });
+
+  // Voxel size slider operates in centimetres for readability; the stored
+  // option (`occupancy.cellSizeM`) is in metres, so divide by 100 on the way in.
+  occupancyCellSizeSlider?.addEventListener('input', () => {
+    if (workingOptions && occupancyCellSizeSlider && occupancyCellSizeValue) {
+      const cm = parseInt(occupancyCellSizeSlider.value, 10);
+      workingOptions.occupancy.cellSizeM = cm / 100;
+      occupancyCellSizeValue.textContent = `${cm} cm`;
+    }
+  });
+
+  // Frame-tile DISPLAY resolution (D7-resolution) — distinct from the capture
+  // images.resolutionDivisor above; this only downscales the in-AR/replay tile
+  // texture to save GPU memory. Reuses the same ÷N label formatter.
+  frameTileDisplayDivisorSlider?.addEventListener('input', () => {
+    if (
+      workingOptions &&
+      frameTileDisplayDivisorSlider &&
+      frameTileDisplayDivisorValue
+    ) {
+      const value = parseInt(frameTileDisplayDivisorSlider.value, 10);
+      workingOptions.frameTileDisplay.divisor = value;
+      frameTileDisplayDivisorValue.textContent = formatResolutionDivisor(value);
     }
   });
 
@@ -261,6 +331,60 @@ export function initSettingsModal(
       }
     }
   );
+
+  // Live debug-overlay toggles (Finding B). Each gates only what is drawn live
+  // during recording; replay is unaffected. Read once at the next Enter-AR.
+  vizFrameTilesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizFrameTilesCheckbox) {
+      workingOptions.visualization.frameTiles = vizFrameTilesCheckbox.checked;
+    }
+  });
+
+  vizOccupancyCubesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizOccupancyCubesCheckbox) {
+      workingOptions.visualization.occupancyCubes =
+        vizOccupancyCubesCheckbox.checked;
+    }
+  });
+
+  vizGpsAlignmentMarkersCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizGpsAlignmentMarkersCheckbox) {
+      workingOptions.visualization.gpsAlignmentMarkers =
+        vizGpsAlignmentMarkersCheckbox.checked;
+    }
+  });
+
+  vizCompassCubesCheckbox?.addEventListener('change', () => {
+    if (workingOptions && vizCompassCubesCheckbox) {
+      workingOptions.visualization.compassCubes =
+        vizCompassCubesCheckbox.checked;
+    }
+  });
+
+  // QR detection (recorder live-QR WS-2/WS-5). Opt-in; the interval + capture
+  // sliders are gated on the enabled checkbox (mirrors depth/images).
+  qrEnabledCheckbox?.addEventListener('change', () => {
+    if (workingOptions && qrEnabledCheckbox) {
+      workingOptions.qr.enabled = qrEnabledCheckbox.checked;
+      updateQrControlsState();
+    }
+  });
+
+  qrIntervalSlider?.addEventListener('input', () => {
+    if (workingOptions && qrIntervalSlider && qrIntervalValue) {
+      const value = parseInt(qrIntervalSlider.value, 10);
+      workingOptions.qr.intervalMs = value;
+      qrIntervalValue.textContent = `${value} ms`;
+    }
+  });
+
+  qrCaptureSizeSlider?.addEventListener('input', () => {
+    if (workingOptions && qrCaptureSizeSlider && qrCaptureSizeValue) {
+      const value = parseInt(qrCaptureSizeSlider.value, 10);
+      workingOptions.qr.captureSize = value;
+      qrCaptureSizeValue.textContent = `${value} px`;
+    }
+  });
 
   // Populate build version label (one-time, build info is constant)
   const buildLabel = document.getElementById('build-version-label');
@@ -434,9 +558,88 @@ function populateForm(options: RecordingOptions): void {
       options.arCrashIsolation.applyChromiumProjectionLayerWorkaround;
   }
 
+  // Occupancy voxel size — slider min/max/step are in cm (constraints are in m).
+  if (occupancyCellSizeSlider) {
+    occupancyCellSizeSlider.min = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.min * 100
+    );
+    occupancyCellSizeSlider.max = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.max * 100
+    );
+    occupancyCellSizeSlider.step = String(
+      OCCUPANCY_CONSTRAINTS.cellSizeM.step * 100
+    );
+    occupancyCellSizeSlider.value = String(
+      Math.round(options.occupancy.cellSizeM * 100)
+    );
+  }
+  if (occupancyCellSizeValue) {
+    occupancyCellSizeValue.textContent = `${Math.round(options.occupancy.cellSizeM * 100)} cm`;
+  }
+
+  // Frame-tile display-resolution divisor (D7-resolution)
+  if (frameTileDisplayDivisorSlider) {
+    frameTileDisplayDivisorSlider.min = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.min
+    );
+    frameTileDisplayDivisorSlider.max = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.max
+    );
+    frameTileDisplayDivisorSlider.step = String(
+      FRAME_TILE_DISPLAY_CONSTRAINTS.divisor.step
+    );
+    frameTileDisplayDivisorSlider.value = String(
+      options.frameTileDisplay.divisor
+    );
+  }
+  if (frameTileDisplayDivisorValue) {
+    frameTileDisplayDivisorValue.textContent = formatResolutionDivisor(
+      options.frameTileDisplay.divisor
+    );
+  }
+
+  // Live debug-overlay toggles (Finding B)
+  if (vizFrameTilesCheckbox) {
+    vizFrameTilesCheckbox.checked = options.visualization.frameTiles;
+  }
+  if (vizOccupancyCubesCheckbox) {
+    vizOccupancyCubesCheckbox.checked = options.visualization.occupancyCubes;
+  }
+  if (vizGpsAlignmentMarkersCheckbox) {
+    vizGpsAlignmentMarkersCheckbox.checked =
+      options.visualization.gpsAlignmentMarkers;
+  }
+  if (vizCompassCubesCheckbox) {
+    vizCompassCubesCheckbox.checked = options.visualization.compassCubes;
+  }
+
+  // QR detection (opt-in). Interval slider in ms, capture-size slider in px.
+  if (qrEnabledCheckbox) {
+    qrEnabledCheckbox.checked = options.qr.enabled;
+  }
+  if (qrIntervalSlider) {
+    qrIntervalSlider.min = String(QR_CONSTRAINTS.intervalMs.min);
+    qrIntervalSlider.max = String(QR_CONSTRAINTS.intervalMs.max);
+    qrIntervalSlider.step = String(QR_CONSTRAINTS.intervalMs.step);
+    qrIntervalSlider.value = String(options.qr.intervalMs);
+  }
+  if (qrIntervalValue) {
+    qrIntervalValue.textContent = `${options.qr.intervalMs} ms`;
+  }
+  if (qrCaptureSizeSlider) {
+    qrCaptureSizeSlider.min = String(QR_CONSTRAINTS.captureSize.min);
+    qrCaptureSizeSlider.max = String(QR_CONSTRAINTS.captureSize.max);
+    qrCaptureSizeSlider.step = String(QR_CONSTRAINTS.captureSize.step);
+    qrCaptureSizeSlider.value = String(options.qr.captureSize);
+  }
+  if (qrCaptureSizeValue) {
+    qrCaptureSizeValue.textContent = `${options.qr.captureSize} px`;
+  }
+
   // Update enabled/disabled state of controls
   updateDepthControlsState();
   updateImageControlsState();
+  updateQrControlsState();
 }
 
 function updateDepthControlsState(): void {
@@ -462,6 +665,17 @@ function updateImageControlsState(): void {
   }
   if (imagesResolutionDivisorSlider) {
     imagesResolutionDivisorSlider.disabled = !enabled;
+  }
+}
+
+function updateQrControlsState(): void {
+  // QR is opt-in (default off), so the sliders start disabled until enabled.
+  const enabled = qrEnabledCheckbox?.checked ?? false;
+  if (qrIntervalSlider) {
+    qrIntervalSlider.disabled = !enabled;
+  }
+  if (qrCaptureSizeSlider) {
+    qrCaptureSizeSlider.disabled = !enabled;
   }
 }
 

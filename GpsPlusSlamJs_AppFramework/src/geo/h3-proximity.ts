@@ -12,7 +12,13 @@
  * @see docs/2026-03-08-ref-point-naming-investigation.md §6
  */
 
-import { latLngToCell, gridDisk } from 'h3-js';
+import {
+  latLngToCell,
+  gridDisk,
+  cellToParent,
+  isValidCell,
+  getResolution,
+} from 'h3-js';
 
 /** H3 resolution 11: ~25m edge, ~65m gridDisk safe zone */
 export const H3_RESOLUTION = 11;
@@ -34,6 +40,88 @@ export interface KnownGeoAnchor {
  */
 export function gpsToH3(lat: number, lng: number): string {
   return latLngToCell(lat, lng, H3_RESOLUTION);
+}
+
+/** Minimal GPS coordinate shape (Leaflet convention: `lng`, not `lon`). */
+interface LatLngLike {
+  readonly lat: number;
+  readonly lng: number;
+}
+
+/**
+ * Reduce a recorded GPS path to the deduplicated set of res-11 H3 cells it
+ * crossed — the per-tour "coverage index" stored in `SessionMetadata.h3Cells`.
+ *
+ * Cells are returned in first-seen (chronological) order and deduplicated, so a
+ * tour that dwells in one ~25 m cell contributes a single cell. This keeps the
+ * stored index small (see the metadata-size risk in the map-browser feedback
+ * doc, §7). Non-finite coordinates are skipped defensively — bad sensor data
+ * must not poison the index or throw inside `latLngToCell`.
+ */
+export function gpsPathToCoverageCells(path: readonly LatLngLike[]): string[] {
+  const seen = new Set<string>();
+  const cells: string[] = [];
+  for (const p of path) {
+    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) {
+      continue;
+    }
+    const cell = gpsToH3(p.lat, p.lng);
+    if (!seen.has(cell)) {
+      seen.add(cell);
+      cells.push(cell);
+    }
+  }
+  return cells;
+}
+
+/**
+ * Coarsen res-11 coverage cells to a target resolution for map zoom-clustering.
+ *
+ * Uses h3-js `cellToParent` — the ONLY correct way to coarsen an H3 cell. NEVER
+ * truncate the hex-string id: resolution is encoded in the high bits with
+ * trailing `f` padding, so slicing yields INVALID cells, not parents (verified;
+ * see the D1 gotcha in
+ * docs/2026-06-14-map-centric-recording-browser-and-h3-index-user-feedback.md).
+ *
+ * `targetRes` is clamped to `[0, H3_RESOLUTION]` because `cellToParent` throws
+ * when asked for a FINER resolution than the cell, and res 11 is the finest
+ * data stored — so the highest map zooms render the stored cells unclustered
+ * (`cellToParent(cell, 11) === cell`). A non-finite `targetRes` (e.g. a bad
+ * zoom→res mapping) degrades to unclustered output rather than throwing.
+ * Invalid input cells (corrupt/legacy metadata) are skipped defensively, as are
+ * valid cells coarser than `res` (which have no parent at the finer target res
+ * and would otherwise throw "incompatible resolutions").
+ *
+ * Output is deduplicated in first-seen order: sibling cells under one parent
+ * collapse to a single tile.
+ */
+export function clusterCellsByZoom(
+  cells: readonly string[],
+  targetRes: number
+): string[] {
+  const res = Number.isFinite(targetRes)
+    ? Math.max(0, Math.min(H3_RESOLUTION, Math.floor(targetRes)))
+    : H3_RESOLUTION;
+  const seen = new Set<string>();
+  const parents: string[] = [];
+  for (const cell of cells) {
+    if (!isValidCell(cell)) {
+      continue;
+    }
+    // A valid cell coarser than `res` (e.g. legacy/future metadata storing
+    // non-res-11 cells) has no parent at the finer `res`; cellToParent would
+    // throw ("incompatible resolutions"). isValidCell does not catch this, so
+    // skip such cells defensively rather than crash the view render.
+    if (getResolution(cell) < res) {
+      continue;
+    }
+    const parent = cellToParent(cell, res);
+    if (!seen.has(parent)) {
+      seen.add(parent);
+      parents.push(parent);
+    }
+  }
+  return parents;
 }
 
 /**

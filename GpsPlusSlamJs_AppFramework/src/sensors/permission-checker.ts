@@ -614,11 +614,6 @@ export async function requestAllPermissions(): Promise<PermissionCheckResult> {
     result.webxr = await requestWebXRWithDepthPermission();
   }
 
-  // Request geolocation if not yet granted
-  if (result.geolocation.supported && result.geolocation.granted !== true) {
-    result.geolocation = await requestGeolocationPermission();
-  }
-
   // Request camera if not yet granted
   if (result.camera.supported && result.camera.granted !== true) {
     result.camera = await requestCameraPermission();
@@ -627,6 +622,14 @@ export async function requestAllPermissions(): Promise<PermissionCheckResult> {
   // Request orientation if not yet granted (iOS)
   if (result.orientation.supported && result.orientation.granted !== true) {
     result.orientation = await requestOrientationPermission();
+  }
+
+  // Request geolocation LAST (D6 item 2, 2026-06-16 RecorderApp user feedback):
+  // ask the AR essentials (WebXR/depth, camera) first, then orientation, and
+  // prompt for Location/GPS at the end so it doesn't interrupt the AR+camera
+  // flow. The recorder's permission rows mirror this order in index.html.
+  if (result.geolocation.supported && result.geolocation.granted !== true) {
+    result.geolocation = await requestGeolocationPermission();
   }
 
   // Note: File system permission is requested separately via folder picker

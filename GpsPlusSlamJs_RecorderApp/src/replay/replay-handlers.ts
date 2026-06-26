@@ -60,6 +60,8 @@ export interface ReplayHandlers {
   handleReplayScenarioChange(scenarioName: string): Promise<void>;
   handleReplaySessionSelect(index: number): Promise<void>;
   handleStartReplay(speedFactor: number): Promise<void>;
+  /** Replay a specific recording directly (map-browser single-tour playback). */
+  startReplayForEntry(entry: SessionEntry, speedFactor?: number): Promise<void>;
   handleReplayPlayPause(): void;
   handleReplaySpeedChange(speed: number): void;
   handleReplayCameraToggle(): void;
@@ -188,7 +190,25 @@ export function createReplayHandlers(deps: ReplayHandlersDeps): ReplayHandlers {
       showError('No session selected.');
       return;
     }
+    await startReplayOfSession(session, speedFactor);
+  }
 
+  /**
+   * Start a replay of a specific recording, bypassing the dropdown/list
+   * selection. Used by the map-centric browser (D3 single-tour playback) to
+   * play the tour the user picked on the map directly.
+   */
+  async function startReplayForEntry(
+    entry: SessionEntry,
+    speedFactor = 1
+  ): Promise<void> {
+    await startReplayOfSession(entry, speedFactor);
+  }
+
+  async function startReplayOfSession(
+    session: SessionEntry,
+    speedFactor: number
+  ): Promise<void> {
     log.info(`Starting replay of "${session.filename}" at ${speedFactor}x...`);
     updateStatus('Loading session...');
 
@@ -360,6 +380,7 @@ export function createReplayHandlers(deps: ReplayHandlersDeps): ReplayHandlers {
     handleReplayScenarioChange,
     handleReplaySessionSelect,
     handleStartReplay,
+    startReplayForEntry,
     handleReplayPlayPause,
     handleReplaySpeedChange,
     handleReplayCameraToggle,

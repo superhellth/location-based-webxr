@@ -42,6 +42,7 @@ The module now includes:
 - **Mandatory permissions**: WebXR, Geolocation, Camera, FileSystem must all be granted for AR to work
 - **Optional permission**: Device orientation (compass) is recommended but not blocking
 - **Depth-sensing probe**: `requestAllPermissions` now starts a short XR session to trigger the "3D map" permission, then immediately ends it
+- **Request order (GPS last)**: `requestAllPermissions` prompts in a fixed order — WebXR/depth → Camera → Orientation → **Geolocation last** (D6 item 2, 2026-06-16 RecorderApp user feedback). The AR essentials are requested before Location so GPS doesn't interrupt the AR+camera flow. Locked by the `requests GPS last` test. Consumer apps that surface permission rows should mirror this order.
 - **File system state**: Unlike other permissions, file system status is tracked via `setFileSystemState()` called by file-system.ts after folder selection and write verification
 - **No prompts on check**: `check*` functions use Permissions API and never trigger browser prompts
 - **Prompts on request**: `request*` functions will trigger browser permission prompts

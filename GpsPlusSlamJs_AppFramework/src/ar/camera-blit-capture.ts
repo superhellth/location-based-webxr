@@ -76,6 +76,59 @@ export function computeCaptureSize(
 }
 
 /**
+ * Compute blit dimensions that PRESERVE the camera aspect ratio with the
+ * **longer edge fixed at `maxEdge`**. Unlike {@link computeCaptureSize} (which
+ * divides the native resolution by a user divisor), this fits the frame into a
+ * fixed pixel budget, so a 4:3 camera becomes e.g. 512×384 — NOT a stretched
+ * 512×512. Used by the QR-detection blit (B2) so the detector sees an
+ * undistorted code while the readback cost stays bounded by `maxEdge²`.
+ *
+ * @param cameraWidth  - Native camera width in pixels (from XRCamera)
+ * @param cameraHeight - Native camera height in pixels (from XRCamera)
+ * @param maxEdge      - Target length (px) of the longer output edge.
+ * @returns Integer dimensions, longer edge == `maxEdge`, aspect preserved
+ *   (within rounding), each clamped to ≥ 1. When `maxEdge` itself is invalid
+ *   (< 1 / NaN / Infinity) the longer edge falls back to
+ *   `DEFAULT_BLIT_CONFIG.width` (still aspect-preserving). When the camera
+ *   dimensions are invalid (≤ 0 / NaN / Infinity) the aspect is unknown, so it
+ *   returns a square at the (possibly defaulted) edge.
+ */
+export function computeAspectFitSize(
+  cameraWidth: number,
+  cameraHeight: number,
+  maxEdge: number
+): { width: number; height: number } {
+  // Guard: nonsensical maxEdge → fall back to the default square edge. The
+  // explicit `Number.isFinite` rejects Infinity (which passes `>= 1` yet makes
+  // `Math.floor(Infinity) = Infinity` the long edge → {Infinity, Infinity}).
+  const safeEdge =
+    maxEdge >= 1 && Number.isFinite(maxEdge)
+      ? Math.floor(maxEdge)
+      : DEFAULT_BLIT_CONFIG.width;
+
+  // Guard: invalid camera dimensions → safe square (aspect unknown). Negated
+  // `> 0` checks so NaN (where `NaN <= 0` is false) is also rejected — a NaN
+  // dimension would otherwise yield {NaN, NaN} and crash render-target alloc.
+  // The explicit `Number.isFinite` additionally rejects Infinity, which passes
+  // `> 0` yet makes `scale = safeEdge / Infinity = 0` → `round(Infinity·0) = NaN`.
+  if (
+    !(cameraWidth > 0) ||
+    !Number.isFinite(cameraWidth) ||
+    !(cameraHeight > 0) ||
+    !Number.isFinite(cameraHeight)
+  ) {
+    return { width: safeEdge, height: safeEdge };
+  }
+
+  const longEdge = Math.max(cameraWidth, cameraHeight);
+  const scale = safeEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(cameraWidth * scale)),
+    height: Math.max(1, Math.round(cameraHeight * scale)),
+  };
+}
+
+/**
  * Number of sampled pixels to check in isBlackFrame.
  * We sample a subset rather than checking every pixel for speed.
  */
@@ -248,6 +301,38 @@ export class CameraBlitCapture {
   }
 
   /**
+   * Capture the camera texture as **top-left-origin** RGBA — the orientation
+   * QR detection (and `BarcodeDetector`) expects — returning a FRESH copy that
+   * is safe to retain beyond the next capture.
+   *
+   * This is the efficient replacement for the demo's old JPEG round-trip: blit
+   * + readback (shared with {@link captureToBlob} / {@link captureToPixels}),
+   * then the same vertical flip the JPEG encoder applies, but with no encode →
+   * decode. Unlike {@link captureToPixels} (which returns the reusable internal
+   * buffer in WebGL bottom-row-first order), this returns an owned,
+   * correctly-oriented `Uint8ClampedArray`.
+   *
+   * IMPORTANT: Must be called within the XR animation frame callback, while the
+   * camera texture is valid.
+   *
+   * @returns `{ data, width, height }` (top-left RGBA), or null on
+   *   failure/dispose.
+   */
+  captureToRgba(
+    renderer: THREE.WebGLRenderer,
+    cameraTexture: THREE.Texture
+  ): { data: Uint8ClampedArray; width: number; height: number } | null {
+    if (!this.captureToPixels(renderer, cameraTexture)) {
+      return null;
+    }
+    return {
+      data: this.flippedPixelCopy(),
+      width: this.width,
+      height: this.height,
+    };
+  }
+
+  /**
    * Check if a pixel buffer is entirely black (all zeros).
    * Uses sampling for performance (checks BLACK_CHECK_SAMPLE_COUNT evenly-spaced pixels).
    *
@@ -292,13 +377,23 @@ export class CameraBlitCapture {
   }
 
   private getFlippedImageData(): ImageData {
-    // The ImageData constructor requires a Uint8ClampedArray. This also creates a copy.
-    const clampedBuffer = new Uint8ClampedArray(this.pixelBuffer);
-    const imageData = new ImageData(clampedBuffer, this.width, this.height);
+    // flippedPixelCopy() already returns an owned, top-left-origin copy.
+    return new ImageData(this.flippedPixelCopy(), this.width, this.height);
+  }
 
-    // WebGL readPixels returns y-flipped data; flip it in-place.
-    this.flipImageDataVertically(imageData);
-    return imageData;
+  /**
+   * Produce a FRESH, top-left-origin RGBA copy of the internal readback buffer.
+   * WebGL `readPixels` returns bottom-row-first; this copies (so the internal
+   * buffer stays y-flipped for a subsequent capture) and swaps rows. Shared by
+   * the JPEG encode path ({@link getFlippedImageData}) and {@link captureToRgba}.
+   */
+  private flippedPixelCopy(): Uint8ClampedArray<ArrayBuffer> {
+    // Copy into a fresh, plain-ArrayBuffer-backed buffer (not ArrayBufferLike)
+    // so the result is accepted by both `ImageData` and `RgbaImage.data`.
+    const copy = new Uint8ClampedArray(this.pixelBuffer.length);
+    copy.set(this.pixelBuffer);
+    this.flipRowsVertically(copy, this.width, this.height);
+    return copy;
   }
 
   private async pixelsToJpegViaOffscreenCanvas(
@@ -335,11 +430,15 @@ export class CameraBlitCapture {
   }
 
   /**
-   * Flip ImageData vertically in-place.
-   * WebGL readPixels returns bottom-row-first; canvas expects top-row-first.
+   * Flip an RGBA buffer vertically in-place (row swap).
+   * WebGL readPixels returns bottom-row-first; canvas / detectors expect
+   * top-row-first.
    */
-  private flipImageDataVertically(imageData: ImageData): void {
-    const { data, width, height } = imageData;
+  private flipRowsVertically(
+    data: Uint8ClampedArray,
+    width: number,
+    height: number
+  ): void {
     const rowSize = width * 4;
     const tempRow = new Uint8ClampedArray(rowSize);
     for (let y = 0; y < Math.floor(height / 2); y++) {

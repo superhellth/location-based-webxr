@@ -80,6 +80,7 @@ vi.mock('./ui/hud', () => ({
   setNewRefPointButtonVisible: vi.fn(),
   updateTrackingQuality: vi.fn(),
   hideTrackingQuality: vi.fn(),
+  showUnsupportedPlatformNotice: vi.fn(),
 }));
 vi.mock('./ui/toast', () => ({
   initToast: vi.fn(),
@@ -142,7 +143,7 @@ vi.mock('gps-plus-slam-js', () => ({
 vi.mock('gps-plus-slam-app-framework/ar/xr-error-handler', () => ({
   getXrErrorMessage: vi.fn(),
 }));
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./storage/scenario-storage', () => ({
   initStorage: vi.fn().mockResolvedValue([]),
   getCurrentScenarioHandle: vi.fn(),
   setCurrentScenario: vi.fn(),
@@ -243,6 +244,7 @@ vi.mock('gps-plus-slam-app-framework/state/store-subscribers', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
+    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
     images: {
       enabled: true,
       intervalMs: 2000,
@@ -277,7 +279,7 @@ vi.mock('gps-plus-slam-app-framework', () => ({
 import { checkAllPermissions } from 'gps-plus-slam-app-framework/sensors/permission-checker';
 import { stopGpsWatch } from 'gps-plus-slam-app-framework/sensors/gps';
 import { initReplayUI, switchToReplayMode } from './ui/replay-ui';
-import { updateStatus } from './ui/hud';
+import { updateStatus, showUnsupportedPlatformNotice } from './ui/hud';
 
 describe('main.ts replay mode wiring', () => {
   beforeEach(() => {
@@ -308,11 +310,14 @@ describe('main.ts replay mode wiring', () => {
     // Dynamically import main to trigger the main() call
     await import('./main');
 
-    // Allow async main() to complete (all mocks resolve synchronously)
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Verify switchToReplayMode was called
-    expect(switchToReplayMode).toHaveBeenCalled();
+    // Wait for the async main() to reach its replay branch. Poll for the signal
+    // instead of a fixed `setTimeout(100)` — that fixed wait was flaky under
+    // full-suite scheduling load (it passed in isolation but intermittently
+    // failed when the whole unit suite ran). Once switchToReplayMode is called,
+    // the rest of the replay-branch calls below have already run synchronously.
+    await vi.waitFor(() => expect(switchToReplayMode).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
 
     // Verify initReplayUI was called with callbacks
     expect(initReplayUI).toHaveBeenCalledWith(
@@ -330,6 +335,11 @@ describe('main.ts replay mode wiring', () => {
     expect(updateStatus).toHaveBeenCalledWith(
       expect.stringContaining('Replay Mode')
     );
+
+    // D1 (2026-06-16 user feedback, Finding 1): the prominent unsupported-platform
+    // notice must be revealed so the user understands *why* recording is off
+    // (typically iOS) instead of a silent drop into replay mode.
+    expect(showUnsupportedPlatformNotice).toHaveBeenCalled();
 
     // Bug 5 (SPA audit): GPS warm-up watch must be stopped when entering
     // replay mode to avoid draining battery on mobile devices.

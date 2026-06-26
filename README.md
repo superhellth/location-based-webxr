@@ -29,7 +29,7 @@ Three.js + GPS + WebXR sensor fusion that keeps 3D content pinned to real-world 
 - **GPS-anchored 3D content** — drop persistent 3D objects at lat/lon and have them stay put as the user walks.
 - **AR tour guides and museum trails** — content keyed to location, surfaced when the user is nearby.
 - **Location-based games** — geocaching, scavenger hunts, multi-player AR experiences tied to physical places.
-- **Field-data capture tools** — record GPS, AR poses, camera frames, and depth for later analysis or ML training.
+- **Field-data capture tools** — record synchronized GPS, AR poses, camera frames, and depth as reusable datasets for 3D reconstruction (COLMAP / Gaussian splatting), alignment-quality evaluation, desktop replay, geo-anchored site documentation, and ML training.
 
 ## How It Works: Sensor Fusion & Outdoor Stability
 

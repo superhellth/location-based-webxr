@@ -222,7 +222,7 @@ vi.mock('gps-plus-slam-app-framework/ar/replay-scene', () => ({
   getCameraMode: vi.fn().mockReturnValue('orbit'),
   getCameraFollower: vi.fn(),
 }));
-vi.mock('gps-plus-slam-app-framework/storage/file-system', () => ({
+vi.mock('./storage/scenario-storage', () => ({
   initStorage: vi.fn().mockResolvedValue([]),
   getCurrentScenarioHandle: vi.fn(),
   setCurrentScenario: vi.fn(),
@@ -288,8 +288,17 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
   loadRecordingOptions: vi.fn().mockReturnValue({
+    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
     depth: { enabled: false, intervalMs: 1000 },
+    occupancy: { cellSizeM: 0.15 },
+    frameTileDisplay: { divisor: 2 },
+    visualization: {
+      frameTiles: true,
+      occupancyCubes: true,
+      gpsAlignmentMarkers: true,
+      compassCubes: true,
+    },
   }),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
@@ -325,7 +334,7 @@ vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
   refPointVisualizer: {},
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
-  gpsEventVisualizer: {},
+  gpsEventVisualizer: { setVisible: vi.fn(), clearAll: vi.fn() },
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
   MapOverlay: vi.fn().mockImplementation(() => ({
@@ -446,6 +455,9 @@ describe('Occupancy-grid cube wiring in live AR', () => {
     await handleEnterARForTesting();
 
     expect(mockOccupancyGridCtor).toHaveBeenCalledTimes(1);
+    // Voxel size flows from the recorder setting (occupancy.cellSizeM) into the
+    // grid constructor — 2026-06-13 occupancy-grid-settings review, item 1.
+    expect(mockOccupancyGridCtor).toHaveBeenCalledWith({ cellSizeM: 0.15 });
     expect(mockVisualizerCtor).toHaveBeenCalledTimes(1);
     // The visualizer must hang off arWorldGroup, NOT the scene root: the
     // grid's cells are raw-WebXR coordinates that only register with the

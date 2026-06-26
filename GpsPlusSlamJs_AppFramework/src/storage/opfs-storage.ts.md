@@ -21,6 +21,8 @@ await initOpfsStorage();
 
 **Note:** `odomCoordVersion` in session metadata was expanded to support values `2 | 3 | 4 | 5` reflecting the evolution from NUE-baked actions (era 2), to raw-WebXR positions (era 3), to raw-WebXR + RawGpsPoint (era 4), to state-side quaternion conversion (era 5). Optional `build` and sanitized `pageUrl` (origin + pathname only) fields were added for debugging — older ZIPs without them remain valid.
 
+**Coverage index:** Optional `h3Cells` (deduped H3 cells the GPS path crossed) and `h3Resolution` (the H3 resolution used, currently 11) were added to power the map-centric recording browser — it reads them straight from `session.json` to place a tour and answer "which tours cross this tile?" without unzipping GPS data. The recorder computes `h3Cells` at recording stop via `gpsPathToCoverageCells` (see `geo/h3-proximity.ts` and `GpsPlusSlamJs_Docs/docs/2026-06-14-map-centric-recording-browser-and-h3-index-user-feedback.md`, D1/D2). Both fields are optional — legacy recordings without them remain valid and are backfilled in memory from their GPS path on demand.
+
 ### Session Management
 
 ```typescript
@@ -115,7 +117,7 @@ const { available, used } = await checkStorageQuota();
 
 ### Soft Reset (Issue 4)
 
-- `resetSessionHandles(): void` — Clears session-level handles (`currentScenarioHandle`, `currentSessionHandle`, `actionsHandle`, `framesHandle`) while preserving directory-level handles (`opfsRoot`, `gpsPlusSlamDir`, `scenariosDir`). Called by `file-system.ts:resetForNewSession()` as part of the soft-reset flow.
+- `resetSessionHandles(): void` — Clears session-level handles (`currentSessionHandle`, `actionsHandle`, `framesHandle`) while preserving directory-level handles (`opfsRoot`, `gpsPlusSlamDir`, `sessionsDir`). Called by a wrapping backend's soft-reset flow (e.g. the recorder's `scenario-storage.resetForNewSession()`) so a new recording can start without re-initializing OPFS.
 
 Write failures (e.g., disk full, quota exceeded) will propagate the error to the caller after safely aborting the writable stream to release file locks.
 

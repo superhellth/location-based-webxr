@@ -253,7 +253,10 @@ test.describe('Controls Layout', () => {
   });
 
   test('controls container has flex layout', async ({ page }) => {
-    const controlsInner = page.locator('#controls > div');
+    // Target the flex layout row specifically: #controls also holds the
+    // (hidden) #ref-point-hint banner (D3), so a bare `#controls > div`
+    // locator now matches two elements.
+    const controlsInner = page.locator('#controls > div.flex');
     await expect(controlsInner).toHaveClass(/flex/);
     await expect(controlsInner).toHaveClass(/justify-between/);
   });

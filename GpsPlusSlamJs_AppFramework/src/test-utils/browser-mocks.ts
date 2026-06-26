@@ -623,6 +623,12 @@ export class MockFSDirectoryHandle implements FileSystemDirectoryHandle {
   }): Promise<PermissionState> {
     return Promise.resolve('granted');
   }
+
+  requestPermission(_descriptor?: {
+    mode?: 'read' | 'readwrite';
+  }): Promise<PermissionState> {
+    return Promise.resolve('granted');
+  }
 }
 
 /**
@@ -817,6 +823,12 @@ export class MockOPFSDirectoryHandle implements FileSystemDirectoryHandle {
   }
 
   queryPermission(_descriptor?: {
+    mode?: 'read' | 'readwrite';
+  }): Promise<PermissionState> {
+    return Promise.resolve('granted');
+  }
+
+  requestPermission(_descriptor?: {
     mode?: 'read' | 'readwrite';
   }): Promise<PermissionState> {
     return Promise.resolve('granted');

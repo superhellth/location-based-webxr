@@ -138,6 +138,64 @@ describe('OccupancyGrid', () => {
     });
   });
 
+  describe('cell points (exact surface points — follow-up Item A)', () => {
+    /**
+     * Why these tests matter:
+     * `getCellPoint` is what the COLMAP `points3D` export and the debug cubes
+     * draw, instead of the 15 cm-lattice `getCellCenter`. The contract: it is
+     * the running-average of the EXACT unprojected points that fell in the
+     * cell (hugging the real surface), it differs from the cell center, and it
+     * always stays inside the cell (|point − center| ≤ cellSizeM/2 per axis).
+     */
+    it('returns null for an unknown cell', () => {
+      const grid = new OccupancyGrid({ cellSizeM: 1 });
+      expect(grid.getCellPoint([0, 0, -5])).toBeNull();
+    });
+
+    it('returns the exact unprojected point, NOT the cell center', () => {
+      const grid = new OccupancyGrid({ cellSizeM: 1 });
+      // depth 5.3 at center screen → exact point [0,0,-5.3]; it quantizes to
+      // cell [0,0,-5] whose center is [0,0,-5].
+      grid.addSample(makeSample([0, 0, 0], [5.3]));
+      const cell: Vector3 = [0, 0, -5];
+      expect(grid.getCellCenter(cell)).toEqual([0, 0, -5]);
+      const point = grid.getCellPoint(cell)!;
+      expect(point[0]).toBeCloseTo(0, 6);
+      expect(point[1]).toBeCloseTo(0, 6);
+      expect(point[2]).toBeCloseTo(-5.3, 6); // exact, not the -5 center
+      // …and it lies inside the cell.
+      expect(
+        Math.abs(point[2] - grid.getCellCenter(cell)[2])
+      ).toBeLessThanOrEqual(grid.cellSizeM / 2);
+    });
+
+    it('averages the exact points of repeated observations in a cell', () => {
+      const grid = new OccupancyGrid({ cellSizeM: 1 });
+      // 5.2 and 5.4 both quantize to cell [0,0,-5]; centroid z = -5.3.
+      grid.addSample(makeSample([0, 0, 0], [5.2]));
+      grid.addSample(makeSample([0, 0, 0], [5.4]));
+      const point = grid.getCellPoint([0, 0, -5])!;
+      expect(point[2]).toBeCloseTo(-5.3, 6);
+    });
+
+    it('carving that deletes a cell resets its retained point', () => {
+      const grid = new OccupancyGrid({ cellSizeM: 1, carveStopCells: 0 });
+      // Observe a cell at -5, then see a surface BEYOND it (-8) so the ray
+      // passes through the -5 cell and carves it away as free space.
+      grid.addSample(makeSample([0, 0, 0], [5.3]));
+      expect(grid.getCellPoint([0, 0, -5])).not.toBeNull();
+      grid.addSample(makeSample([0, 0, 0], [8.0])); // ray passes through -5 cell
+      expect(grid.getCellPoint([0, 0, -5])).toBeNull();
+    });
+
+    it('clear() drops retained points with the cells', () => {
+      const grid = new OccupancyGrid({ cellSizeM: 1 });
+      grid.addSample(makeSample([0, 0, 0], [5.3]));
+      grid.clear();
+      expect(grid.getCellPoint([0, 0, -5])).toBeNull();
+    });
+  });
+
   describe('addSample', () => {
     it('adds an occupied cell per unprojected point and returns the count', () => {
       const grid = new OccupancyGrid({ cellSizeM: 1 });

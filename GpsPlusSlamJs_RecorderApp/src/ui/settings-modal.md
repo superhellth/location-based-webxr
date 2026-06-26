@@ -22,6 +22,7 @@ UI module for the Recording Settings modal — configures depth sampling and ima
 - If `#settings-modal` element is missing, init warns and returns (graceful degradation).
 - Save persists to `localStorage` via `saveRecordingOptions` and fires the change callback.
 - Reset restores `DEFAULT_RECORDING_OPTIONS` into the working copy (not saved until Save).
+- Two **separate** resolution sliders exist and must not be confused: `#images-resolution-divisor` sets the **capture** quality (`images.resolutionDivisor`, the saved JPEG), while `#frame-tile-display-divisor` sets the in-AR/replay **display** texture resolution (`frameTileDisplay.divisor`, D7-resolution) — the latter only affects how sharply frame tiles are drawn, to save GPU memory. Both reuse the `formatResolutionDivisor` ÷N label.
 
 ## Examples
 

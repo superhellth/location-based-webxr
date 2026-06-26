@@ -36,13 +36,35 @@ export async function mapWithConcurrencyLimit<T, R>(
 
   // Use a pool of workers that pull from a shared index counter
   let nextIndex = 0;
+  // Shared fail-fast state: once any worker throws, the surviving workers stop
+  // pulling new items. Each worker *resolves* (it records the error and returns
+  // rather than rejecting) so `Promise.all` waits for every in-flight invocation
+  // to settle before we re-throw. This keeps the rejection from racing ahead of
+  // still-running background work — the caller's `await` returns only once no
+  // worker is active. The first error wins, preserving fail-fast semantics.
+  let failed = false;
+  let firstError: unknown;
 
   const worker = async (): Promise<void> => {
     while (nextIndex < items.length) {
+      if (failed) {
+        return;
+      }
       // Safe: read + increment is synchronous (no yield between while-check and capture),
       // so no two workers can grab the same index.
       const currentIndex = nextIndex++;
-      results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+      try {
+        results[currentIndex] = await mapper(
+          items[currentIndex]!,
+          currentIndex
+        );
+      } catch (err) {
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
+      }
     }
   };
 
@@ -54,5 +76,91 @@ export async function mapWithConcurrencyLimit<T, R>(
   }
 
   await Promise.all(workers);
+  if (failed) {
+    throw firstError;
+  }
   return results;
+}
+
+/**
+ * Run an async worker over each item with a concurrency cap, invoking the worker
+ * per item as the pool pulls it (rather than collecting results into an array).
+ *
+ * Unlike {@link mapWithConcurrencyLimit}, this returns no values — the worker is
+ * expected to produce its side effect (e.g. emit a streaming callback) itself.
+ * This is the shape progressive consumers need: each item is handled and can be
+ * reported as soon as it settles, instead of waiting for the whole batch.
+ *
+ * Completion order is **not** guaranteed (it depends on which worker finishes
+ * first). Each item's worker is invoked exactly once unless the run is aborted.
+ *
+ * When an `AbortSignal` is supplied, workers stop pulling **new** items as soon
+ * as the signal is aborted (checked before each pull). Items already in flight
+ * run to completion — the File System Access reads underneath cannot be torn
+ * mid-read — but no further items are started, so a destroyed consumer stops
+ * accumulating work. If the signal is already aborted, no work starts at all.
+ *
+ * @param items - Items to process
+ * @param limit - Maximum number of concurrent worker invocations (`>= 1`)
+ * @param worker - Async side-effecting function applied to each item
+ * @param signal - Optional abort signal that halts pulling new items
+ * @throws RangeError if `limit < 1`
+ * @throws Re-throws the first error from any worker invocation (fail-fast)
+ */
+export async function forEachWithConcurrencyLimit<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
+  if (limit < 1) {
+    throw new RangeError(`Concurrency limit must be >= 1, got ${limit}`);
+  }
+
+  if (items.length === 0) {
+    return;
+  }
+
+  let nextIndex = 0;
+  // Shared fail-fast state: once any worker throws, the surviving pumps stop
+  // pulling new items — mirroring the abort path — so they don't keep emitting
+  // side effects into a consumer that is already tearing down after the failure.
+  // Each pump *resolves* (recording the error and returning rather than
+  // rejecting) so `Promise.all` waits for every in-flight worker to settle
+  // before we re-throw. That fully mirrors abort: the caller's `await` returns
+  // only once no worker is still emitting, instead of the rejection racing
+  // ahead of detached background work. The first error wins (fail-fast).
+  let failed = false;
+  let firstError: unknown;
+
+  const pump = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      if (signal?.aborted || failed) {
+        return;
+      }
+      // Safe: read + increment is synchronous (no yield between the guard and
+      // the capture), so no two workers can grab the same index.
+      const currentIndex = nextIndex++;
+      try {
+        await worker(items[currentIndex]!, currentIndex);
+      } catch (err) {
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
+      }
+    }
+  };
+
+  const workerCount = Math.min(limit, items.length);
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(pump());
+  }
+
+  await Promise.all(workers);
+  if (failed) {
+    throw firstError;
+  }
 }

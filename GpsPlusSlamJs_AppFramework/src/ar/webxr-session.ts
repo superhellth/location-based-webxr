@@ -61,7 +61,13 @@ import {
   type DepthSample,
   type DepthInfo,
 } from './depth-sampler';
-import { CameraBlitCapture, computeCaptureSize } from './camera-blit-capture';
+import {
+  CameraBlitCapture,
+  computeCaptureSize,
+  computeAspectFitSize,
+} from './camera-blit-capture';
+import { CameraFrameSource } from './camera-frame-source';
+import type { RgbaImage } from './qr-frontend';
 import { createRgbLookup, type RgbLookup } from './depth-rgb-lookup';
 import { acquireCameraTexture } from './xr-camera-texture';
 import { clearFrameUpdates, runFrameUpdates } from './frame-loop';
@@ -227,6 +233,13 @@ export function resetWebXRState(): void {
     depthRgbBlit.dispose();
     depthRgbBlit = null;
   }
+  cameraFrameSource = null;
+  onCameraFrame = null;
+  cameraFrameCaptureSize = DEFAULT_CAMERA_FRAME_CAPTURE_SIZE;
+  if (cameraFrameBlit) {
+    cameraFrameBlit.dispose();
+    cameraFrameBlit = null;
+  }
   onFrameCallback = null;
   if (css3dManager) {
     css3dManager.dispose();
@@ -377,6 +390,58 @@ let depthRgbBlit: CameraBlitCapture | null = null;
 const DEPTH_RGB_BLIT_CONFIG = { width: 256, height: 192 };
 
 /**
+ * Session-owned blit target for the generic camera-frame RGBA capture
+ * (framework-wiring options Part A / B2) — feeds QR detection today, object
+ * detection / OpenCV later. Separate from `depthRgbBlit` (256×192) on purpose:
+ * CV detection needs more pixels across the target (~1024 long edge) than a
+ * colour lookup, but only at the detection cadence, so the {@link CameraFrameSource}
+ * throttle keeps the readback off the per-frame path. Created lazily on the
+ * first capture, disposed by resetWebXRState(). The longer-edge size is
+ * configurable via `startCameraFrameCapture`; the blit preserves the camera
+ * aspect (see `acquireCameraFrameRgba`).
+ */
+let cameraFrameBlit: CameraBlitCapture | null = null;
+
+/**
+ * Default longer-edge resolution (px) for the camera-frame blit the QR / CV
+ * detector sees. The on-device capture-resolution sweep (2026-06-17, via the
+ * `?capture=` override) showed **1024** decodes a small / out-of-focus QR
+ * markedly better than the prior 512 with no perceptible cadence cost on the
+ * test phone; 2048 helped slightly more but risks low-end devices (4096 lagged),
+ * so 1024 is the safe default. Raise per-consumer via
+ * `startCameraFrameCapture({ captureSize })`.
+ *
+ * @see GpsPlusSlamJs_Docs/docs/2026-06-17-qr-size-accuracy-and-thin-demo-plan.md (WS-C)
+ */
+export const DEFAULT_CAMERA_FRAME_CAPTURE_SIZE = 1024;
+
+/**
+ * Longer-edge resolution of the camera-frame blit (px), default
+ * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE}. The blit preserves the camera
+ * aspect, so the actual target is e.g. 1024×768 for a 4:3 frame — see
+ * `computeAspectFitSize` / `acquireCameraFrameRgba`.
+ */
+let cameraFrameCaptureSize = DEFAULT_CAMERA_FRAME_CAPTURE_SIZE;
+
+/**
+ * Throttled camera frame source (created in initAR when `onCameraFrame` is
+ * set). Blits the camera texture to RGBA at the detection cadence and hands it
+ * to `onCameraFrame`. @see camera-frame-source.ts
+ *
+ * SINGLE consumer by design: one source, one callback, one blit. That covers
+ * one CV consumer at a time (QR *or* object detection). To run two live CV
+ * consumers **simultaneously** at independent cadences/resolutions, replace this
+ * single-callback wiring with a small registry (e.g.
+ * `registerCameraFrameConsumer({ intervalMs, captureSize, onFrame })`) holding a
+ * `CameraFrameSource` per consumer — the class is already per-instance. See the
+ * SCOPE note in `camera-frame-source.ts`.
+ */
+let cameraFrameSource: CameraFrameSource | null = null;
+
+/** Callback for each throttled camera RGBA frame (set via setCameraFrameCallback). */
+let onCameraFrame: ((image: RgbaImage) => void) | null = null;
+
+/**
  * Latest WebXR camera texture, updated each frame when camera-access is enabled.
  * Acquired via Three.js's renderer.xr.getCameraTexture() API (ExternalTexture).
  * @see xr-camera-texture.ts
@@ -434,6 +499,36 @@ function acquireDepthRgbLookup(): RgbLookup | null {
   return readback
     ? createRgbLookup(readback.pixels, readback.width, readback.height)
     : null;
+}
+
+/**
+ * Capture the current XR frame as top-left RGBA for CV detection (the
+ * `capture` injected into {@link CameraFrameSource}; called at most once per
+ * detection interval). Returns null — no frame this tick — when camera access
+ * or the texture is unavailable; the lazy blit makes a disposal elsewhere
+ * self-healing. Reuses `latestCameraTexture`, exactly like the depth-RGB path.
+ */
+function acquireCameraFrameRgba(): RgbaImage | null {
+  if (!renderer || !latestCameraTexture) {
+    return null;
+  }
+  // Size the readback to the camera ASPECT with the longer edge =
+  // cameraFrameCaptureSize (Option 1) so a 4:3 frame becomes e.g. 512×384 — the
+  // target reaches the detector undistorted instead of squashed into a square.
+  // The camera dimensions are set alongside `latestCameraTexture` each frame;
+  // `resizeIfNeeded` is a no-op once they stabilise, so the realloc only happens
+  // on the first frame or a device rotation.
+  const target = computeAspectFitSize(
+    latestCameraWidth,
+    latestCameraHeight,
+    cameraFrameCaptureSize
+  );
+  if (!cameraFrameBlit) {
+    cameraFrameBlit = new CameraBlitCapture(target);
+  } else {
+    cameraFrameBlit.resizeIfNeeded(target.width, target.height);
+  }
+  return cameraFrameBlit.captureToRgba(renderer, latestCameraTexture);
 }
 
 /**
@@ -841,6 +936,18 @@ export async function initAR(
     depthSampler = new DepthSampler(depthCallbacks);
   }
 
+  // Initialize the camera frame source if a frame callback is set (B2). The
+  // source owns the detection-cadence throttle; the session owns the blit
+  // (acquireCameraFrameRgba reuses `latestCameraTexture`), exactly like the
+  // depth-RGB path. `startCameraFrameCapture` is what begins delivering frames.
+  if (onCameraFrame) {
+    const deliver = onCameraFrame;
+    cameraFrameSource = new CameraFrameSource({
+      capture: acquireCameraFrameRgba,
+      onCapture: (image) => deliver(image),
+    });
+  }
+
   // Start render loop
   renderer.setAnimationLoop(onXRFrame);
 
@@ -1067,6 +1174,13 @@ function onXRFrame(time: number, frame: XRFrame | undefined): void {
   if (depthSampler) {
     const depthInfo = getDepthInfoFromFrame(frame, pose);
     depthSampler.onFrame(time, depthInfo);
+  }
+
+  // Check if we need to capture a camera frame for CV. The source throttles to
+  // the detection cadence, so the (more expensive, ~512²) blit runs ~8×/s — not
+  // every render frame. Must run after `latestCameraTexture` is set above.
+  if (cameraFrameSource) {
+    cameraFrameSource.onFrame(time);
   }
 
   // Call per-frame callback (e.g., for map overlay position updates)
@@ -1389,7 +1503,14 @@ export function startImageCapture(config?: Partial<ImageCaptureConfig>): void {
   callbacks.captureFrame = async (
     quality: number
   ): Promise<CapturedFrame | null> => {
-    if (!blitCapture || !latestCameraTexture) {
+    // Snapshot the module-level `blitCapture` into a local: ending/resetting the
+    // AR session (resetWebXRState → cleanupBlitResources) can null it WHILE the
+    // captureToBlob() await below is in flight, and the post-await getWidth()/
+    // getHeight() reads would then throw "Cannot read properties of null".
+    // The local keeps a stable handle for this in-flight capture; a frame from a
+    // torn-down session is harmlessly discarded downstream.
+    const bc = blitCapture;
+    if (!bc || !latestCameraTexture) {
       // camera-access not available or no texture yet — fall back to
       // canvas.toBlob. The canvas backing store is what toBlob encodes, so its
       // width/height are the produced JPEG's true pixel dimensions.
@@ -1413,10 +1534,10 @@ export function startImageCapture(config?: Partial<ImageCaptureConfig>): void {
         latestCameraHeight,
         divisor
       );
-      blitCapture.resizeIfNeeded(target.width, target.height);
+      bc.resizeIfNeeded(target.width, target.height);
     }
 
-    const blob = await blitCapture.captureToBlob(
+    const blob = await bc.captureToBlob(
       currentRenderer,
       latestCameraTexture,
       quality
@@ -1426,8 +1547,8 @@ export function startImageCapture(config?: Partial<ImageCaptureConfig>): void {
     // true pixel dimensions for aspect-correct frame-tile rendering.
     return {
       blob,
-      width: blitCapture.getWidth(),
-      height: blitCapture.getHeight(),
+      width: bc.getWidth(),
+      height: bc.getHeight(),
     };
   };
   log.info(`Blit capture pipeline initialized (resolutionDivisor=${divisor})`);
@@ -1574,6 +1695,105 @@ export function stopDepthCapture(): void {
  */
 export function getDepthSampleCount(): number {
   return depthSampler?.getSampleCount() ?? 0;
+}
+
+/** Optional tuning for {@link startCameraFrameCapture}. */
+export interface CameraFrameCaptureConfig {
+  /** Detection cadence (ms between captures). Default 125 (~8 Hz). */
+  intervalMs?: number;
+  /**
+   * Longer-edge resolution (px) of the camera-frame blit. Default
+   * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE} (1024). The blit preserves the
+   * camera ASPECT with its longer edge at this value (e.g. 1024 → 1024×768 for a
+   * 4:3 camera), so the target reaches the detector undistorted. A QR needs ~3–5
+   * px per module; the on-device sweep settled on 1024 (512 made small QRs decode
+   * only at very close range). Applied before the first capture.
+   */
+  captureSize?: number;
+}
+
+/**
+ * Set the per-frame camera RGBA callback (B2) — the generic CV frame feed (QR
+ * detection today, object detection / OpenCV later). Call this BEFORE initAR to
+ * enable in-session camera frame capture; `startCameraFrameCapture` then begins
+ * delivering frames.
+ *
+ * The callback receives a **top-left-origin** RGBA image (no JPEG round-trip),
+ * captured at the throttled detection cadence — feed it straight to a
+ * `BarcodeDetector` / OpenCV front-end. Mirrors `setDepthCaptureCallback`.
+ *
+ * @param onFrame - Called with each throttled camera frame, or `null` to clear.
+ */
+export function setCameraFrameCallback(
+  onFrame: ((image: RgbaImage) => void) | null
+): void {
+  onCameraFrame = onFrame;
+}
+
+/**
+ * Start camera frame capture during an AR session. Must call
+ * setCameraFrameCallback before initAR (the source is created there). No-op if
+ * the source was not initialized (callback not set before initAR).
+ *
+ * The source is the single cadence owner: drive your detection scheduler from
+ * the delivered frames with its own `minIntervalMs: 0` (Option A).
+ *
+ * @param config - optional cadence / blit-resolution overrides.
+ */
+export function startCameraFrameCapture(
+  config?: CameraFrameCaptureConfig
+): void {
+  if (!cameraFrameSource) {
+    log.warn(
+      'Cannot start camera frame capture - frame source not initialized'
+    );
+    return;
+  }
+  if (
+    typeof config?.captureSize === 'number' &&
+    Number.isFinite(config.captureSize) &&
+    config.captureSize > 0
+  ) {
+    // Applied before the first capture allocates the blit.
+    cameraFrameCaptureSize = Math.floor(config.captureSize);
+  }
+  if (config?.intervalMs !== undefined) {
+    cameraFrameSource.updateConfig({ intervalMs: config.intervalMs });
+  }
+  cameraFrameSource.start();
+  log.info(
+    `Camera frame capture started (interval: ${cameraFrameSource.getConfig().intervalMs}ms, long edge ${cameraFrameCaptureSize}px, aspect-preserved)`
+  );
+}
+
+/**
+ * Stop camera frame capture. Safe to call when not running.
+ */
+export function stopCameraFrameCapture(): void {
+  if (cameraFrameSource) {
+    const count = cameraFrameSource.getFrameCount();
+    cameraFrameSource.stop();
+    log.info(`Camera frame capture stopped (${count} frames captured)`);
+  }
+}
+
+/**
+ * Get the number of camera frames captured since the last
+ * `startCameraFrameCapture`.
+ */
+export function getCameraFrameCount(): number {
+  return cameraFrameSource?.getFrameCount() ?? 0;
+}
+
+/**
+ * The current longer-edge resolution (px) of the camera-frame blit — the
+ * {@link DEFAULT_CAMERA_FRAME_CAPTURE_SIZE} default unless overridden via
+ * `startCameraFrameCapture({ captureSize })`. Exposed for diagnostics and to
+ * let tests assert the on-device-tuned default without reaching into module
+ * state.
+ */
+export function getCameraFrameCaptureSize(): number {
+  return cameraFrameCaptureSize;
 }
 
 /**

@@ -279,6 +279,7 @@ export function createEnableGpsArController(
 
     setState({ status: 'starting' });
 
+    let sessionStarted = false;
     try {
       const permissionError = await requestPermissions(config);
       if (permissionError !== null) {
@@ -294,6 +295,7 @@ export function createEnableGpsArController(
       await resolved.initAR(config.container, config.isolationOptions, {
         requestHitTest: config.requestHitTest,
       });
+      sessionStarted = true;
 
       // --- Sensor watches ---
       if (config.onGpsPosition) {
@@ -308,6 +310,47 @@ export function createEnableGpsArController(
       setState({ status: 'running' });
       return { ok: true };
     } catch (err) {
+      // If initAR already started the XR session, a *later* failure (a sensor
+      // watch start throwing) must roll back the session and any watch already
+      // started — disable() only runs from 'running', and a retry from 'error'
+      // re-enters enable() without cleaning up, so without this the session and
+      // watch leak and accumulate. A pre-initAR failure leaves nothing to undo.
+      if (sessionStarted) {
+        // Each cleanup step is isolated: a throw in one (e.g. stopGpsWatch) must
+        // not bypass the others — most importantly endARSession, whose skip would
+        // strand the WebXR session and leak the renderer. Errors are logged, not
+        // rethrown, so every step always runs.
+        if (gpsWatchActive) {
+          try {
+            resolved.stopGpsWatch();
+          } catch (cleanupErr) {
+            log.error(
+              'stopGpsWatch during enable() cleanup threw:',
+              cleanupErr
+            );
+          }
+          gpsWatchActive = false;
+        }
+        if (orientationWatchActive) {
+          try {
+            resolved.stopOrientationWatch();
+          } catch (cleanupErr) {
+            log.error(
+              'stopOrientationWatch during enable() cleanup threw:',
+              cleanupErr
+            );
+          }
+          orientationWatchActive = false;
+        }
+        try {
+          await resolved.endARSession();
+        } catch (cleanupErr) {
+          log.error(
+            'Cleanup after enable() failure threw; continuing:',
+            cleanupErr
+          );
+        }
+      }
       const message = err instanceof Error ? err.message : String(err);
       return fail(message);
     }

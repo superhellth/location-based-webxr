@@ -90,6 +90,26 @@ export interface SessionMetadata {
 
   /** The page URL the recording was made from (origin + pathname only). Optional for backwards compat. */
   pageUrl?: string;
+
+  /**
+   * Per-tour H3 coverage index: the deduplicated H3 cells (at {@link h3Resolution})
+   * that the recording's GPS path crossed. Powers the map-centric recording
+   * browser — it shows roughly where each tour was recorded and which tours cross
+   * a given tile — WITHOUT unzipping the GPS action data (the cells are read
+   * straight from session.json during folder discovery). Computed from the raw GPS
+   * path at recording stop via `gpsPathToCoverageCells`.
+   *
+   * Optional for backwards compatibility: legacy recordings predate this field and
+   * are backfilled in memory from their GPS path on demand by the browser.
+   */
+  h3Cells?: string[];
+
+  /**
+   * The H3 resolution used to compute {@link h3Cells} (currently
+   * `H3_RESOLUTION` = 11). Stored so older readers stay self-describing if the
+   * capture resolution ever changes.
+   */
+  h3Resolution?: number;
 }
 
 /**
@@ -249,10 +269,11 @@ export function getSessionHandle(): FileSystemDirectoryHandle | null {
 /**
  * Set the active session handles externally.
  *
- * Used by file-system.ts's scenario-based path to reuse opfs-storage's
- * write infrastructure for sessions created outside the flat layout.
- * This is a temporary bridge until the recorder migrates to
- * ScenarioWrappingStorageBackend.
+ * Lets a wrapping StorageBackend that creates sessions outside the flat layout
+ * (e.g. the recorder's `ScenarioWrappingStorageBackend`, which nests sessions
+ * under a named bucket) reuse opfs-storage's write infrastructure: it creates
+ * the session directory itself, then hands the handles here so subsequent
+ * `writeAction` / `writeFrame` / `writeSessionMetadata` calls target them.
  *
  * @internal
  */

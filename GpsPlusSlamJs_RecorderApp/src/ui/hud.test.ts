@@ -31,9 +31,15 @@ import {
   updatePermissionStatus,
   updateTrackingQuality,
   hideTrackingQuality,
+  showUnsupportedPlatformNotice,
+  updateRefPointHint,
   type UICallbacks,
 } from './hud.js';
 import type { PermissionCheckResult } from 'gps-plus-slam-app-framework/sensors/permission-checker';
+import {
+  extractElementById,
+  loadFullIndexHtml,
+} from '../test-utils/html-fixtures.js';
 
 /**
  * Creates a minimal DOM structure for testing.
@@ -2392,7 +2398,9 @@ describe('updatePermissionStatus — Grant Permissions button visibility', () =>
       <span id="perm-webxr-status"></span>
       <span id="perm-gps-status"></span>
       <span id="perm-camera-status"></span>
-      <span id="perm-orientation-status"></span>
+      <!-- No #perm-orientation-status: the Compass row was removed in D3
+           (2026-06-19). This fixture mirrors the production DOM so the
+           permission-status update is exercised exactly as it ships. -->
       <button id="btn-request-permissions" class="hidden">Grant Permissions</button>
       <p id="permission-error" class="hidden"></p>
     `;
@@ -2612,6 +2620,27 @@ describe('updatePermissionStatus — Grant Permissions button visibility', () =>
     expect(err.textContent).toMatch(/Location/);
     expect(err.textContent).toMatch(/Camera/);
     expect(err.textContent).not.toMatch(/Compass/);
+  });
+
+  // Why: D3 (2026-06-19) removed the Compass row, so the production DOM has no
+  // #perm-orientation-status element. updatePermissionStatus must degrade
+  // gracefully — no throw — and still update the remaining rows. The shared
+  // fixture above already omits the element; this test makes that contract
+  // explicit so a hard (non-null-guarded) reference can't sneak back in.
+  it('does not throw and still updates other rows when the orientation row is absent (D3)', () => {
+    setupPermissionDOM();
+    initUI(createMockCallbacks());
+    expect(document.getElementById('perm-orientation-status')).toBeNull();
+
+    expect(() => updatePermissionStatus(makeResult())).not.toThrow();
+
+    // The remaining mandatory rows are still updated to their granted state.
+    expect(document.getElementById('perm-camera-status')!.textContent).toMatch(
+      /ready/i
+    );
+    expect(document.getElementById('perm-webxr-status')!.textContent).toMatch(
+      /ready/i
+    );
   });
 });
 
@@ -2865,5 +2894,254 @@ describe('hideTrackingQuality', () => {
     updateTrackingQuality(makeReport());
     const details = document.getElementById('tracking-quality-details')!;
     expect(details.classList.contains('hidden')).toBe(true);
+  });
+});
+
+/**
+ * Help-section collapse behaviour (Issue 2 / 2026-01-27, revisited 2026-06-19).
+ *
+ * Why these tests matter: a user reported the "What is this app?" help section
+ * is "always open also on future starts of the recorder". The 2026-01-27 design
+ * is open-by-default + *sticky collapse* (collapsing persists via the
+ * `gps-recorder-help-collapsed` localStorage key). These tests pin the actual
+ * behaviour of `initHelpSection` (driven through `initUI`, which the existing
+ * `setupMinimalDOM` never exercised because it omits `#help-section`) so we can
+ * tell a real persistence bug apart from a default-behaviour expectation
+ * mismatch.
+ */
+describe('help section collapse persistence', () => {
+  const HELP_COLLAPSED_KEY = 'gps-recorder-help-collapsed';
+  const HELP_SEEN_KEY = 'gps-recorder-help-seen';
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function setupWithHelp(): void {
+    setupMinimalDOM();
+    // index.html ships the section with a static `open` attribute.
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `<details id="help-section" open>
+         <summary>What is this app?</summary>
+         <div id="help-section-content">help text</div>
+       </details>`
+    );
+  }
+
+  function help(): HTMLDetailsElement {
+    return document.getElementById('help-section') as HTMLDetailsElement;
+  }
+
+  it('is open on the very first start (no stored preference)', () => {
+    setupWithHelp();
+    initUI(createMockCallbacks());
+    expect(help().open).toBe(true);
+  });
+
+  it('persists a collapse to localStorage when the user closes it', () => {
+    setupWithHelp();
+    initUI(createMockCallbacks());
+    // jsdom does not auto-fire `toggle` on an `open` change — simulate the user.
+    help().open = false;
+    help().dispatchEvent(new Event('toggle'));
+    expect(localStorage.getItem(HELP_COLLAPSED_KEY)).toBe('true');
+  });
+
+  it('restores the collapsed state on a fresh start after the user collapsed it', () => {
+    localStorage.setItem(HELP_COLLAPSED_KEY, 'true');
+    setupWithHelp();
+    initUI(createMockCallbacks());
+    expect(help().open).toBe(false);
+  });
+
+  // The reported expectation: the manual should show ONCE. A returning user
+  // (who has launched before but never explicitly collapsed it) should NOT keep
+  // getting the full wall of help text on every start — it should default to
+  // collapsed once seen, while first-time users still get it open.
+  it('collapses by default on a return visit even if the user never collapsed it', () => {
+    // Simulate "the user has opened the app before" (help was already seen) but
+    // has no explicit collapse preference stored.
+    localStorage.setItem(HELP_SEEN_KEY, 'true');
+    setupWithHelp();
+    initUI(createMockCallbacks());
+    expect(help().open).toBe(false);
+  });
+
+  // Why this test matters: `initHelpSection` runs synchronously inside `initUI`,
+  // which `main.ts` calls unguarded during UI bootstrap. Some environments
+  // (private browsing in certain browsers, sandboxed iframes without
+  // allow-same-origin, storage disabled by policy) throw a SecurityError /
+  // DOMException on ANY `localStorage` access — including reads. Without a guard
+  // that throw escapes `initUI` and crashes the entire app at startup. Every
+  // other localStorage site in the project (recording-options load/save/reset)
+  // already wraps access in try/catch; this pins that the help section degrades
+  // the same way (keeps the shipped `open` default instead of crashing).
+  it('degrades gracefully when localStorage access throws (private mode / sandboxed iframe)', () => {
+    setupWithHelp();
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new DOMException('localStorage is disabled', 'SecurityError');
+      });
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('localStorage is disabled', 'SecurityError');
+      });
+    try {
+      expect(() => initUI(createMockCallbacks())).not.toThrow();
+      // With no readable preference we keep index.html's shipped default (open).
+      expect(help().open).toBe(true);
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+
+  // A user-toggle after init must also survive a throwing localStorage: the
+  // `toggle` listener persists the collapse preference, but a write failure
+  // (quota, disabled storage) must not propagate out of the DOM event handler.
+  it('does not throw from the toggle handler when persisting the preference fails', () => {
+    setupWithHelp();
+    initUI(createMockCallbacks());
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('quota exceeded', 'QuotaExceededError');
+      });
+    try {
+      help().open = false;
+      expect(() => help().dispatchEvent(new Event('toggle'))).not.toThrow();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+});
+
+/**
+ * Tests for the unsupported-platform notice (D1, 2026-06-16 user feedback,
+ * Finding 1).
+ *
+ * Why these tests matter: when `immersive-ar` WebXR is unavailable (the common
+ * case being iOS, whose browsers do not provide browser AR tracking) the app
+ * silently dropped into replay mode — the field tester read this as "the app
+ * only works on Chrome on Android" with no in-app explanation. The setup UI is
+ * already suppressed by `switchToReplayMode`, but the *why* was hidden too.
+ * `showUnsupportedPlatformNotice` surfaces a prominent, plain-language
+ * explanation of the cause and the fix (Chrome on Android), while keeping
+ * replay available.
+ */
+describe('showUnsupportedPlatformNotice', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('reveals the hidden platform notice', () => {
+    document.body.innerHTML =
+      '<div id="unsupported-platform-notice" class="hidden"></div>';
+
+    showUnsupportedPlatformNotice();
+
+    const notice = document.getElementById('unsupported-platform-notice')!;
+    expect(notice.classList.contains('hidden')).toBe(false);
+  });
+
+  it('does not throw when the notice element is absent (defensive)', () => {
+    expect(() => showUnsupportedPlatformNotice()).not.toThrow();
+  });
+
+  it('the production notice explains the cause and points to Chrome on Android', () => {
+    // Guard the actual user-facing copy in index.html so a future edit cannot
+    // silently strip the explanation. It must name: the cause (AR tracking the
+    // browser lacks, with iOS as the example), the fix (Chrome on Android), and
+    // that replay is still available.
+    const noticeHtml = extractElementById('unsupported-platform-notice');
+    expect(noticeHtml).toMatch(/iOS/i);
+    expect(noticeHtml).toMatch(/Chrome/i);
+    expect(noticeHtml).toMatch(/Android/i);
+    expect(noticeHtml).toMatch(/AR/);
+    expect(noticeHtml).toMatch(/replay/i);
+  });
+
+  it('the production notice is prominent (not the tiny webxr-warning styling)', () => {
+    // D1 asks for a *prominent* explanation, unlike the pre-existing
+    // text-xs #webxr-warning line. Assert the banner does not use text-xs and
+    // starts hidden (revealed only on unsupported platforms).
+    const noticeHtml = extractElementById('unsupported-platform-notice');
+    expect(noticeHtml).toContain('hidden');
+    expect(noticeHtml).not.toMatch(/class="[^"]*\btext-xs\b/);
+  });
+
+  it('index.html keeps the notice inside the setup modal so it shows at startup', () => {
+    // The notice must live where the user lands (the setup modal), not buried.
+    const full = loadFullIndexHtml();
+    expect(full).toContain('id="unsupported-platform-notice"');
+  });
+});
+
+/**
+ * Tests for the in-AR ref-point proximity hint (D3, 2026-06-16 user feedback,
+ * Finding 3).
+ *
+ * Why these tests matter: the dual proximity model (tap to re-observe a nearby
+ * known point vs. ➕ to force-create a new one, plus the button relabelling to
+ * the nearby point's name) confused the field tester ("sometimes you create new
+ * ones, sometimes the name switches to an older one"). The decision (D3) is to
+ * KEEP the model but make the state legible: the displayed name is a *location
+ * confirmation* ("you're at 'Bench', not its neighbour"). This hint renders that
+ * confirmation inline. No name-management UI, no behaviour change.
+ */
+describe('updateRefPointHint', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('confirms the location and the re-observe action when in the same cell as a known point', () => {
+    document.body.innerHTML = '<div id="ref-point-hint" class="hidden"></div>';
+
+    updateRefPointHint({ displayName: 'Bench', isNeighborCell: false });
+
+    const hint = document.getElementById('ref-point-hint')!;
+    expect(hint.classList.contains('hidden')).toBe(false);
+    expect(hint.textContent).toContain('Bench');
+    expect(hint.textContent).toMatch(/re-observe/i);
+    // Same cell: no ➕ guidance (the secondary button is hidden in this state).
+    expect(hint.textContent).not.toContain('➕');
+  });
+
+  it('explains both the re-observe and the ➕ new-point option when in a neighbour cell', () => {
+    document.body.innerHTML = '<div id="ref-point-hint" class="hidden"></div>';
+
+    updateRefPointHint({ displayName: 'Bench', isNeighborCell: true });
+
+    const hint = document.getElementById('ref-point-hint')!;
+    expect(hint.classList.contains('hidden')).toBe(false);
+    expect(hint.textContent).toContain('Bench');
+    expect(hint.textContent).toMatch(/re-observe/i);
+    // Neighbour cell: the ➕ force-new option is offered.
+    expect(hint.textContent).toContain('➕');
+  });
+
+  it('hides the hint when not near any known point', () => {
+    document.body.innerHTML =
+      "<div id=\"ref-point-hint\">You're at 'Bench'</div>";
+
+    updateRefPointHint(undefined);
+
+    const hint = document.getElementById('ref-point-hint')!;
+    expect(hint.classList.contains('hidden')).toBe(true);
+    expect(hint.textContent).toBe('');
+  });
+
+  it('does not throw when the hint element is absent (defensive)', () => {
+    expect(() =>
+      updateRefPointHint({ displayName: 'X', isNeighborCell: false })
+    ).not.toThrow();
+  });
+
+  it('index.html ships the hint element near the recording controls', () => {
+    const full = loadFullIndexHtml();
+    expect(full).toContain('id="ref-point-hint"');
   });
 });

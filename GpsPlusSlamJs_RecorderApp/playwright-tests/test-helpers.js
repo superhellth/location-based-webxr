@@ -155,7 +155,14 @@ export async function waitForTestHooks(page) {
       window.testHooks?.setFolderSelected &&
       window.testHooks?.setSaveLocationSelected &&
       // Optional folder-import collapse hook (D5)
-      window.testHooks?.setFolderImportExpanded,
+      window.testHooks?.setFolderImportExpanded &&
+      // Map-centric recording browser (Step 4B)
+      window.testHooks?.mountMapBrowser &&
+      // Progressive map-browser streaming (Slice A)
+      window.testHooks?.mountMapBrowserEmpty &&
+      window.testHooks?.streamMapBrowserRecording &&
+      // Coverage backfill CTA (Slice B / B1)
+      window.testHooks?.mountMapBrowserBackfill,
     { timeout: TEST_HOOKS_TIMEOUT_MS }
   );
 }

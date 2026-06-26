@@ -300,6 +300,27 @@ export function showError(message: string): void {
 }
 
 /**
+ * Reveal the prominent unsupported-platform notice in the setup modal.
+ *
+ * D1 (2026-06-16 user feedback, Finding 1): when `immersive-ar` WebXR is
+ * unavailable the app drops into replay mode (see `switchToReplayMode`), which
+ * suppresses the recording setup UI but previously left the *reason* unexplained
+ * — the field tester experienced this as "the app only works on Chrome on
+ * Android" with no in-app guidance. This banner states the cause (the browser
+ * lacks the AR tracking the recorder needs — typically iOS) and the fix (open it
+ * in Chrome on Android), while noting replay still works. The copy itself lives
+ * in `index.html` (`#unsupported-platform-notice`); this only unhides it.
+ *
+ * Defensive: a no-op when the element is absent (e.g. trimmed test fixtures).
+ */
+export function showUnsupportedPlatformNotice(): void {
+  const notice = document.getElementById('unsupported-platform-notice');
+  if (notice) {
+    notice.classList.remove('hidden');
+  }
+}
+
+/**
  * Update GPS accuracy display
  */
 export function updateGpsInfo(accuracy: number): void {
@@ -635,6 +656,9 @@ export function showArReadyControls(): void {
   cachedElements.recordingIndicator.classList.add('hidden');
   // Reset ref point button label for next session (Change D)
   cachedElements.btnRefPoint.textContent = DEFAULT_REF_POINT_LABEL;
+  // Clear any leftover proximity hint (D3) so it does not linger into the
+  // next AR_READY state before recording starts.
+  updateRefPointHint(undefined);
 }
 
 /**
@@ -648,6 +672,41 @@ export function updateRefPointButtonLabel(refPointName?: string): void {
   cachedElements.btnRefPoint.textContent = refPointName
     ? `📍 Capture '${refPointName}'`
     : DEFAULT_REF_POINT_LABEL;
+}
+
+/**
+ * Update the inline ref-point proximity hint (D3, 2026-06-16 user feedback,
+ * Finding 3) so the button's name relabel reads as a *location confirmation*
+ * rather than a mysterious "the marker name switched to an older one".
+ *
+ * - Not near a known point (`undefined`) → hint hidden; the "📍 Mark Point"
+ *   button is self-explanatory and a persistent hint would just be clutter.
+ * - Same cell as a known point (`isNeighborCell === false`) → "You're at
+ *   '<name>' — tap 📍 to re-observe it." (the ➕ button is hidden here).
+ * - Neighbour cell (`isNeighborCell === true`) → "Near '<name>' — tap 📍 to
+ *   re-observe it, or ➕ to mark a new point here." (both options are live).
+ *
+ * Display-only: this changes no marking behaviour and adds no name-management
+ * UI (names stay secondary to the H3 cell). Looks the element up lazily and is
+ * a no-op when absent (trimmed test fixtures / pre-`initUI`).
+ */
+export function updateRefPointHint(nearby?: {
+  displayName: string;
+  isNeighborCell: boolean;
+}): void {
+  const hint = document.getElementById('ref-point-hint');
+  if (!hint) {
+    return;
+  }
+  if (!nearby) {
+    hint.textContent = '';
+    hint.classList.add('hidden');
+    return;
+  }
+  hint.textContent = nearby.isNeighborCell
+    ? `Near '${nearby.displayName}' — tap 📍 to re-observe it, or ➕ to mark a new point here.`
+    : `You're at '${nearby.displayName}' — tap 📍 to re-observe it.`;
+  hint.classList.remove('hidden');
 }
 
 /**
@@ -887,13 +946,10 @@ export function updatePermissionStatus(result: PermissionCheckResult): void {
     result.camera.error
   );
 
-  // Update Orientation status
-  updateSinglePermissionStatus(
-    'perm-orientation-status',
-    result.orientation.supported,
-    result.orientation.granted,
-    result.orientation.error
-  );
+  // No Orientation status row to update (D3, 2026-06-19): the Compass row was
+  // removed because it is permanently granted (and so non-actionable) on every
+  // device that can record. `result.orientation` is still consumed below to
+  // keep the Grant Permissions button visible while orientation is ungranted.
 
   // Show/hide "Grant Permissions" button based on whether any permissions
   // need requesting OR have been denied. The button must stay visible until
@@ -1113,19 +1169,27 @@ export function getSaveLocationSelected(): boolean {
 // --- Help Section (Issue 2 - User Feedback 2026-01-27) ---
 
 /**
- * localStorage key for help section collapsed state.
+ * localStorage keys for the help section.
  * ⚠️ Also defined in playwright-tests/help-section.spec.js — keep in sync!
  */
 const HELP_COLLAPSED_KEY = 'gps-recorder-help-collapsed';
+/** Set once the help section has been shown to this user at least once. */
+const HELP_SEEN_KEY = 'gps-recorder-help-seen';
 
 /**
  * Initialize the collapsible help section.
- * - Restores collapsed state from localStorage
- * - Saves state changes when user toggles the section
  *
- * The help section is open by default for first-time users to explain
- * key concepts (scenario, session, reference points). Once a user closes it,
- * the preference is remembered.
+ * **Show the manual once (2026-06-19 user feedback).** The section explains key
+ * concepts (scenario, session, reference points) and is open **only on the very
+ * first launch** so a first-time user sees it. On every **subsequent** start it
+ * defaults to **collapsed** so the actual task — not a wall of help text — is the
+ * first thing a returning user sees. (Previously it was open-until-manually-
+ * collapsed, so a user who never closed it got the full help on every start —
+ * the reported "always open also on future starts".)
+ *
+ * Precedence: an explicit collapse preference wins; otherwise first-time → open,
+ * returning → collapsed. An explicit user toggle is still persisted via the
+ * `toggle` listener.
  */
 function initHelpSection(): void {
   const helpSection = document.getElementById(
@@ -1136,21 +1200,52 @@ function initHelpSection(): void {
     return;
   }
 
-  // Restore collapsed state from localStorage
-  const wasCollapsed = localStorage.getItem(HELP_COLLAPSED_KEY) === 'true';
-  if (wasCollapsed) {
+  // `localStorage` can throw on ANY access (not just writes) in private-browsing
+  // modes, sandboxed iframes without allow-same-origin, or when storage is
+  // disabled by policy. `initHelpSection` runs synchronously inside `initUI`,
+  // which `main.ts` calls unguarded during bootstrap, so an escaping throw would
+  // crash the whole app at startup. Guard every access (mirroring the
+  // recording-options load/save/reset helpers): on failure we keep index.html's
+  // shipped `open` default and skip the read-once "seen" write.
+  let explicitlyCollapsed = false;
+  let seenBefore = false;
+  try {
+    explicitlyCollapsed = localStorage.getItem(HELP_COLLAPSED_KEY) === 'true';
+    seenBefore = localStorage.getItem(HELP_SEEN_KEY) === 'true';
+  } catch {
+    // Storage unavailable — degrade to the first-time-user default (open).
+  }
+
+  // Collapse for everyone except a genuine first-time user (no prior visit and
+  // no explicit preference). `index.html` ships the section with a static
+  // `open` attribute, so we only ever need to remove it.
+  if (explicitlyCollapsed || seenBefore) {
     helpSection.removeAttribute('open');
   }
 
-  // Save state when user toggles the section
+  // Remember that this user has now seen the help, so the next start defaults
+  // to collapsed even if they never explicitly close it.
+  try {
+    localStorage.setItem(HELP_SEEN_KEY, 'true');
+  } catch {
+    // Persisting the "seen" flag is best-effort; ignore storage failures.
+  }
+
+  // Persist an explicit user toggle (so a deliberate expand/collapse is honoured
+  // over the returning-user default).
   helpSection.addEventListener('toggle', () => {
     const isNowOpen = helpSection.open;
-    if (isNowOpen) {
-      // User expanded - remove the collapsed flag
-      localStorage.removeItem(HELP_COLLAPSED_KEY);
-    } else {
-      // User collapsed - remember this preference
-      localStorage.setItem(HELP_COLLAPSED_KEY, 'true');
+    try {
+      if (isNowOpen) {
+        // User expanded - remove the collapsed flag
+        localStorage.removeItem(HELP_COLLAPSED_KEY);
+      } else {
+        // User collapsed - remember this preference
+        localStorage.setItem(HELP_COLLAPSED_KEY, 'true');
+      }
+    } catch {
+      // Persisting the toggle preference is best-effort; a storage failure must
+      // not propagate out of the DOM event handler.
     }
   });
 }

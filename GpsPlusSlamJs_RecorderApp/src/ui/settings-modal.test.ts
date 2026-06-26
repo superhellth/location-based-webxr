@@ -140,6 +140,23 @@ describe('settings-modal', () => {
       expect(html).toContain('id="images-resolution-divisor"');
     });
 
+    it('includes the occupancy voxel-size slider and value display', () => {
+      // 2026-06-13 occupancy-grid-settings review, item 1: the voxel size
+      // (occupancy.cellSizeM) must be user-configurable from this modal.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-cell-size"');
+      expect(html).toContain('id="occupancy-cell-size-value"');
+    });
+
+    it('includes the frame-tile display-resolution slider and value display', () => {
+      // D7-resolution, 2026-06-16 user feedback: the in-AR/replay tile display
+      // resolution (frameTileDisplay.divisor) must be user-configurable here,
+      // distinct from the capture resolution divisor.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="frame-tile-display-divisor"');
+      expect(html).toContain('id="frame-tile-display-divisor-value"');
+    });
+
     it('includes AR crash isolation controls', () => {
       // Why this test matters:
       // The full Phase 1 diagnostic set must be present in production HTML so
@@ -152,6 +169,18 @@ describe('settings-modal', () => {
       expect(html).toContain('id="ar-css3d-enabled"');
       expect(html).toContain('id="ar-camera-texture-enabled"');
       expect(html).toContain('id="btn-ar-minimal-baseline"');
+    });
+
+    it('includes the four live debug-overlay toggles (Finding B)', () => {
+      // Why this test matters: the `visualization` group must be operable from
+      // the settings modal — one checkbox per live overlay, with the DB-3
+      // section heading + note so users know it is live-only.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('Show during recording (3D debug overlays)');
+      expect(html).toContain('id="viz-frame-tiles"');
+      expect(html).toContain('id="viz-occupancy-cubes"');
+      expect(html).toContain('id="viz-gps-alignment-markers"');
+      expect(html).toContain('id="viz-compass-cubes"');
     });
 
     it('includes "Clear Reference Point Cache" button', () => {
@@ -277,6 +306,22 @@ describe('settings-modal', () => {
         'depth-enabled'
       ) as HTMLInputElement;
       expect(depthEnabled.checked).toBe(true);
+    });
+
+    it('populates the voxel-size slider from saved options (metres → cm)', () => {
+      // Stored 0.03 m must render as 3 on the cm slider.
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { cellSizeM: 0.03 } })
+      );
+
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('occupancy-cell-size-value');
+      expect(slider.value).toBe('3');
+      expect(valueDisplay?.textContent).toBe('3 cm');
     });
 
     it('populates AR crash isolation checkbox from saved options', () => {
@@ -457,6 +502,24 @@ describe('settings-modal', () => {
       expect(depthRgb.disabled).toBe(false);
     });
 
+    it('persists the occupancy voxel size (cm slider → metres in storage)', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      // default 15 cm
+      expect(slider.value).toBe('15');
+
+      slider.value = '10';
+      slider.dispatchEvent(new Event('input'));
+
+      document.getElementById('btn-settings-save')?.click();
+
+      expect(loadRecordingOptions().occupancy.cellSizeM).toBeCloseTo(0.1);
+    });
+
     it('persists the CSS3D crash-isolation flag', () => {
       initSettingsModal();
       showSettingsModal();
@@ -479,6 +542,66 @@ describe('settings-modal', () => {
         | Record<string, unknown>
         | undefined;
       expect(flags?.enableCss3dRenderer).toBe(false);
+    });
+  });
+
+  describe('live debug-overlay toggles (Finding B)', () => {
+    // Why these tests matter: each toggle gates a live overlay (frame tiles,
+    // occupancy cubes, GPS+VIO alignment spheres, compass cubes). All four
+    // default ON (purely additive). The settings UI must round-trip each:
+    // populate from saved options and persist a change back to storage.
+    const TOGGLE_IDS = [
+      ['viz-frame-tiles', 'frameTiles'],
+      ['viz-occupancy-cubes', 'occupancyCubes'],
+      ['viz-gps-alignment-markers', 'gpsAlignmentMarkers'],
+      ['viz-compass-cubes', 'compassCubes'],
+    ] as const;
+
+    it('all four default to checked (ON) — purely additive', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      for (const [id] of TOGGLE_IDS) {
+        const cb = document.getElementById(id) as HTMLInputElement | null;
+        expect(cb, id).not.toBeNull();
+        expect(cb!.checked, id).toBe(true);
+      }
+    });
+
+    it.each(TOGGLE_IDS)(
+      'persists %s → visualization.%s when unchecked',
+      (id, key) => {
+        initSettingsModal();
+        showSettingsModal();
+
+        const cb = document.getElementById(id) as HTMLInputElement;
+        expect(cb.checked).toBe(true);
+        cb.checked = false;
+        cb.dispatchEvent(new Event('change'));
+
+        document.getElementById('btn-settings-save')?.click();
+
+        expect(loadRecordingOptions().visualization[key]).toBe(false);
+        // The other overlays remain ON — toggles are independent.
+        for (const [otherId, otherKey] of TOGGLE_IDS) {
+          if (otherKey === key) continue;
+          expect(loadRecordingOptions().visualization[otherKey], otherId).toBe(
+            true
+          );
+        }
+      }
+    );
+
+    it.each(TOGGLE_IDS)('populates %s from a saved OFF value', (id, key) => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ visualization: { [key]: false } })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const cb = document.getElementById(id) as HTMLInputElement | null;
+      expect(cb?.checked).toBe(false);
     });
   });
 
@@ -684,6 +807,52 @@ describe('settings-modal', () => {
 
       expect(valueDisplay?.textContent).toBe('1× (full)');
     });
+
+    /**
+     * Why this test matters (D7-resolution, 2026-06-16 user feedback): the
+     * frame-tile DISPLAY divisor is a separate knob from the capture
+     * resolution divisor. Moving it must update the ÷N label and write the
+     * value into `frameTileDisplay.divisor` (not `images.resolutionDivisor`),
+     * so the decode-time downscale uses it on the next Enter-AR / replay.
+     */
+    it('updates frame-tile display divisor value and working option', () => {
+      const slider = document.getElementById(
+        'frame-tile-display-divisor'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById(
+        'frame-tile-display-divisor-value'
+      );
+
+      slider.value = '4';
+      slider.dispatchEvent(new Event('input'));
+
+      expect(valueDisplay?.textContent).toBe('÷4 (quarter)');
+      expect(getWorkingOptions()?.frameTileDisplay.divisor).toBe(4);
+      // Must NOT have touched the capture resolution divisor.
+      expect(getWorkingOptions()?.images.resolutionDivisor).toBe(
+        DEFAULT_RECORDING_OPTIONS.images.resolutionDivisor
+      );
+    });
+
+    /**
+     * Why this test matters (occupancy-grid-settings review, item 1): the
+     * voxel-size slider is shown in centimetres for readability but the stored
+     * option is in metres. Moving the slider must (a) update the cm label and
+     * (b) write metres into the working option (cm / 100) — a unit mismatch
+     * would silently feed the grid a 100× wrong cell size.
+     */
+    it('updates voxel size display in cm and stores metres', () => {
+      const slider = document.getElementById(
+        'occupancy-cell-size'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('occupancy-cell-size-value');
+
+      slider.value = '5';
+      slider.dispatchEvent(new Event('input'));
+
+      expect(valueDisplay?.textContent).toBe('5 cm');
+      expect(getWorkingOptions()?.occupancy.cellSizeM).toBeCloseTo(0.05);
+    });
   });
 
   describe('checkbox interactions', () => {
@@ -768,6 +937,134 @@ describe('settings-modal', () => {
       // Note: This test may not work perfectly in JSDOM because event.target
       // might not match the modal element properly, so we just verify the modal exists
       expect(modal).not.toBeNull();
+    });
+  });
+
+  describe('QR detection settings (recorder live-QR WS-2/WS-5)', () => {
+    // Why these tests matter: QR capture is opt-in (default OFF) and the operator
+    // tunes the cadence + capture resolution from this modal. The UI must
+    // round-trip each control (populate from saved, persist a change) and gate the
+    // sliders on the enabled toggle.
+    it('includes the QR controls in production HTML', () => {
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="qr-enabled"');
+      expect(html).toContain('id="qr-interval"');
+      expect(html).toContain('id="qr-interval-value"');
+      expect(html).toContain('id="qr-capture-size"');
+      expect(html).toContain('id="qr-capture-size-value"');
+      expect(html).toContain('QR Detection');
+    });
+
+    it('defaults to OFF with the sliders disabled', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const enabled = document.getElementById('qr-enabled') as HTMLInputElement;
+      const interval = document.getElementById(
+        'qr-interval'
+      ) as HTMLInputElement;
+      const capture = document.getElementById(
+        'qr-capture-size'
+      ) as HTMLInputElement;
+      expect(enabled.checked).toBe(false);
+      expect(interval.disabled).toBe(true);
+      expect(capture.disabled).toBe(true);
+    });
+
+    it('enables the sliders when QR is turned on', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const enabled = document.getElementById('qr-enabled') as HTMLInputElement;
+      const interval = document.getElementById(
+        'qr-interval'
+      ) as HTMLInputElement;
+      const capture = document.getElementById(
+        'qr-capture-size'
+      ) as HTMLInputElement;
+
+      enabled.checked = true;
+      enabled.dispatchEvent(new Event('change'));
+      expect(interval.disabled).toBe(false);
+      expect(capture.disabled).toBe(false);
+    });
+
+    it('persists the enabled toggle and slider values', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const enabled = document.getElementById('qr-enabled') as HTMLInputElement;
+      enabled.checked = true;
+      enabled.dispatchEvent(new Event('change'));
+
+      const interval = document.getElementById(
+        'qr-interval'
+      ) as HTMLInputElement;
+      interval.value = '250';
+      interval.dispatchEvent(new Event('input'));
+
+      const capture = document.getElementById(
+        'qr-capture-size'
+      ) as HTMLInputElement;
+      capture.value = '512';
+      capture.dispatchEvent(new Event('input'));
+
+      document.getElementById('btn-settings-save')?.click();
+
+      const saved = loadRecordingOptions();
+      expect(saved.qr.enabled).toBe(true);
+      expect(saved.qr.intervalMs).toBe(250);
+      expect(saved.qr.captureSize).toBe(512);
+    });
+
+    it('populates the controls from saved options', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({
+          qr: { enabled: true, intervalMs: 200, captureSize: 768 },
+        })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const enabled = document.getElementById('qr-enabled') as HTMLInputElement;
+      const interval = document.getElementById(
+        'qr-interval'
+      ) as HTMLInputElement;
+      const intervalVal = document.getElementById('qr-interval-value');
+      const capture = document.getElementById(
+        'qr-capture-size'
+      ) as HTMLInputElement;
+      const captureVal = document.getElementById('qr-capture-size-value');
+
+      expect(enabled.checked).toBe(true);
+      expect(interval.value).toBe('200');
+      expect(intervalVal?.textContent).toBe('200 ms');
+      expect(capture.value).toBe('768');
+      expect(captureVal?.textContent).toBe('768 px');
+    });
+
+    it('updates the slider value displays on input', () => {
+      initSettingsModal();
+      showSettingsModal();
+
+      const interval = document.getElementById(
+        'qr-interval'
+      ) as HTMLInputElement;
+      interval.value = '300';
+      interval.dispatchEvent(new Event('input'));
+      expect(document.getElementById('qr-interval-value')?.textContent).toBe(
+        '300 ms'
+      );
+
+      const capture = document.getElementById(
+        'qr-capture-size'
+      ) as HTMLInputElement;
+      capture.value = '2048';
+      capture.dispatchEvent(new Event('input'));
+      expect(
+        document.getElementById('qr-capture-size-value')?.textContent
+      ).toBe('2048 px');
     });
   });
 

@@ -123,7 +123,7 @@ describe('FrameTileVisualizer', () => {
     scene.updateMatrixWorld(true);
 
     const mesh = findTile(arWorldGroup, 'frames/a.jpg');
-    // decompose (not setFromMatrix*) so the tile's 0.2 scale is factored
+    // decompose (not setFromMatrix*) so the tile's uniform scale is factored
     // out of the extracted rotation.
     const world = new THREE.Vector3();
     const worldQuat = new THREE.Quaternion();
@@ -147,13 +147,14 @@ describe('FrameTileVisualizer', () => {
   });
 
   // Why: tile size is observable via mesh.scale because the geometry
-  // is a unit plane shared across all tiles. Default 20 cm keeps tiles
-  // visible without dominating the scene.
-  it('scales the shared unit-plane geometry to the configured size (20 cm default)', () => {
+  // is a unit plane shared across all tiles. Default 10 cm (halved from 20 cm,
+  // D7) keeps tiles visible without dominating the scene / reading as a
+  // camera "zoom in".
+  it('scales the shared unit-plane geometry to the configured size (10 cm default)', () => {
     const viz = new FrameTileVisualizer(arSpaceNode);
     viz.addTile(makeFrame(), texture);
     const mesh = findTile(arSpaceNode, 'frames/frame-000001.jpg');
-    expect(mesh.scale.toArray()).toEqual([0.2, 0.2, 0.2]);
+    expect(mesh.scale.toArray()).toEqual([0.1, 0.1, 0.1]);
   });
 
   it('honours an explicit sizeMeters option', () => {
@@ -209,6 +210,67 @@ describe('FrameTileVisualizer', () => {
       0.2, 0.2, 0.2,
     ]);
     expect(findTile(arSpaceNode, 'frames/zero.jpg').scale.toArray()).toEqual([
+      0.2, 0.2, 0.2,
+    ]);
+  });
+
+  // Why (Finding A / DA-1 of 2026-06-14 follow-up): legacy recordings predate the
+  // persisted width/height fields, so frame.width/height are undefined. The
+  // decoded texture's `.image` (an ImageBitmap in production) still carries the
+  // true pixel dimensions — fall back to those so legacy tiles are aspect-correct
+  // instead of square. Precedence: persisted → bitmap → square.
+  it('falls back to the decoded texture.image dimensions when persisted dims are absent (DA-1)', () => {
+    const viz = new FrameTileVisualizer(arSpaceNode, { sizeMeters: 0.2 });
+    const bitmapTex = new THREE.Texture();
+    // Production: texture.image is an ImageBitmap carrying real width/height.
+    (
+      bitmapTex as unknown as { image: { width: number; height: number } }
+    ).image = { width: 1920, height: 1080 };
+    // No persisted dims (legacy frame).
+    viz.addTile(
+      makeFrame({ imageFile: 'frames/legacy-landscape.jpg' }),
+      bitmapTex
+    );
+    const [x, y, z] = findTile(
+      arSpaceNode,
+      'frames/legacy-landscape.jpg'
+    ).scale.toArray();
+    expect(x).toBeCloseTo(0.2); // wide edge = sizeMeters
+    expect(y).toBeCloseTo(0.2 * (1080 / 1920)); // 0.1125
+    expect(z).toBeCloseTo(0.2);
+    expect(x / y).toBeCloseTo(1920 / 1080);
+  });
+
+  // Why: persisted dims stay authoritative (DA-1 precedence). When both the
+  // persisted frame dims and the texture.image dims exist but disagree, the
+  // persisted ones win — they are the recorded capture metadata, and Finding A
+  // only fills the legacy gap, it does not replace D1's persisted dimensions.
+  it('prefers persisted frame dims over texture.image dims when both exist (DA-1 precedence)', () => {
+    const viz = new FrameTileVisualizer(arSpaceNode, { sizeMeters: 0.2 });
+    const bitmapTex = new THREE.Texture();
+    (
+      bitmapTex as unknown as { image: { width: number; height: number } }
+    ).image = { width: 1080, height: 1920 }; // portrait bitmap — must be IGNORED
+    // Persisted landscape dims must win over the portrait bitmap.
+    viz.addTile(
+      makeFrame({ imageFile: 'frames/both.jpg', width: 1920, height: 1080 }),
+      bitmapTex
+    );
+    const [x, y] = findTile(arSpaceNode, 'frames/both.jpg').scale.toArray();
+    expect(x).toBeCloseTo(0.2); // landscape footprint from the persisted dims
+    expect(y).toBeCloseTo(0.2 * (1080 / 1920));
+  });
+
+  // Why: defensive — a texture.image with non-positive / partial dimensions
+  // (or a bare jsdom stub) must not distort; fall through to the square so a
+  // tile can never collapse. Pins the final rung of the precedence chain.
+  it('falls back to square when neither persisted nor texture.image dims are usable', () => {
+    const viz = new FrameTileVisualizer(arSpaceNode, { sizeMeters: 0.2 });
+    const stubTex = new THREE.Texture();
+    (stubTex as unknown as { image: { width: number; height: number } }).image =
+      { width: 0, height: 1080 }; // non-positive width
+    viz.addTile(makeFrame({ imageFile: 'frames/stub.jpg' }), stubTex);
+    expect(findTile(arSpaceNode, 'frames/stub.jpg').scale.toArray()).toEqual([
       0.2, 0.2, 0.2,
     ]);
   });
