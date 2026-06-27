@@ -946,4 +946,33 @@ describe('Recorder Store', () => {
       });
     });
   });
+
+  describe('Compass alignment debug opt-ins', () => {
+    // Why: the recorder exposes the library's Phase-4 compass flags (Stage 0 /
+    // Stage C / consistency gate) so the operator can test them on-device. The
+    // store must thread each through createSlamAppStore, which enables it on the
+    // gpsData slice once that slice exists (after the first setZeroPos).
+    it('threads all three compass flags into the library store', () => {
+      const s = createRecorderStore({
+        enableCompassColdStartOverride: true,
+        enableCompassRotationPrior: true,
+        enableCompassWebXRConsistency: true,
+      });
+      expect(s.getState().gpsData).toBeNull();
+      s.dispatch(setZeroPos({ lat: 0, lon: 0 }));
+      const g = s.getState().gpsData;
+      expect(g?.coldStartOverrideEnabled).toBe(true);
+      expect(g?.compassRotationPriorEnabled).toBe(true);
+      expect(g?.compassWebXRConsistencyEnabled).toBe(true);
+    });
+
+    it('leaves all three compass flags off by default', () => {
+      const s = createRecorderStore();
+      s.dispatch(setZeroPos({ lat: 0, lon: 0 }));
+      const g = s.getState().gpsData;
+      expect(g?.coldStartOverrideEnabled).toBeFalsy();
+      expect(g?.compassRotationPriorEnabled).toBeFalsy();
+      expect(g?.compassWebXRConsistencyEnabled).toBeFalsy();
+    });
+  });
 });

@@ -81,6 +81,7 @@ describe('Recording Options Integration', () => {
         frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+        compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
       };
 
       store.dispatch(
@@ -112,6 +113,7 @@ describe('Recording Options Integration', () => {
         frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+        compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
       };
 
       store.dispatch(
@@ -329,6 +331,7 @@ describe('Recording Options Integration', () => {
         frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+        compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
       };
 
       store.dispatch(
@@ -391,6 +394,7 @@ describe('Recording Options Integration', () => {
         frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+        compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
       };
 
       store.dispatch(
@@ -452,6 +456,7 @@ describe('Recording Options Integration', () => {
         frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
         visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
         qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+        compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
       };
 
       store.dispatch(

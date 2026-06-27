@@ -78,6 +78,9 @@ let vizFrameTilesCheckbox: HTMLInputElement | null = null;
 let vizOccupancyCubesCheckbox: HTMLInputElement | null = null;
 let vizGpsAlignmentMarkersCheckbox: HTMLInputElement | null = null;
 let vizCompassCubesCheckbox: HTMLInputElement | null = null;
+let compassColdStartOverrideCheckbox: HTMLInputElement | null = null;
+let compassRotationPriorCheckbox: HTMLInputElement | null = null;
+let compassWebXRConsistencyCheckbox: HTMLInputElement | null = null;
 let qrEnabledCheckbox: HTMLInputElement | null = null;
 let qrIntervalSlider: HTMLInputElement | null = null;
 let qrIntervalValue: HTMLElement | null = null;
@@ -216,6 +219,15 @@ export function initSettingsModal(
   ) as HTMLInputElement;
   vizCompassCubesCheckbox = document.getElementById(
     'viz-compass-cubes'
+  ) as HTMLInputElement;
+  compassColdStartOverrideCheckbox = document.getElementById(
+    'compass-cold-start-override'
+  ) as HTMLInputElement;
+  compassRotationPriorCheckbox = document.getElementById(
+    'compass-rotation-prior'
+  ) as HTMLInputElement;
+  compassWebXRConsistencyCheckbox = document.getElementById(
+    'compass-webxr-consistency'
   ) as HTMLInputElement;
   qrEnabledCheckbox = document.getElementById('qr-enabled') as HTMLInputElement;
   qrIntervalSlider = document.getElementById('qr-interval') as HTMLInputElement;
@@ -477,6 +489,29 @@ export function initSettingsModal(
     if (workingOptions && vizCompassCubesCheckbox) {
       workingOptions.visualization.compassCubes =
         vizCompassCubesCheckbox.checked;
+    }
+  });
+
+  // Compass alignment debug toggles (Phase-4). Feed the absolute-orientation
+  // compass into the live GPS alignment; applied on the next session/reload.
+  compassColdStartOverrideCheckbox?.addEventListener('change', () => {
+    if (workingOptions && compassColdStartOverrideCheckbox) {
+      workingOptions.compassDebug.coldStartOverride =
+        compassColdStartOverrideCheckbox.checked;
+    }
+  });
+
+  compassRotationPriorCheckbox?.addEventListener('change', () => {
+    if (workingOptions && compassRotationPriorCheckbox) {
+      workingOptions.compassDebug.rotationPrior =
+        compassRotationPriorCheckbox.checked;
+    }
+  });
+
+  compassWebXRConsistencyCheckbox?.addEventListener('change', () => {
+    if (workingOptions && compassWebXRConsistencyCheckbox) {
+      workingOptions.compassDebug.webXRConsistency =
+        compassWebXRConsistencyCheckbox.checked;
     }
   });
 
@@ -833,6 +868,19 @@ function populateForm(options: RecordingOptions): void {
   }
   if (vizCompassCubesCheckbox) {
     vizCompassCubesCheckbox.checked = options.visualization.compassCubes;
+  }
+
+  // Compass alignment debug toggles (Phase-4)
+  if (compassColdStartOverrideCheckbox) {
+    compassColdStartOverrideCheckbox.checked =
+      options.compassDebug.coldStartOverride;
+  }
+  if (compassRotationPriorCheckbox) {
+    compassRotationPriorCheckbox.checked = options.compassDebug.rotationPrior;
+  }
+  if (compassWebXRConsistencyCheckbox) {
+    compassWebXRConsistencyCheckbox.checked =
+      options.compassDebug.webXRConsistency;
   }
 
   // QR detection (opt-in). Interval slider in ms, capture-size slider in px.

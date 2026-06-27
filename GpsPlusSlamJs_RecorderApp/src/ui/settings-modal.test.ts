@@ -882,6 +882,63 @@ describe('settings-modal', () => {
     });
   });
 
+  describe('compass alignment debug toggles (Phase-4)', () => {
+    // Why: the three compass alignment opt-ins (Stage 0 / Stage C / consistency
+    // gate) must default OFF (byte-identical solve) and round-trip through the
+    // settings UI: populate from saved options + persist a change to storage.
+    const COMPASS_IDS = [
+      ['compass-cold-start-override', 'coldStartOverride'],
+      ['compass-rotation-prior', 'rotationPrior'],
+      ['compass-webxr-consistency', 'webXRConsistency'],
+    ] as const;
+
+    it('all three default to unchecked (OFF) — byte-identical solve', () => {
+      initSettingsModal();
+      showSettingsModal();
+      for (const [id] of COMPASS_IDS) {
+        const cb = document.getElementById(id) as HTMLInputElement | null;
+        expect(cb, id).not.toBeNull();
+        expect(cb!.checked, id).toBe(false);
+      }
+    });
+
+    it.each(COMPASS_IDS)(
+      'persists %s → compassDebug.%s when checked',
+      (id, key) => {
+        initSettingsModal();
+        showSettingsModal();
+
+        const cb = document.getElementById(id) as HTMLInputElement;
+        expect(cb.checked).toBe(false);
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change'));
+
+        document.getElementById('btn-settings-save')?.click();
+
+        expect(loadRecordingOptions().compassDebug[key]).toBe(true);
+        // The other compass flags remain OFF — toggles are independent.
+        for (const [otherId, otherKey] of COMPASS_IDS) {
+          if (otherKey === key) continue;
+          expect(loadRecordingOptions().compassDebug[otherKey], otherId).toBe(
+            false
+          );
+        }
+      }
+    );
+
+    it.each(COMPASS_IDS)('populates %s from a saved ON value', (id, key) => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ compassDebug: { [key]: true } })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const cb = document.getElementById(id) as HTMLInputElement | null;
+      expect(cb?.checked).toBe(true);
+    });
+  });
+
   describe('minimal baseline preset', () => {
     it('disables recording-time and Phase 1 AR crash isolation flags', () => {
       initSettingsModal();

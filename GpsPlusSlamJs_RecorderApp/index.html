@@ -1311,6 +1311,57 @@ No errors</pre
             </div>
           </div>
 
+          <!-- Compass alignment debug toggles (Phase-4: Stage 0 / Stage C / consistency gate) -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">🧭</span>
+              <span class="font-medium text-white"
+                >Compass alignment (debug)</span
+              >
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
+              <p class="text-[11px] text-gray-400">
+                Experimental — feed the absolute-orientation compass into the
+                live GPS alignment. Applies on the next session / reload. These
+                flags are recorded into the session (replay re-enables them), so
+                record calibration sets with all OFF.
+              </p>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="compass-cold-start-override"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Stage 0 — cold-start override (fixes initial rotation
+                  jumping)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="compass-rotation-prior"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Stage C — steady-state rotation prior (trust-gated
+                  vote)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="compass-webxr-consistency"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Trust gate — only use compass when consistent with
+                  WebXR</span
+                >
+              </label>
+            </div>
+          </div>
+
           <!-- Performance Note -->
           <p class="text-xs text-gray-400 mb-4">
             ⚠️ Higher frequencies may impact performance on some devices.

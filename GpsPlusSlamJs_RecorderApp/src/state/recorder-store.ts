@@ -160,6 +160,17 @@ export interface RecorderStoreOptions {
   enableDevChecks?: boolean;
   /** Override the bundled community license key. */
   licenseKey?: string;
+  /**
+   * Debug/experiment compass alignment opt-ins (Phase-4). Each is forwarded to
+   * `createSlamAppStore`, which enables it on the `gpsData` slice once that slice
+   * exists (after the first `setZeroPos`). All default OFF ⇒ byte-identical solve.
+   * Sourced from `RecordingOptions.compassDebug` so the operator toggles them in
+   * the recorder settings. NB: the resulting `gpsData` actions persist into the
+   * recording (replay re-enables them) — record calibration sets with these OFF.
+   */
+  enableCompassColdStartOverride?: boolean;
+  enableCompassRotationPrior?: boolean;
+  enableCompassWebXRConsistency?: boolean;
 }
 
 /**
@@ -177,6 +188,9 @@ export function createRecorderStore(
     onWriteFailure: options.onWriteFailure,
     enableDevChecks: options.enableDevChecks,
     licenseKey: options.licenseKey,
+    enableCompassColdStartOverride: options.enableCompassColdStartOverride,
+    enableCompassRotationPrior: options.enableCompassRotationPrior,
+    enableCompassWebXRConsistency: options.enableCompassWebXRConsistency,
     // Persist the recorder-owned refPoints slice and the framework qrDetected
     // slice. Derived from each slice's own action type (never a literal) so a
     // rename can't silently drop data from recordings — see the 2026-05-28
