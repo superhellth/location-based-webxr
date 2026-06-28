@@ -41,6 +41,7 @@ The shortest path in is a single QR code: the user points their phone's camera a
 - **AR tour guides and museum trails** - content keyed to location, surfaced when the user is nearby.
 - **Location-based games** - geocaching, scavenger hunts, multi-player AR experiences tied to physical places.
 - **Field-data capture tools** - record synchronized GPS, AR poses, camera frames, and depth as reusable datasets for 3D reconstruction (COLMAP / Gaussian splatting), alignment-quality evaluation, desktop replay, geo-anchored site documentation, and ML training.
+  - The recorded zips can be opened directly in third-party reconstruction tools such as [colmapview.github.io](https://colmapview.github.io/) or [LichtFeld-Studio](https://github.com/MrNeRF/LichtFeld-Studio).
 
 ## How It Works: Sensor Fusion & Outdoor Stability
 
