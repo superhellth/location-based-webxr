@@ -39,6 +39,14 @@ describe('ImageCaptureManager — motion gate', () => {
     manager.onFrame(t);
   }
 
+  /** Drive one onFrame where tracking has been lost (getCurrentPose → null). */
+  function frameNoPose(t: number): void {
+    (
+      mockCallbacks.getCurrentPose as ReturnType<typeof vi.fn>
+    ).mockReturnValueOnce(null);
+    manager.onFrame(t);
+  }
+
   /** Wait until `n` captures have fully completed (captureInProgress reset). */
   async function flushCaptures(n: number): Promise<void> {
     await vi.waitFor(() =>
@@ -141,6 +149,35 @@ describe('ImageCaptureManager — motion gate', () => {
     // Fast rotation at the due time — with the gate off this captures anyway.
     frame(2984, 0.0);
     frame(3000, 0.4); // due + fast, but filter disabled
+    expect(toBlobCalls()).toBe(2);
+    await flushCaptures(2);
+  });
+
+  it('resets motion history on tracking loss so a calm frame after recovery is not blocked by stale maxima', async () => {
+    // Regression: a `!pose` frame (tracking loss) left prevPose/prevTime and the
+    // sliding window intact. The first post-loss sample was then computed across
+    // the whole outage gap (violating the "instantaneous motion" assumption), and
+    // stale pre-loss fast maxima kept deferring captures after recovery.
+    // MotionWindow.reset()'s own doc says it should be cleared "on tracking loss".
+    manager = new ImageCaptureManager(mockCanvas, mockCallbacks);
+    manager.start();
+
+    frame(1000, 0);
+    await flushCaptures(1);
+
+    // Build a window of fast rotation just before the next due time (3000ms).
+    frame(2968, 0); // slow first post-capture sample
+    frame(2984, 0.2); // 12.5 rad/s (fast)
+    frame(3000, 0.4); // due AND fast → defer
+    expect(toBlobCalls()).toBe(1);
+
+    // Tracking is lost for one frame, then recovers at a genuinely calm pose.
+    frameNoPose(3016);
+    frame(3032, 0.4); // calm (no rotation), still due
+
+    // Without the reset, the stale [.,12.5,.] window keeps deferring here. With
+    // the reset, the window is empty → treated as the first post-recovery sample
+    // → the due capture fires.
     expect(toBlobCalls()).toBe(2);
     await flushCaptures(2);
   });

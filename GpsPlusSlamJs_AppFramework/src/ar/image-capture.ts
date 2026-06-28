@@ -434,6 +434,14 @@ export class ImageCaptureManager {
   private updateMotionWindow(time: number, pose: ARPose | null): void {
     if (!pose) {
       this.lastSampleWasGlitch = false;
+      // Tracking lost: drop the window and the prev-frame baseline. Otherwise
+      // the first sample after recovery is computed across the whole outage gap
+      // (not instantaneous), and stale pre-loss maxima keep deferring captures
+      // after the device has settled. MotionWindow.reset()'s doc designates
+      // this exact "on tracking loss" trigger.
+      this.motionWindow.reset();
+      this.prevPose = null;
+      this.prevTime = 0;
       return;
     }
     if (this.prevPose && this.prevTime > 0) {
