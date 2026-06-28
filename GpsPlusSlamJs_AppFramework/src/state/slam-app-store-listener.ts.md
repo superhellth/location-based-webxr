@@ -28,6 +28,7 @@ persistence middleware indexes _after_ the trigger → correct replay order **by
 construction**, with no `queueMicrotask` / re-entrancy guard to hand-maintain.
 
 See the full analysis and plan:
+
 - [`2026-06-28-subscriber-dispatch-persistence-ordering-review.md`](../../../../GpsPlusSlamJs_Docs/docs/2026-06-28-subscriber-dispatch-persistence-ordering-review.md)
 - [`2026-06-28-subscriber-dispatch-persistence-ordering-plan.md`](../../../../GpsPlusSlamJs_Docs/docs/2026-06-28-subscriber-dispatch-persistence-ordering-plan.md)
 
@@ -47,12 +48,12 @@ See the full analysis and plan:
 ## Invariants & assumptions
 
 - **Predicate is level-based, not edge-based.** It fires whenever `gpsData` is
-  non-null **and at least one opt-in is still unset** — *not* on a `null →
-  non-null` transition. Keying on "a flag is unset" means a recreated `gpsData`
+  non-null **and at least one opt-in is still unset** — _not_ on a `null →
+non-null` transition. Keying on "a flag is unset" means a recreated `gpsData`
   (store swap / origin reset) with cleared flags re-triggers the apply, matching
   the pre-existing re-apply semantics (the 2026-06-27 field bug). **Do not
   "simplify" it to a transition predicate** — that silently drops the re-apply.
-- **Idempotent under re-entrancy.** `isSet` is re-read against the *current*
+- **Idempotent under re-entrancy.** `isSet` is re-read against the _current_
   store state immediately before each dispatch (not one snapshot at effect
   entry). Redux dispatch is synchronous, so a flag is set before the next check
   runs, and an opt-in's own dispatch re-triggers the predicate (which can
