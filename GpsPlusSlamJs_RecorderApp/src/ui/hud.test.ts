@@ -3188,6 +3188,19 @@ describe('AbsCompass status row', () => {
     expect(status.classList.contains('text-green-400')).toBe(true);
   });
 
+  it('falls back to "ok" (not "NaN°") when active but the heading is NaN', async () => {
+    // `typeof NaN === 'number'` is true, so a guard on `typeof` alone would
+    // render `Math.round(NaN)` → "NaN°". A degenerate quaternion can yield a
+    // NaN heading; the row must degrade to "ok" rather than show "NaN°".
+    setupDOMWithAbsCompass();
+    const { setAbsCompassStatus } = await import('./hud.js');
+    setAbsCompassStatus({ state: 'active', headingDeg: Number.NaN });
+
+    const status = document.getElementById('abs-compass-status')!;
+    expect(status.textContent).toBe('ok');
+    expect(status.classList.contains('text-green-400')).toBe(true);
+  });
+
   it('shows gray "unavailable" with the reason (iOS/Safari/desktop path)', async () => {
     setupDOMWithAbsCompass();
     const { setAbsCompassStatus } = await import('./hud.js');

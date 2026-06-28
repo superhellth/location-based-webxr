@@ -595,8 +595,12 @@ export function setAbsCompassStatus(status: AbsCompassStatusDisplay): void {
   info.classList.remove('hidden');
   el.classList.remove('text-green-400', 'text-yellow-400', 'text-gray-400');
   if (status.state === 'active') {
+    // typeof===number alone is insufficient: NaN/Infinity are typeof 'number'
+    // and would render "NaN°". Number.isFinite excludes both; the typeof keeps
+    // the value narrowed to number for Math.round. A degenerate heading → "ok".
     el.textContent =
-      typeof status.headingDeg === 'number'
+      typeof status.headingDeg === 'number' &&
+      Number.isFinite(status.headingDeg)
         ? `${Math.round(status.headingDeg)}°`
         : 'ok';
     el.classList.add('text-green-400');
