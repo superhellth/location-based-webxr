@@ -58,6 +58,12 @@ interface SensorErrorLike {
 
 let sensor: AbsoluteOrientationSensorLike | null = null;
 let latest: AbsoluteOrientationReading | null = null;
+// Monotonic token incremented by every start AND every stop. A start captures
+// its token after the initial stop, then re-checks it after the async
+// permission gate: if a stop/restart landed in between, the token no longer
+// matches and the stale start aborts instead of installing a sensor teardown
+// no longer owns.
+let watchGeneration = 0;
 
 function getSensorCtor(): AbsoluteOrientationSensorCtor | null {
   if (typeof window === 'undefined') return null;
@@ -85,6 +91,26 @@ function currentScreenAngleDeg(): number {
 }
 
 /**
+ * Whether all three underlying sensors are granted-or-promptable (plan §5.1).
+ * Returns `true` when the Permissions API is absent (best-effort — let the
+ * sensor constructor surface any real denial), and treats a failed individual
+ * query as `'granted'` for the same reason.
+ */
+async function sensorPermissionsUsable(): Promise<boolean> {
+  const permissions = navigator.permissions;
+  if (!permissions || typeof permissions.query !== 'function') return true;
+  const states = await Promise.all(
+    (['accelerometer', 'gyroscope', 'magnetometer'] as const).map((name) =>
+      permissions
+        .query({ name: name as PermissionName })
+        .then((p): PermissionState => p.state)
+        .catch((): PermissionState => 'granted')
+    )
+  );
+  return states.every((s) => s === 'granted' || s === 'prompt');
+}
+
+/**
  * Start capturing absolute orientation. Idempotent (stops any prior watch first).
  *
  * On platforms without the sensor — or when permissions are denied — it reports
@@ -95,6 +121,7 @@ export async function startAbsoluteOrientationWatch(
   onStatus: (status: AbsoluteOrientationStatus) => void = () => {}
 ): Promise<void> {
   stopAbsoluteOrientationWatch();
+  const myGeneration = watchGeneration;
 
   const Ctor = getSensorCtor();
   if (!isAbsoluteOrientationAvailable() || Ctor === null) {
@@ -107,21 +134,14 @@ export async function startAbsoluteOrientationWatch(
 
   try {
     // All three underlying sensors must be granted-or-promptable (plan §5.1).
-    const permissions = navigator.permissions;
-    if (permissions && typeof permissions.query === 'function') {
-      const states = await Promise.all(
-        (['accelerometer', 'gyroscope', 'magnetometer'] as const).map((name) =>
-          permissions
-            .query({ name: name as PermissionName })
-            .then((p): PermissionState => p.state)
-            .catch((): PermissionState => 'granted')
-        )
-      );
-      if (!states.every((s) => s === 'granted' || s === 'prompt')) {
-        onStatus({ state: 'unavailable', reason: 'sensor permission denied' });
-        return;
-      }
+    if (!(await sensorPermissionsUsable())) {
+      onStatus({ state: 'unavailable', reason: 'sensor permission denied' });
+      return;
     }
+
+    // A stop()/restart may have landed while we awaited the permission gate.
+    // Bail before installing anything if this start has been superseded.
+    if (myGeneration !== watchGeneration) return;
 
     // Decision Q1: record the RAW device frame + screen angle.
     const created = new Ctor({
@@ -181,6 +201,8 @@ export function getLatestAbsoluteOrientation(): AbsoluteOrientationReading | nul
 
 /** Stop the watch and clear cached state. Idempotent. */
 export function stopAbsoluteOrientationWatch(): void {
+  // Invalidate any in-flight start awaiting its async permission gate.
+  watchGeneration++;
   if (sensor) {
     try {
       sensor.stop();

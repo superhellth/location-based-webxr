@@ -270,5 +270,30 @@ describe('AbsoluteOrientationSensor capture', () => {
       expect(first).not.toBe(second);
       expect(first.stopped).toBe(true);
     });
+
+    it('does not install the sensor when stopped during the async permission check', async () => {
+      // The recorder starts this watch fire-and-forget. The real work happens
+      // only AFTER awaiting permission queries, so a stop()/restart that lands
+      // during that await must invalidate the in-flight start — otherwise it
+      // resumes and installs a live sensor/listener chain that teardown no
+      // longer owns (stale compass updates leaking into the next session).
+      let resolveQuery!: (value: { state: PermissionState }) => void;
+      const queryPromise = new Promise<{ state: PermissionState }>((r) => {
+        resolveQuery = r;
+      });
+      Object.defineProperty(navigator, 'permissions', {
+        value: { query: vi.fn().mockReturnValue(queryPromise) },
+        configurable: true,
+      });
+
+      const startP = startAbsoluteOrientationWatch(); // awaits the permission gate
+      stopAbsoluteOrientationWatch(); // operator stops before it resolves
+      resolveQuery({ state: 'granted' }); // permission now resolves granted
+      await startP;
+
+      // The stale start must not have installed a sensor.
+      expect(FakeAbsoluteOrientationSensor.lastInstance).toBeNull();
+      expect(getLatestAbsoluteOrientation()).toBeNull();
+    });
   });
 });

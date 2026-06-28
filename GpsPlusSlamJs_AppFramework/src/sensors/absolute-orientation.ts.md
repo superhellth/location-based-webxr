@@ -39,6 +39,12 @@ referenceFrame:'device', screenAngleDeg, timestamp }`. The raw device frame +
   iOS/Safari/desktop keep working unchanged.
 - The non-standard sensor is locally typed (minimal ambient interface) — no
   dependency on `@types/w3c-generic-sensor`.
+- **Stale-start safety**: the start does its real work only after awaiting the
+  permission gate, and the recorder fires it fire-and-forget. A monotonic
+  `watchGeneration` token (incremented by every start and every stop) is captured
+  after the initial stop and re-checked before the sensor is installed; if a
+  `stop()`/restart landed during the await, the stale start aborts instead of
+  installing a sensor that teardown no longer owns.
 
 ## Examples
 
@@ -53,6 +59,7 @@ const reading = getLatestAbsoluteOrientation(); // → embed in RecordGpsEventPa
 `absolute-orientation.test.ts` (jsdom) drives a **fake** `AbsoluteOrientationSensor`:
 reading caches quaternion + screen angle; construction options; activate/error
 status; missing-quaternion guard; permission-denied & no-Permissions-API paths;
-constructor-throws path; `stop` idempotency; restart-without-leak. The real
+constructor-throws path; `stop` idempotency; restart-without-leak; stale-start
+abort when `stop()` lands during the async permission check. The real
 sensor (Chrome-Android device seam) is not e2e-tested — mirrors the image-quality
 worker decision.
