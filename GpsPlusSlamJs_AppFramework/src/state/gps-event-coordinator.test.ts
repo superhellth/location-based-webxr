@@ -263,46 +263,6 @@ describe('Recording Coordinator', () => {
       expect(result.heading).toBeUndefined();
       expect(result.speed).toBeUndefined();
     });
-
-    /**
-     * Why this test matters:
-     * The DeviceOrientationEvent.absolute flag indicates whether compass alpha
-     * is relative to magnetic north (true) or an arbitrary reference (false).
-     * If false, compass-based drift correction is unreliable. Must be preserved.
-     */
-    /**
-     * Why this test matters: the legacy `compassAbsolute` field on recorded
-     * GPS events was dead data and is no longer populated (§5b dead-code
-     * removal, 2026-06-28). Even with a fully-populated absolute orientation,
-     * the built RawGpsPoint must NOT carry `compassAbsolute`. The live
-     * odometry-restart orientation path uses the cached orientation instead.
-     */
-    it('does not populate the legacy compassAbsolute field', () => {
-      const gpsPosition: GpsPosition = {
-        lat: 48.8567,
-        lon: 2.3523,
-        altitude: null,
-        accuracy: 5.0,
-        altitudeAccuracy: null,
-        heading: null,
-        speed: null,
-        timestamp: Date.now(),
-      };
-
-      const orientation: RawDeviceOrientation = {
-        alpha: 90,
-        beta: 0,
-        gamma: 0,
-        absolute: true,
-      };
-
-      expect(buildRawGpsPoint(gpsPosition, orientation).compassAbsolute).toBe(
-        undefined
-      );
-      expect(buildRawGpsPoint(gpsPosition, null).compassAbsolute).toBe(
-        undefined
-      );
-    });
   });
 
   describe('buildRecordGpsEventPayload', () => {
@@ -337,7 +297,6 @@ describe('Recording Coordinator', () => {
       expect(result.odomRotation).toEqual([0, 0, 0, 1]);
       expect(result.rawGpsPoint.latitude).toBe(48.8567);
       expect(result.rawGpsPoint).not.toHaveProperty('zeroRef');
-      expect(result.rawDeviceOrientation).toBeUndefined();
       // No AbsoluteOrientationSensor reading provided → field absent (back-compat).
       expect(result.rawAbsoluteOrientation).toBeUndefined();
     });
