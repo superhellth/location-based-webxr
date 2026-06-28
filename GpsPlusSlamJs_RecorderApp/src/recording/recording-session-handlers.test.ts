@@ -791,6 +791,47 @@ describe('handleStartRecording', () => {
     );
   });
 
+  it('continues recording (fails open) when the quality-gate worker cannot be created', async () => {
+    // The analyzer's worker is constructed synchronously (`new Worker`). On a
+    // locked-down deployment (e.g. CSP `worker-src 'none'`) that constructor can
+    // throw. Previously the throw propagated out of handleStartRecording AFTER
+    // the GPS/orientation/compass watches had already started, leaving a
+    // half-initialized session (image capture never started, controls never
+    // shown). The gate is optional and fail-open everywhere, so a worker-create
+    // failure must disable the gate and let recording proceed.
+    const opts: RecordingOptions = {
+      images: {
+        enabled: true,
+        intervalMs: 2000,
+        quality: 0.7,
+        resolutionDivisor: 1,
+        motionFilter: { ...DEFAULT_RECORDING_OPTIONS.images.motionFilter },
+        qualityFilter: {
+          ...DEFAULT_RECORDING_OPTIONS.images.qualityFilter,
+          enabled: true,
+        },
+      },
+      depth: { enabled: false, intervalMs: 1000, gridSize: 3, rgb: true },
+      arCrashIsolation: { ...DEFAULT_RECORDING_OPTIONS.arCrashIsolation },
+      occupancy: { ...DEFAULT_RECORDING_OPTIONS.occupancy },
+      frameTileDisplay: { ...DEFAULT_RECORDING_OPTIONS.frameTileDisplay },
+      visualization: { ...DEFAULT_RECORDING_OPTIONS.visualization },
+      qr: { ...DEFAULT_RECORDING_OPTIONS.qr },
+      compassDebug: { ...DEFAULT_RECORDING_OPTIONS.compassDebug },
+    };
+    deps = createMockDeps({ getRecordingOptions: () => opts });
+    handlers = createRecordingSessionHandlers(deps);
+    mockCreateImageQualityAnalyzer.mockImplementationOnce(() => {
+      throw new Error('Worker blocked by CSP');
+    });
+
+    await expect(handlers.handleStartRecording()).resolves.toBeUndefined();
+
+    // Gate disabled (cleared), but recording still proceeded to image capture.
+    expect(mockSetImageQualityAnalyzer).toHaveBeenCalledWith(null);
+    expect(mockStartImageCapture).toHaveBeenCalled();
+  });
+
   it('disposes the quality analyzer and clears the callback on stop', async () => {
     const opts: RecordingOptions = {
       images: {

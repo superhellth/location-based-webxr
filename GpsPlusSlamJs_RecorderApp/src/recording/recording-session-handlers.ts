@@ -487,11 +487,25 @@ export function createRecordingSessionHandlers(
       // when constructed). Always (re)set the analyzer so a previous recording's
       // worker can't leak into this one.
       if (imageConfig.qualityFilter.enabled) {
-        imageQualityClient = createImageQualityAnalyzer(
-          imageConfig.qualityFilter
-        );
-        setImageQualityAnalyzer(imageQualityClient.analyze);
-        log.info('Image-quality gate enabled (off-thread blur/blackness)');
+        try {
+          imageQualityClient = createImageQualityAnalyzer(
+            imageConfig.qualityFilter
+          );
+          setImageQualityAnalyzer(imageQualityClient.analyze);
+          log.info('Image-quality gate enabled (off-thread blur/blackness)');
+        } catch (err) {
+          // The worker is constructed synchronously; on a locked-down
+          // deployment (e.g. CSP `worker-src`) `new Worker` can throw. The gate
+          // is optional and fail-open everywhere, so disable it and keep
+          // recording rather than aborting a session whose GPS/orientation
+          // watches are already running.
+          imageQualityClient = null;
+          setImageQualityAnalyzer(null);
+          log.warn(
+            'Image-quality gate unavailable (worker init failed) — recording without it',
+            err
+          );
+        }
       } else {
         setImageQualityAnalyzer(null);
       }
