@@ -362,7 +362,6 @@ describe('Recorder Store', () => {
         altitude: 200,
         latLongAccuracy: 4,
         altitudeAccuracy: 3,
-        compassAbsolute: false,
         timestamp: 1_700_000_000_000,
       };
       const entry: RefPointEntry = {
