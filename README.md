@@ -73,12 +73,10 @@ Your app composes its own state, screen flow, and visuals on top of the framewor
 
 ## Packages
 
-| Package                                                     | Description                                                                                                                               | License    |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [`GpsPlusSlamJs_AppFramework`](GpsPlusSlamJs_AppFramework/) | Reusable AR+GPS app framework - WebXR session management, Three.js visualization, GPS sensors, OPFS+ZIP record/replay, composable store. | Apache-2.0 |
-| [`GpsPlusSlamJs_RecorderApp`](GpsPlusSlamJs_RecorderApp/)   | Full-featured recorder app: capture AR sessions on a phone, replay on a desktop, debug alignment, and contribute test data.              | Apache-2.0 |
-| [`GpsPlusSlamJs_AnchorStarter`](GpsPlusSlamJs_AnchorStarter/) | Persistent-anchor starter (the public "Demo"). GPS-anchored placement with URL-based persistence (`?show=`) and cross-device sharing.   | Apache-2.0 |
-| [`GpsPlusSlamJs_MinimalExample`](GpsPlusSlamJs_MinimalExample/) | Smallest possible consumer of the framework. A single-file GPS + AR hit-test demo (Enable GPS AR button → reticle → tap-to-place) that contrasts an uncompensated floater cube with a drift-corrected `createGpsAnchor` marker. Use this as your starting template. | Apache-2.0 |
+- [`GpsPlusSlamJs_AppFramework`](GpsPlusSlamJs_AppFramework/) — Reusable AR+GPS app framework - WebXR session management, Three.js visualization, GPS sensors, OPFS+ZIP record/replay, composable store.
+- [`GpsPlusSlamJs_RecorderApp`](GpsPlusSlamJs_RecorderApp/) — Full-featured recorder app: capture AR sessions on a phone, replay on a desktop, debug alignment, and contribute test data.
+- [`GpsPlusSlamJs_AnchorStarter`](GpsPlusSlamJs_AnchorStarter/) — Persistent-anchor starter (the public "Demo"). GPS-anchored placement with URL-based persistence (`?show=`) and cross-device sharing.
+- [`GpsPlusSlamJs_MinimalExample`](GpsPlusSlamJs_MinimalExample/) — Smallest possible consumer of the framework. A single-file GPS + AR hit-test demo (Enable GPS AR button → reticle → tap-to-place) that contrasts an uncompensated floater cube with a drift-corrected `createGpsAnchor` marker. Use this as your starting template.
 
 The recorder app at a glance:
 
