@@ -111,6 +111,28 @@ describe('createImageQualityClient', () => {
     await expect(p).resolves.toEqual({ accept: true, reason: 'fail-open' });
   });
 
+  it('fails open for analyses started AFTER a worker error (no post to the dead worker)', async () => {
+    // Regression: previously `worker.onerror` failed-open the *in-flight* work
+    // but left the client live (disposed=false, ready=true). A subsequent
+    // analyze() then posted to the dead worker and its promise never resolved,
+    // so ImageCaptureManager.awaitingVerdict stalled until its 5 s safety
+    // timeout on every frame. A worker error is fatal: future analyses must
+    // fail open immediately without touching the dead worker.
+    const w = new FakeWorker();
+    const client = createImageQualityClient(config, w);
+    w.emit({ type: 'ready' });
+
+    w.emitError(new Error('worker boom'));
+
+    const postedBefore = w.analyzeMessages().length;
+    await expect(client.analyze(frame())).resolves.toEqual({
+      accept: true,
+      reason: 'fail-open',
+    });
+    // Must not have posted another analyze to the dead worker.
+    expect(w.analyzeMessages().length).toBe(postedBefore);
+  });
+
   it('terminates the worker and fails open on dispose', async () => {
     const w = new FakeWorker();
     const client = createImageQualityClient(config, w);

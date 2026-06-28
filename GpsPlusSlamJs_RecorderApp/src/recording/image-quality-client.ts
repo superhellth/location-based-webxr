@@ -81,9 +81,16 @@ export function createImageQualityClient(
   };
 
   worker.onerror = (event: unknown): void => {
-    // Fail-open: resolve everything outstanding so the manager never stalls.
+    // A worker error is fatal. Mark the client disposed (and terminate the dead
+    // worker) so future analyze() calls fail open immediately instead of posting
+    // to a worker that will never reply — which would otherwise stall
+    // ImageCaptureManager.awaitingVerdict until its safety timeout on every
+    // frame. Resolve everything outstanding so nothing is left hanging.
     log.error('image-quality worker error — failing open', event);
+    if (disposed) return;
+    disposed = true;
     failOpenAll();
+    worker.terminate();
   };
 
   function failOpenAll(): void {
