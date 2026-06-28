@@ -37,17 +37,19 @@ export interface RecordingOptionsInput {
 }
 
 /**
- * Debug/experiment toggles for the library's Phase-4 compass alignment features
- * (closed/internal `AlignmentConfig` flags exposed via narrow boolean actions).
- * They change how the LIVE alignment is computed, so they belong with the other
- * debug groups (`arCrashIsolation`, `visualization`). All default **OFF** ⇒
- * byte-identical core solve until the operator opts in.
+ * Toggles for the library's Phase-4 compass alignment features (closed/internal
+ * `AlignmentConfig` flags exposed via narrow boolean actions). They change how
+ * the LIVE alignment is computed, so they sit with the other capture groups.
+ * **Stage 0 (`coldStartOverride`) defaults ON** (a field-validated production
+ * feature); Stage C + the WebXR-consistency gate stay experimental (default
+ * OFF) until the §6a field-data matrix is in.
  *
  * On-device caveat: the resulting `gpsData` actions persist into the recording,
- * so a replay re-enables them. Record field-calibration sets with these OFF.
+ * so a replay re-enables them. Record §6a field-calibration sets with
+ * `coldStartOverride` OFF so the captured compass behaviour is unmodified.
  */
 export interface CompassDebugOptions {
-  /** Stage 0 — cold-start compass yaw override (`setColdStartOverrideEnabled`). */
+  /** Stage 0 — cold-start compass yaw override (`setColdStartOverrideEnabled`). Default ON. */
   coldStartOverride: boolean;
   /** Stage C — trust-gated compass rotation prior (`setCompassRotationPriorEnabled`). */
   rotationPrior: boolean;
@@ -336,8 +338,12 @@ export const DEFAULT_RECORDING_OPTIONS: RecordingOptions = {
     captureSize: 1024, // long-edge px — the on-device-verified default
   },
   compassDebug: {
-    // All OFF ⇒ byte-identical core solve. Operator opts in to test on-device.
-    coldStartOverride: false,
+    // Stage 0 (cold-start compass yaw override) ships ON by default — it is a
+    // field-validated, observability-gated handover that orients the world
+    // immediately at cold start and hands back to GPS once the yaw is
+    // observable. Operator can turn it OFF (e.g. for §6a field-calibration
+    // recordings). Stage C + the WebXR-consistency gate stay experimental (OFF).
+    coldStartOverride: true,
     rotationPrior: false,
     webXRConsistency: false,
   },

@@ -478,15 +478,15 @@ describe('recording-options', () => {
   });
 
   describe('validateCompassDebugOptions', () => {
-    // Why: the compass alignment debug flags (Stage 0 / Stage C / consistency
-    // gate) must default OFF (byte-identical / no override) and validate
-    // boolean-or-default, so a corrupted or pre-feature persisted value can never
-    // silently turn an alignment override ON.
-    it('returns all-false defaults when given empty object', () => {
+    // Why: each compass flag validates boolean-or-default. Stage 0
+    // (coldStartOverride) is a default-ON feature; Stage C + the consistency
+    // gate stay experimental (default OFF) so a corrupted or pre-feature
+    // persisted value can never silently turn those experimental overrides ON.
+    it('returns the per-field defaults when given empty object', () => {
       const result = validateCompassDebugOptions({});
       expect(result).toEqual(DEFAULT_RECORDING_OPTIONS.compassDebug);
       expect(result).toEqual({
-        coldStartOverride: false,
+        coldStartOverride: true,
         rotationPrior: false,
         webXRConsistency: false,
       });
@@ -495,23 +495,25 @@ describe('recording-options', () => {
     it('preserves valid boolean values', () => {
       expect(
         validateCompassDebugOptions({
-          coldStartOverride: true,
+          coldStartOverride: false,
           rotationPrior: true,
           webXRConsistency: true,
         })
       ).toEqual({
-        coldStartOverride: true,
+        coldStartOverride: false,
         rotationPrior: true,
         webXRConsistency: true,
       });
     });
 
-    it('falls back to the OFF default for non-boolean values per field', () => {
+    it('falls back to each field default for non-boolean values', () => {
+      // Stage 0 falls back to its default-ON; the experimental flags fall back
+      // OFF — a garbage persisted value never silently enables Stage C / gate.
       expect(
         validateCompassDebugOptions({
-          coldStartOverride: 'yes' as unknown as boolean,
+          coldStartOverride: 'no' as unknown as boolean,
         }).coldStartOverride
-      ).toBe(false);
+      ).toBe(true);
       expect(
         validateCompassDebugOptions({ rotationPrior: 1 as unknown as boolean })
           .rotationPrior

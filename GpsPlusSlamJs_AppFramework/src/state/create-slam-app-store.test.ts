@@ -65,7 +65,7 @@ describe('createSlamAppStore', () => {
     });
   });
 
-  describe('enableCompassColdStartOverride (Stage-0 debug opt-in)', () => {
+  describe('enableCompassColdStartOverride (Stage-0, default-on feature)', () => {
     it('enables the override once gpsData exists (after the first setZeroPos)', async () => {
       // Why: the flag lives on the gpsData slice, which is null until the first
       // setZeroPos; the factory must defer the opt-in until that slice exists.
@@ -84,10 +84,36 @@ describe('createSlamAppStore', () => {
       expect(store.getState().gpsData?.coldStartOverrideEnabled).toBe(true);
     });
 
-    it('leaves the override off by default (byte-identical core path)', () => {
+    it('enables the override BY DEFAULT (Stage-0 ships on for every consumer)', async () => {
+      // Stage 0 is now a default-on production feature (field-validated): a
+      // consumer that says nothing still gets the cold-start compass override.
+      // The library default stays OFF for replay determinism — default-on lives
+      // here at the framework opt-in tier (the dispatch is a recorded action).
       const store = createSlamAppStore({ storageBackend: backend });
       store.dispatch(setZeroPos({ lat: 0, lon: 0 }));
+      await Promise.resolve();
+      expect(store.getState().gpsData?.coldStartOverrideEnabled).toBe(true);
+    });
+
+    it('can be opted out via enableCompassColdStartOverride: false', async () => {
+      const store = createSlamAppStore({
+        storageBackend: backend,
+        enableCompassColdStartOverride: false,
+      });
+      store.dispatch(setZeroPos({ lat: 0, lon: 0 }));
+      await Promise.resolve();
       expect(store.getState().gpsData?.coldStartOverrideEnabled).toBeFalsy();
+    });
+
+    it('leaves the OTHER compass flags off by default (only Stage 0 ships on)', async () => {
+      // Stage C (rotation prior) and the WebXR-consistency gate stay
+      // field-gated; flipping Stage 0 on must not drag them on too.
+      const store = createSlamAppStore({ storageBackend: backend });
+      store.dispatch(setZeroPos({ lat: 0, lon: 0 }));
+      await Promise.resolve();
+      const s = store.getState().gpsData;
+      expect(s?.compassRotationPriorEnabled).toBeFalsy();
+      expect(s?.compassWebXRConsistencyEnabled).toBeFalsy();
     });
   });
 

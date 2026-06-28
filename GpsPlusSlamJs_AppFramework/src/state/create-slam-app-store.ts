@@ -148,17 +148,25 @@ export interface SlamAppStoreOptions<
   trackingQualityOptions?: Partial<TrackingQualityOptions>;
 
   /**
-   * **Debug/experiment flag** — enable the library's Phase-4 Stage-0 cold-start
-   * compass yaw override. When `true`, the factory dispatches
-   * `setColdStartOverrideEnabled(true)` the first time `gpsData` becomes
-   * non-null (i.e. right after the first `setZeroPos`, since the flag lives on
-   * that slice and cannot be set before it exists). Default `false` ⇒ the core
-   * solve is byte-identical to today. Keep OFF until the override's thresholds
-   * are re-tuned on field data.
+   * Enable the library's Phase-4 **Stage-0** cold-start compass yaw override.
+   * **Default `true`** — Stage 0 is a field-validated, default-on feature: at
+   * cold start the GPS-derived yaw is unobservable (clustered fixes ⇒ a yaw set
+   * by noise that flips as the user looks around), so the compass heading gives
+   * a roughly-correct, stable orientation immediately ("open app, stand still,
+   * look around" works). It is an observability-gated handover — once a walked
+   * baseline conditions the GPS yaw, the solve hands back to GPS — so it does no
+   * harm once GPS is observable. Pass `false` to opt out (the recorder exposes
+   * this as a settings toggle).
    *
-   * Note: the resulting `setColdStartOverrideEnabled` action is a `gpsData`
-   * action and is therefore persisted into recordings, so a replay re-enables
-   * the override. Collect field-calibration recordings with this OFF.
+   * When enabled the factory dispatches `setColdStartOverrideEnabled(true)` the
+   * first time `gpsData` becomes non-null (right after the first `setZeroPos`,
+   * since the flag lives on that slice and cannot be set before it exists).
+   *
+   * Replay/determinism: the library's `DefaultAlignmentConfig` stays OFF, so
+   * historical recordings replay unchanged; default-on lives here as a recorded
+   * `gpsData` action. A recording made with this on therefore replays with the
+   * override on. **For Stage-A/§6a field-calibration recordings, turn this OFF**
+   * (recorder settings) so the captured compass behaviour is unmodified.
    *
    * @see GpsPlusSlamJs_Docs/docs/2026-06-26-stage0-field-collection-and-enablement.md
    */
@@ -231,7 +239,9 @@ export function createSlamAppStore<
     enableDevChecks = true,
     licenseKey = COMMUNITY_LICENSE_KEY,
     trackingQualityOptions,
-    enableCompassColdStartOverride = false,
+    // Stage 0 (cold-start compass override) ships ON by default; Stage C and the
+    // WebXR-consistency gate stay field-gated (default OFF).
+    enableCompassColdStartOverride = true,
     enableCompassRotationPrior = false,
     enableCompassWebXRConsistency = false,
   } = options;
