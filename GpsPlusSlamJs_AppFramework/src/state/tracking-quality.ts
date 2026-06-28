@@ -271,6 +271,14 @@ function rampUp(value: number, low: number, high: number): number {
   return (value - low) / (high - low);
 }
 
+/** True iff every element of the matrix is a finite number (no NaN/Infinity). */
+function isFiniteMatrix(m: readonly number[]): boolean {
+  for (let i = 0; i < m.length; i++) {
+    if (!Number.isFinite(m[i])) return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // §4.1 convergence
 // ---------------------------------------------------------------------------
@@ -351,10 +359,22 @@ export function computeConvergence(
   let sumTransM = 0;
   let pairCount = 0;
   for (let i = 1; i < snapshots.length; i++) {
-    const { rotationDeltaDeg, translationDeltaM } = matrixDelta(
-      snapshots[i - 1]!.matrix,
-      snapshots[i]!.matrix
-    );
+    const prevM = snapshots[i - 1]!.matrix;
+    const currM = snapshots[i]!.matrix;
+    // A corrupt (non-finite) alignment matrix — a degenerate solve emitting
+    // NaN/Infinity — is NOT evidence of stability. `matrixDelta` finite-guards
+    // such input to ZERO deltas (so the score never becomes NaN), but a zero
+    // delta reads as "perfectly stable", which would let a corrupt snapshot
+    // *improve* convergence. Score the pair on the FAIL side instead so a bad
+    // matrix degrades (never inflates) the score. The thresholds are added so a
+    // single corrupt pair pushes the corresponding ramp to 0.
+    if (!isFiniteMatrix(prevM) || !isFiniteMatrix(currM)) {
+      sumRotDeg += rotFail;
+      sumTransM += transFail;
+      pairCount += 1;
+      continue;
+    }
+    const { rotationDeltaDeg, translationDeltaM } = matrixDelta(prevM, currM);
     sumRotDeg += Math.abs(rotationDeltaDeg);
     sumTransM += Math.abs(translationDeltaM);
     pairCount += 1;

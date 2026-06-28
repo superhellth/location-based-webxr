@@ -291,6 +291,29 @@ describe('computeConvergence', () => {
     expect(Number.isFinite(r.recentSumRotationDeltaDeg)).toBe(true);
     expect(Number.isFinite(r.recentSumTranslationDeltaM)).toBe(true);
   });
+
+  it('does not let a corrupt (non-finite) matrix improve the score', () => {
+    // Regression: matrixDelta finite-guards a non-finite (degenerate-solve)
+    // matrix to ZERO deltas so the score stays finite. But a zero delta reads as
+    // "perfectly stable", so a corrupt alignment snapshot scored as score 1 — it
+    // could *improve* convergence instead of degrading it. A corrupt matrix is
+    // not evidence of stability; it must score on the fail side.
+    const healthy = computeConvergence([
+      { observationIndex: 1, matrix: [...IDENTITY] },
+      { observationIndex: 2, matrix: [...IDENTITY] },
+    ]);
+    expect(healthy.score).toBe(1); // identical snapshots → perfectly stable
+
+    const nanMatrix = [...IDENTITY];
+    nanMatrix[0] = Number.NaN;
+    const corrupt = computeConvergence([
+      { observationIndex: 1, matrix: [...IDENTITY] },
+      { observationIndex: 2, matrix: nanMatrix },
+    ]);
+    // The corrupt pair must drag the score DOWN, never sit at the healthy 1.
+    expect(corrupt.score).toBeLessThan(healthy.score);
+    expect(corrupt.score).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
