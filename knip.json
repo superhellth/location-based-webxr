@@ -67,6 +67,15 @@
         "postcss-html",
         "stylelint-config-standard"
       ]
+    },
+    "GpsPlusSlamJs_BillboardDemo": {
+      "entry": ["config/stylelint.config.mjs"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": [
+        "@carlosjeurissen/stylelint-csstree-validator",
+        "postcss-html",
+        "stylelint-config-standard"
+      ]
     }
   }
 }

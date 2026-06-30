@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gps-plus-slam — clickable billboard demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #10131a;
+        color: #e9eef7;
+        font-family: system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #canvas-root {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        z-index: 1;
+        max-width: 320px;
+        padding: 12px 14px;
+        background: rgb(0 0 0 / 55%);
+        border: 1px solid #2a3550;
+        border-radius: 10px;
+        font-size: 13px;
+        line-height: 1.5;
+        pointer-events: none;
+      }
+      #hud h1 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      #hud p {
+        margin: 0 0 6px;
+      }
+      #status {
+        margin: 0;
+        color: #9ec1ff;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-root"></div>
+    <section id="hud">
+      <h1>Clickable billboard demo</h1>
+      <p>Drag to orbit — billboards stay upright and face you.</p>
+      <p>
+        Click a billboard to play it and open its panel. Use the panel's button
+        to pause/resume; tap the progress bar to seek.
+      </p>
+      <p id="status"></p>
+    </section>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
