@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "billboard-demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "gps-plus-slam-billboard-demo", "exec", "vite"],
+      "port": 5182
+    }
+  ]
+}

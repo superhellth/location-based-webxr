@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gps-plus-slam — TourBuilder component gallery</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #10131a;
+        color: #e9eef7;
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 48px 20px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      p.lead {
+        margin: 0 0 28px;
+        color: #9aa7bd;
+      }
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 12px;
+      }
+      a.card {
+        display: block;
+        padding: 16px 18px;
+        background: rgb(255 255 255 / 3%);
+        border: 1px solid #2a3550;
+        border-radius: 10px;
+        text-decoration: none;
+        color: inherit;
+      }
+      a.card:hover {
+        border-color: #3d5488;
+        background: rgb(255 255 255 / 6%);
+      }
+      a.card strong {
+        display: block;
+        color: #9ec1ff;
+        margin-bottom: 4px;
+      }
+      a.card span {
+        font-size: 13px;
+        color: #9aa7bd;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TourBuilder — component gallery</h1>
+      <p class="lead">
+        Each component is an isolated, individually runnable demo. Add a folder
+        under <code>components/</code> and an entry in
+        <code>vite.config.ts</code>, then link it here.
+      </p>
+      <ul>
+        <li>
+          <a class="card" href="/components/billboard/">
+            <strong>Component 1 — Clickable billboard</strong>
+            <span
+              >Yaw-to-face sprite that plays an audio clip and shows an in-world
+              transport panel.</span
+            >
+          </a>
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>
