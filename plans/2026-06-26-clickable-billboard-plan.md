@@ -33,16 +33,26 @@ that we yaw toward the camera ourselves**.
 - **Panel rendering = `CanvasTexture` on a plane** that billboards to the user
   (XR-safe; the same technique component 2 will use). Not a DOM/CSS overlay
   (TASK §2.3.2: DOM overlays are unreliable in immersive XR).
-- **Factory takes ready resources** (`THREE.Texture` + `HTMLAudioElement`); the
-  demo's `main.ts` owns loading. Mirrors component 8's asset-provider handoff.
+- **Factory takes ready resources** (`THREE.Texture` + `HTMLAudioElement`, plus
+  the shared `THREE.AudioListener` used to spatialize playback); the demo's
+  `main.ts` owns loading. Mirrors component 8's asset-provider handoff.
 - **Demo assets = committed tiny placeholder PNG + MP3** under `public/`.
 - **Boundary with component 2:** Component 1 owns the transport-panel _chrome_
   (button + bar); component 2 owns rich text/transcript rendering.
 - **Placement:** standalone package `GpsPlusSlamJs_BillboardDemo`. Pure modules
   may later be extracted to the framework's `src/visualization/` for an upstream
   PR (mirroring the reticle/compass-cube pattern).
-- **Audio:** `HTMLAudioElement` (`new Audio(url)`), non-spatial.
-  `THREE.PositionalAudio` deferred.
+- **Audio:** ~~`HTMLAudioElement` (`new Audio(url)`), non-spatial;
+  `THREE.PositionalAudio` deferred.~~ **Revised 2026-07-07 — spatial audio is
+  now in scope.** The `HTMLAudioElement` is retained as the transport/loading
+  seam, but its output is routed through a `THREE.PositionalAudio` panner
+  (`setMediaElementSource`) added to each billboard's group, with a single
+  `THREE.AudioListener` on the camera. Distance attenuation + HRTF panning make
+  each clip emanate from its billboard's world position — directly reusable by
+  component 8's world-anchored knight markers, where *which* knight is speaking
+  should be audible. Transport (play/pause/seek/tick/ended) is unchanged: it
+  still drives the media element; only the audio *output path* is spatialized,
+  so no pure logic or test changes.
 
 ## 2. Goals, requirements, success criteria
 
@@ -55,6 +65,10 @@ that we yaw toward the camera ourselves**.
 - Panel **play/stop** button toggles play/pause; **progress bar** fills as audio
   plays; **tap on the bar** seeks to that fraction.
 - **At most one** clip active at a time; clicking another sprite switches.
+- Audio is **spatialized** (revised 2026-07-07): each clip plays through a
+  `THREE.PositionalAudio` panner at its billboard's world position, with the
+  listener on the camera, so loudness and left/right balance track the camera's
+  pose as it orbits. Best heard on headphones.
 
 ### Non-functional requirements
 - Pure logic (yaw math, transport reducer, panel hit-mapping) is framework- and
@@ -183,6 +197,10 @@ export function hitToIntent(uv: { u: number; v: number }, layout?: PanelLayout):
   `status`; visible only when `isActive(id)`.
 - `audio-player.ts`: wraps the injected `HTMLAudioElement`; `play/pause/seekTo`;
   emits `tick` (`timeupdate`), `ended`, and reads duration (`loadedmetadata`).
+  Also owns spatialization (revised 2026-07-07): builds a `THREE.PositionalAudio`
+  from the injected `AudioListener` via `setMediaElementSource(element)`,
+  exposes it as `spatialNode` for the billboard to add to its group, and resumes
+  the `AudioContext` on the first (gesture-triggered) `play`.
 - `billboard-interaction.ts`: one `THREE.Raycaster`; on a *click* (see drag
   guard) raycasts the sprite planes + the visible panel plane. Sprite hit →
   `{click,id}`; panel hit → use `intersection.uv` → `hitToIntent` →
