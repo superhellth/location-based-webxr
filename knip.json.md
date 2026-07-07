@@ -69,6 +69,14 @@ entirely after confirming they were only transitively pulled in.
   `@carlosjeurissen/stylelint-csstree-validator`) are ignored because
   knip cannot trace them through the stylelint config, mirroring the
   RecorderApp treatment.
+- **GpsPlusSlamJs_TourBuilder** — unlike the other apps its sources live
+  under `components/**` (one folder per component demo), not `src/**`, so
+  `project` is `components/**/*.ts` and each `components/*/demo.ts` is an
+  entry (they are the demo roots that reach the `view/` layer, which has no
+  tests of its own). `scripts/**/*.mjs` (the fixture generator) and the
+  stylelint config are entries too; the stylelint tooling packages are
+  ignored as elsewhere. Shared cross-component code under
+  `components/shared/` is reached transitively from the demos.
 
 ## Tests
 

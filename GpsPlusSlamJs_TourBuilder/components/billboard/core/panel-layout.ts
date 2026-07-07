@@ -13,15 +13,8 @@
  * the bottom-left of the front face, u → right, v → up.
  */
 
-import { clamp01 } from "./clamp.js";
-
-/** A rectangle in normalized panel UV space ([0,1] × [0,1]). */
-export interface Rect {
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
-}
+import { clamp01 } from "../../shared/clamp.js";
+import { contains, type Rect } from "../../shared/panel-geometry.js";
 
 export interface PanelLayout {
   /** Play/stop button hit area. */
@@ -44,12 +37,6 @@ export type PanelIntent =
   | { readonly type: "toggle" }
   | { readonly type: "seek"; readonly fraction: number }
   | null;
-
-function contains(rect: Rect, u: number, v: number): boolean {
-  return (
-    u >= rect.x && u <= rect.x + rect.w && v >= rect.y && v <= rect.y + rect.h
-  );
-}
 
 /**
  * Map a panel-local hit (u,v in [0,1]) to an intent. The button is resolved

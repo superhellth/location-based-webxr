@@ -15,7 +15,7 @@
  * `ended` back in. Reused by component 8's AR scene.
  */
 
-import { clamp01 } from "./clamp.js";
+import { clamp01 } from "../../shared/clamp.js";
 
 // Local — consumers read playback via the `isPlaying` selector, not this type.
 type PlaybackStatus = "playing" | "paused";

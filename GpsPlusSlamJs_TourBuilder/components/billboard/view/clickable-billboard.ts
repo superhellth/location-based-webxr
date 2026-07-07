@@ -31,7 +31,7 @@ import { disposeObject3D } from "gps-plus-slam-app-framework/visualization";
 import {
   computeBillboardYaw,
   type HorizontalPoint,
-} from "../core/billboard-math.js";
+} from "../../shared/billboard-math.js";
 import { createAudioPlayer } from "./audio-player.js";
 import { createTransportPanel } from "./transport-panel-view.js";
 import {
