@@ -20,6 +20,10 @@ export default defineConfig({
       input: {
         gallery: resolve(__dirname, "index.html"),
         billboard: resolve(__dirname, "components/billboard/index.html"),
+        inWorldText: resolve(
+          __dirname,
+          "components/in-world-text/index.html",
+        ),
       },
     },
   },

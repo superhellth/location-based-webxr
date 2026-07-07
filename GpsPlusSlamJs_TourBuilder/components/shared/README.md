@@ -38,6 +38,17 @@ canvas pixel rect (origin top-left); `roundRect(ctx, x, y, w, h, r)` begins a
 radius-clamped rounded-rect path. View-layer (touches a canvas context) but
 framework-free.
 
+### `resize.ts` — demo window-resize helper (view)
+
+`attachResize(camera, renderer)` keeps a perspective camera + renderer in sync
+with the window size. Shared by the component demos so the boilerplate lives once.
+
+### `demo.css` — shared demo-page styles
+
+Base styles for the demo pages (`:root`, `html/body`, `#canvas-root`, `#hud`,
+`#status`). Each demo's `index.html` links it and keeps only component-specific
+tweaks inline.
+
 ## Tests
 
 `billboard-math.test.ts` and `panel-geometry.test.ts` cover the pure modules

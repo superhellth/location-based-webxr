@@ -25,6 +25,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+import { attachResize } from "../shared/resize.js";
 import {
   INITIAL,
   transportReducer,
@@ -164,11 +165,7 @@ createBillboardInteraction({
   },
 });
 
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+attachResize(camera, renderer);
 
 const cameraWorld = new Vector3();
 function animate(): void {

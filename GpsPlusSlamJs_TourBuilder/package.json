@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "gps-plus-slam-app-framework": "workspace:*",
-    "three": "^0.184.0"
+    "three": "^0.184.0",
+    "three-html-render": "^0.1.2"
   },
   "devDependencies": {
     "@carlosjeurissen/stylelint-csstree-validator": "^3.3.1",

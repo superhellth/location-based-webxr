@@ -381,6 +381,9 @@ importers:
       three:
         specifier: ^0.184.0
         version: 0.184.0
+      three-html-render:
+        specifier: ^0.1.2
+        version: 0.1.2(three@0.184.0)
     devDependencies:
       '@carlosjeurissen/stylelint-csstree-validator':
         specifier: ^3.3.1
@@ -3177,6 +3180,14 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
+
+  three-html-render@0.1.2:
+    resolution: {integrity: sha512-JHx6x006LuLcHMRg+X3DyrrbPVsXklhFJGBtpTULFhbnpK7DidgGr6dJ6aTEaN9sc6uFgwI0VHExEYo4qwVSug==}
+    peerDependencies:
+      three: '>=0.150.0'
+    peerDependenciesMeta:
+      three:
+        optional: true
 
   three@0.184.0:
     resolution: {integrity: sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==}
@@ -6213,6 +6224,10 @@ snapshots:
       strip-ansi: 6.0.1
 
   tapable@2.3.3: {}
+
+  three-html-render@0.1.2(three@0.184.0):
+    optionalDependencies:
+      three: 0.184.0
 
   three@0.184.0: {}
 
