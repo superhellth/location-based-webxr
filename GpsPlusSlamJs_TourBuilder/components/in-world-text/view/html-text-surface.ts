@@ -53,12 +53,33 @@ function loadRasterizer(): Promise<HtmlRasterizer> {
 }
 
 export function createHtmlTextSurface(deps: SurfaceDeps): TextSurface {
+  // The root is what gets rasterized, so it must sit at normal coordinates —
+  // `three-html-render` clones it verbatim into the SVG `<foreignObject>`, so an
+  // off-screen `left:-100000px` on the root would push the content out of the
+  // raster viewport and yield a correct-size but fully blank texture. We instead
+  // hide it from the visible page with a 0×0 `overflow:hidden` clip wrapper: the
+  // root still lays out at its full size (so `offsetWidth` drives the raster) but
+  // paints nothing on the page.
+  const clip = document.createElement("div");
+  clip.setAttribute("aria-hidden", "true");
+  clip.style.cssText =
+    "position:fixed;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;";
   const root = document.createElement("div");
   styleRoot(root, deps);
-  document.body.appendChild(root);
+  clip.appendChild(root);
+  document.body.appendChild(clip);
 
-  // Placeholder image until the first raster lands; swapped in on settle.
-  const texture = new CanvasTexture(document.createElement("canvas"));
+  // Placeholder image until the first raster lands; swapped in on settle. Sized
+  // to the raster's real pixel dimensions (`three-html-render` scales by
+  // devicePixelRatio) so the GL texture is allocated at that size — seeding it
+  // with a mismatched canvas makes Chrome's accelerated canvas→texture copy
+  // overflow the allocation when the first raster arrives (GL_INVALID_VALUE
+  // glCopySubTextureCHROMIUM) and upload blank.
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  const placeholder = document.createElement("canvas");
+  placeholder.width = Math.ceil(deps.canvasW * dpr);
+  placeholder.height = Math.ceil(deps.canvasH * dpr);
+  const texture = new CanvasTexture(placeholder);
   texture.colorSpace = SRGBColorSpace;
   texture.anisotropy = deps.maxAnisotropy;
   texture.generateMipmaps = true;
@@ -79,6 +100,23 @@ export function createHtmlTextSurface(deps: SurfaceDeps): TextSurface {
       pending = loadRasterizer()
         .then((rasterizer) => rasterizer.update(root))
         .then((rasterCanvas) => {
+          // A degenerate raster uploads blank without ever throwing (the failure
+          // surfaces later as an uncatchable GL warning), so reject here to route
+          // the factory's guard to the Canvas fallback (plan R1/R2/R3).
+          // `three-html-render` returns a 1×1 canvas when the element measures 0;
+          // otherwise it preserves our 4:3 aspect at devicePixelRatio scale, so
+          // an aspect check accepts any DPR without hard-coding the pixel size.
+          const aspect = rasterCanvas.width / rasterCanvas.height;
+          const expected = deps.canvasW / deps.canvasH;
+          if (
+            rasterCanvas.width <= 1 ||
+            rasterCanvas.height <= 1 ||
+            Math.abs(aspect - expected) > 0.01
+          ) {
+            throw new Error(
+              `html raster ${rasterCanvas.width}×${rasterCanvas.height} is degenerate`,
+            );
+          }
           if (current === token) {
             texture.image = rasterCanvas;
             texture.needsUpdate = true;
@@ -88,17 +126,19 @@ export function createHtmlTextSurface(deps: SurfaceDeps): TextSurface {
     settled: () => pending,
     dispose(): void {
       token++;
-      root.remove();
+      clip.remove();
       texture.dispose();
     },
   };
 }
 
 function styleRoot(root: HTMLDivElement, deps: SurfaceDeps): void {
-  root.setAttribute("aria-hidden", "true");
   const s = root.style;
-  s.position = "fixed";
-  s.left = "-100000px";
+  // `relative` at the origin: a positioned containing block for the absolutely
+  // positioned lines/buttons, kept on normal coordinates so the raster is not
+  // shifted out of view. The parent clip wrapper is what hides it from the page.
+  s.position = "relative";
+  s.left = "0";
   s.top = "0";
   s.width = `${deps.canvasW}px`;
   s.height = `${deps.canvasH}px`;
