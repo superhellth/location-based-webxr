@@ -6,6 +6,6 @@ import { defineConfig } from "vitest/config";
 // via the demo (`pnpm dev`).
 export default defineConfig({
   test: {
-    include: ["components/**/*.test.ts"],
+    include: ["components/**/*.test.ts", "store/**/*.test.ts"],
   },
 });

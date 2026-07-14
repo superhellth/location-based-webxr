@@ -40,14 +40,20 @@ describe("hitToPageIntent", () => {
 
   it("returns null for the text area, the indicator, and chrome", () => {
     expect(hitToPageIntent(centre(PAGE_PANEL_LAYOUT.text), BOTH)).toBeNull();
-    expect(hitToPageIntent(centre(PAGE_PANEL_LAYOUT.indicator), BOTH)).toBeNull();
+    expect(
+      hitToPageIntent(centre(PAGE_PANEL_LAYOUT.indicator), BOTH),
+    ).toBeNull();
     expect(hitToPageIntent({ u: 0.5, v: 0.5 }, BOTH)).toBeNull();
   });
 });
 
 describe("paginate", () => {
   it("chunks lines into pages of at most linesPerPage", () => {
-    expect(paginate(["a", "b", "c", "d", "e"], 2)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    expect(paginate(["a", "b", "c", "d", "e"], 2)).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+      ["e"],
+    ]);
   });
 
   it("fills whole pages when evenly divisible", () => {

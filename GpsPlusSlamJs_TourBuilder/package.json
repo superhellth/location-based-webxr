@@ -13,15 +13,15 @@
     "test:unit": "vitest run",
     "test:watch": "vitest",
     "build:framework": "pnpm --filter gps-plus-slam-app-framework run build",
-    "format": "prettier --log-level warn --write --ignore-unknown --no-error-on-unmatched-pattern \"components\" \"config\" index.html README.md package.json",
+    "format": "prettier --log-level warn --write --ignore-unknown --no-error-on-unmatched-pattern \"components\" \"store\" \"config\" index.html README.md package.json",
     "format:check": "prettier --check --ignore-unknown .",
     "lint": "eslint . --config config/eslint.config.mjs",
     "lint:css": "stylelint \"**/*.html\" --config config/stylelint.config.mjs --allow-empty-input",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "typecheck:tests": "tsc -p tsconfig.vitest.json --noEmit",
-    "check:dup": "jscpd --config config/.jscpd.json components",
+    "check:dup": "jscpd --config config/.jscpd.json components store",
     "check:cycles": "dpdm -T --exit-code circular:1 --no-warning --no-tree ./components/*/demo.ts",
-    "check:boundaries": "depcruise -c config/.dependency-cruiser.cjs components",
+    "check:boundaries": "depcruise -c config/.dependency-cruiser.cjs components store",
     "check:deadcode": "pnpm --workspace-root run check:deadcode",
     "check:all": "pnpm run check:dup && pnpm run check:cycles && pnpm run check:boundaries && pnpm run check:deadcode"
   },
@@ -29,6 +29,7 @@
     "node": ">=20.19.0"
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.11.2",
     "gps-plus-slam-app-framework": "workspace:*",
     "three": "^0.184.0",
     "three-html-render": "^0.1.2"

@@ -189,6 +189,45 @@ authoring: addBreadcrumbPoint(point: TourCoord)
 // + selectExportedTour(state): Tour    (bridge draft → canonical Tour for packaging)
 ```
 
+#### 2.3.1 Selector contract (Component 3)
+
+All components that read store state **must** use the selectors in
+`store/selectors.ts`; a component needing a new read **adds its selector there**
+rather than selecting inline. This keeps state-shape knowledge in one file so a
+slice refactor touches one place. `selectWaypointVisual` takes a `Waypoint` (not
+`state`) — the caller already has it from `selectOrderedWaypoints`.
+
+#### 2.3.2 Implemented surface (Component 3) — additive to the above
+
+The implementation adds the following beyond the §2.3 list. They are **supersets**
+(the agreed names above are unchanged) needed by editing (component 10), the
+proximity driver (component 4), and tour reloading:
+
+```ts
+// Viewing actions
+tour:         clearTour()                        // reset; tourProgress + zones listen and reset too
+zones:        initZones(waypointIds: string[])   // seed all → IDLE at load (component-4 bootstrap)
+
+// Authoring actions
+authoring: updateWaypoint({ id, changes })       // changes.content is merged (transcript edited here)
+authoring: removeWaypoint(id)
+authoring: removeAsset(id)                        // also clears any waypoint slot referencing it
+authoring: clearAuthoring()
+
+// Additive selectors
+selectAssets(state): readonly AssetEntry[]        // loaded tour's assets
+selectWaypointById(state, id): Waypoint | undefined
+selectIsWaypointVisited(state, id): boolean
+selectVisitedWaypointIds(state): readonly string[]
+selectAuthoringWaypoints(state) / selectAuthoringName(state) / selectAuthoringDescription(state)
+```
+
+Clarification on `attachAsset`: its `slot` is an **asset-backed** slot
+(`model | sprite | audio`) and its payload carries an `AssetEntry` (registered in
+`assets` + wired to the waypoint, model/sprite kept mutually exclusive).
+`transcript` is inline text (D4), edited via `updateWaypoint({ content })`, not
+`attachAsset`.
+
 ### 2.4 Store factories (D13)
 
 ```ts
