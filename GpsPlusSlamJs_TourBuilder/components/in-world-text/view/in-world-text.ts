@@ -14,21 +14,11 @@
  * the fallback wiring is unit-testable with no DOM/GPU (plan R5).
  */
 
-import {
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  PlaneGeometry,
-  type Vector3,
-} from "three";
+import { Group, Mesh, MeshBasicMaterial, PlaneGeometry, type Vector3 } from "three";
 
-import {
-  computeBillboardYaw,
-  type HorizontalPoint,
-} from "../../shared/billboard-math.js";
+import { computeBillboardYaw, type HorizontalPoint } from "../../shared/billboard-math.js";
 import { describePanel, type PanelDrawModel } from "../core/describe-panel.js";
-import { hitToPageIntent, type PageIntent } from "../core/page-layout.js";
-import { paginate } from "../core/paginate.js";
+import { hitToPageIntent, type PageIntent, paginate } from "../core/page-layout.js";
 import {
   canNext,
   canPrev,
@@ -98,8 +88,7 @@ const defaultSurfaceFactory: SurfaceFactory = (kind, deps) =>
 
 export function createInWorldText(options: InWorldTextOptions): InWorldText {
   const style = resolveStyle(options);
-  const measure =
-    options.measure ?? createMeasure(style.fontPx, style.fontFamily);
+  const measure = options.measure ?? createMeasure(style.fontPx, style.fontFamily);
   const surfaceFactory = options.createSurface ?? defaultSurfaceFactory;
   const timeoutMs = options.htmlRenderTimeoutMs ?? DEFAULT_HTML_TIMEOUT_MS;
   const deps = {
@@ -216,15 +205,8 @@ function resolveStyle(options: InWorldTextOptions): ResolvedTextStyle {
   return resolveTextStyle(withWidth);
 }
 
-function repaginate(
-  text: string,
-  style: ResolvedTextStyle,
-  measure: Measure,
-): string[][] {
-  return paginate(
-    wrapText(text, style.wrapWidthPx, measure),
-    style.maxLinesPerPage,
-  );
+function repaginate(text: string, style: ResolvedTextStyle, measure: Measure): string[][] {
+  return paginate(wrapText(text, style.wrapWidthPx, measure), style.maxLinesPerPage);
 }
 
 /** Reject if `promise` does not resolve within `ms`, so the factory can swap. */
