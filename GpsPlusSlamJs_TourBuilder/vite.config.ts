@@ -26,6 +26,7 @@ export default defineConfig({
         ),
         store: resolve(__dirname, "components/store/index.html"),
         proximity: resolve(__dirname, "components/proximity/index.html"),
+        packaging: resolve(__dirname, "components/packaging/index.html"),
       },
     },
   },

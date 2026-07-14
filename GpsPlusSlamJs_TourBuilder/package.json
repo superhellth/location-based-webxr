@@ -30,7 +30,9 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
+    "fflate": "^0.8.3",
     "gps-plus-slam-app-framework": "workspace:*",
+    "qrcode": "^1.5.4",
     "three": "^0.184.0",
     "three-html-render": "^0.1.2"
   },
@@ -38,6 +40,7 @@
     "@carlosjeurissen/stylelint-csstree-validator": "^3.3.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.7.0",
+    "@types/qrcode": "^1.5.6",
     "@types/three": "^0.184.1",
     "@vitest/eslint-plugin": "^1.6.17",
     "dependency-cruiser": "^17.4.0",
