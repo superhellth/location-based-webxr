@@ -25,6 +25,7 @@ export default defineConfig({
           "components/in-world-text/index.html",
         ),
         store: resolve(__dirname, "components/store/index.html"),
+        proximity: resolve(__dirname, "components/proximity/index.html"),
       },
     },
   },
