@@ -22,7 +22,7 @@ ZIP bytes**, in both the local headers and the central directory.
 ## Layout
 
 ```
-core/    pure logic, no DOM: packTour · assetFilename · buildTourUrl · generateQr
+core/    pure logic, no DOM: packTour · assetFilename · buildTourUrl · generateQr · parseTourJson
 view/    browser side effects: downloadBlob · renderQrSvg
 demo.ts  the control panel wiring both together
 ```
@@ -41,12 +41,19 @@ the two DOM helpers.
 
 ## Demo
 
-**Left — tour input.** "Load sample tour" renders `sampleTour` and one file input
-**per declared asset** (so it generalises to a fixture with several assets of one
-type). Picking a file rebuilds that asset's `filename` through `assetFilename`,
-visible live in the JSON — the same path component 10 will take. "Pack tour"
-runs the real `packTour` and downloads the result, or shows the `PackagingError`
-message (missing ids, bad paths) in the status line.
+**Left — tour input.** "Load sample tour" renders `sampleTour` **and** loads it
+into an editable tour.json textarea. That textarea is the one input surface for
+any tour — filled by typing, pasting, or picking a `.json` file (the file picker
+just reads the file's text into it); nothing changes until "Use this tour"
+parses it with `parseTourJson` and swaps it in as the working tour, re-rendering
+the asset inputs for whatever assets _that_ tour declares. A `TourValidationError`
+(bad JSON syntax or a failed invariant) shows in its own status line and leaves
+the previous tour active. Below that, one file input **per declared asset** (so
+it generalises to a fixture with several assets of one type). Picking a file
+rebuilds that asset's `filename` through `assetFilename`, visible live in the
+JSON — the same path component 10 will take. "Pack tour" runs the real
+`packTour` and downloads the result, or shows the `PackagingError` message
+(missing ids, bad paths) in the status line.
 
 **Right — QR.** App base + hosted ZIP URL → `buildTourUrl` → `generateQr` →
 inline SVG, with the built URL printed underneath so the `?tour=` encoding can be
@@ -67,9 +74,17 @@ into `File`s, are still to come; see the plan's "Known gap" note.
 2. Open it in any ZIP inspector: every entry must show **Store**, not Deflate.
 3. Extract `tour.json` → it validates through `validateTour` unchanged.
 4. Paste a real upload URL → "Generate QR" → scan → the `?tour=` param arrives intact.
+5. Edit the textarea to a different valid tour → "Use this tour" → asset inputs
+   and the preview update to the new tour's assets.
+6. Break the JSON, or violate an invariant (e.g. `prefetchRadius < activeRadius`)
+   → "Use this tour" → the error line shows the problem, the previous tour stays
+   active and packable.
 
 ## Plan
 
 [`plans/2026-07-14-packaging-plan.md`](../../../plans/2026-07-14-packaging-plan.md)
+(initial implementation),
+[`plans/2026-07-24-packaging-own-tour-plan.md`](../../../plans/2026-07-24-packaging-own-tour-plan.md)
+(load-your-own-tour iteration)
 · contract: [`plans/Shared-Contract.md`](../../../plans/Shared-Contract.md) §1
 (schema + Invariant 3), D13.

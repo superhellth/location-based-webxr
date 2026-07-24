@@ -224,7 +224,10 @@ describe("packTour", () => {
       addWaypoint({ id: "wp-1", position: { lat: 53.55, lon: 9.99 } }),
       attachAsset({ waypointId: "wp-1", slot: "sprite", asset }),
     ];
-    const authoring = actions.reduce(authoringReducer, undefined);
+    const authoring = actions.reduce(
+      authoringReducer,
+      authoringReducer(undefined, { type: "@@init" }),
+    );
     const exported = selectExportedTour({ authoring });
 
     const blob = await packTour(

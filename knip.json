@@ -72,9 +72,12 @@
       "entry": [
         "components/*/demo.ts",
         "config/stylelint.config.mjs",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "store/selectors.ts",
+        "store/types.ts",
+        "store/*-slice.ts"
       ],
-      "project": ["components/**/*.ts"],
+      "project": ["components/**/*.ts", "store/**/*.ts"],
       "ignoreDependencies": [
         "@carlosjeurissen/stylelint-csstree-validator",
         "postcss-html",

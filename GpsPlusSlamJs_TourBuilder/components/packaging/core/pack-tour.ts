@@ -110,7 +110,7 @@ function assertUsableEntryPaths(tour: Tour): void {
 }
 
 /** Promisified `fflate.zip` (async: a 40 MB GLB must not freeze the tab). */
-function zipAsync(files: AsyncZippable): Promise<Uint8Array> {
+function zipAsync(files: AsyncZippable): Promise<Uint8Array<ArrayBuffer>> {
   return new Promise((resolve, reject) => {
     zip(files, {}, (err, data) => {
       if (err)

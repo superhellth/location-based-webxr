@@ -43,11 +43,27 @@ framework-free.
 `attachResize(camera, renderer)` keeps a perspective camera + renderer in sync
 with the window size. Shared by the component demos so the boilerplate lives once.
 
-### `demo.css` — shared demo-page styles
+### `pointer-tap-picker.ts` — tap-vs-drag raycast picking (view)
 
-Base styles for the demo pages (`:root`, `html/body`, `#canvas-root`, `#hud`,
-`#status`). Each demo's `index.html` links it and keeps only component-specific
-tweaks inline.
+`createPointerTapPicker({ domElement, camera, getPickTargets, onTap })`: the
+drag-guard + NDC + `Raycaster.intersectObjects` mechanics shared by the
+billboard (component 1) and in-world-text (component 2) click interactions.
+Each component's own `*-interaction.ts` wraps this and interprets the returned
+`Intersection`'s `userData` — this module never looks at `userData` itself.
+
+### `demo.css` — shared canvas-demo styles
+
+Base styles for the canvas-overlay demo pages (`:root`, `html/body`,
+`#canvas-root`, `#hud`, `#status`) — billboard, in-world-text. Each demo's
+`index.html` links it and keeps only component-specific tweaks inline.
+
+### `panel-demo.css` — shared control-panel demo styles
+
+Base styles for the two-column data/control-panel demo pages (`main`, `.cols`,
+`section.panel`, `.buttons`, `button`, `pre`, …) — store, packaging. A separate
+sheet from `demo.css` because these demos aren't a canvas overlay; each demo's
+`index.html` links it and keeps only component-specific tweaks (and any `pre`
+`max-height` override) inline.
 
 ## Tests
 

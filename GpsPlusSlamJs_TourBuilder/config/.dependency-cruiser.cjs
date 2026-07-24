@@ -4,6 +4,10 @@ module.exports = {
     doNotFollow: { path: "node_modules" },
     includeOnly: ["components", "store"],
     reporterOptions: { dot: { collapsePattern: "node_modules/[^/]*" } },
+    enhancedResolveOptions: {
+      exportsFields: ["exports"],
+      conditionNames: ["import", "require", "node", "default"],
+    },
   },
   forbidden: [
     // One-way boundary: feature components may import the shared store contract,
