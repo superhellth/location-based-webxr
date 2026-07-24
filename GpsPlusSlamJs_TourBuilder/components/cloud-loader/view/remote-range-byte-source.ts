@@ -60,7 +60,15 @@ export class RemoteRangeByteSource implements ByteSource {
   constructor(url: string, size: number, fetchImpl: FetchImpl) {
     this.#url = url;
     this.size = size;
-    this.#fetch = fetchImpl;
+    // Wrapped, not stored directly: `this.#fetch(...)` below is a method-style
+    // call, so a bare `fetchImpl` reference would run with `this` rebound to
+    // this instance. A real browser `fetch` brand-checks its receiver and
+    // throws `TypeError: Illegal invocation` for any receiver but the global
+    // scope (Node's `fetch` does not enforce this, which is why the
+    // integration suite — which injects Node's `fetch` — never caught it). The
+    // wrapper re-invokes `fetchImpl` as a free call, so its own receiver is
+    // `undefined`, which every `fetch` implementation accepts.
+    this.#fetch = (input, init) => fetchImpl(input, init);
   }
 
   async read(offset: number, length: number): Promise<Uint8Array> {
