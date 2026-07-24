@@ -1,7 +1,10 @@
 /**
  * Standalone demo for Component 5 — tour packaging + QR, no Three.js, no GPS.
  *
- * Left: the sample tour, one file input per declared asset (so it generalises to
+ * Left: the working tour — `sampleTour` by default, or the author's own via the
+ * editable tour.json textarea (fillable by typing, pasting, or uploading a
+ * `.json` file; "Use this tour" runs it through `parseTourJson`). Below that,
+ * one file input per the active tour's declared assets (so it generalises to
  * any fixture, including several assets of one type), and a Pack button that
  * runs the real `packTour` and downloads the result. Picking a file rebuilds its
  * `AssetEntry.filename` through `assetFilename` — the same path the authoring UI
@@ -17,10 +20,14 @@ import { assetFilename } from "./core/asset-filename.js";
 import { buildTourUrl } from "./core/build-tour-url.js";
 import { generateQr } from "./core/generate-qr.js";
 import { packTour } from "./core/pack-tour.js";
+import { parseTourJson } from "./core/parse-tour-json.js";
 import { downloadBlob } from "./view/download-blob.js";
 import { renderQrSvg } from "./view/qr-view.js";
 
 const picked = new Map<AssetId, File>();
+
+/** The tour packed and edited below — `sampleTour` until the author loads their own. */
+let activeTour: Tour = sampleTour;
 
 const el = <T extends HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -28,6 +35,9 @@ const el = <T extends HTMLElement>(id: string): T =>
 const tourState = el<HTMLPreElement>("tour-state");
 const assetInputs = el<HTMLDivElement>("asset-inputs");
 const packStatus = el<HTMLParagraphElement>("pack-status");
+const tourJsonInput = el<HTMLTextAreaElement>("tour-json-input");
+const tourJsonFile = el<HTMLInputElement>("tour-json-file");
+const tourJsonStatus = el<HTMLParagraphElement>("tour-json-status");
 const usePlaceholders = el<HTMLInputElement>("use-placeholders");
 const appBase = el<HTMLInputElement>("app-base");
 const zipUrl = el<HTMLInputElement>("zip-url");
@@ -42,8 +52,8 @@ const qrStatus = el<HTMLParagraphElement>("qr-status");
  */
 function currentTour(): Tour {
   return {
-    ...sampleTour,
-    assets: sampleTour.assets.map((asset) => {
+    ...activeTour,
+    assets: activeTour.assets.map((asset) => {
       const file = picked.get(asset.id);
       return file
         ? { ...asset, filename: assetFilename(asset.id, file) }
@@ -81,7 +91,7 @@ function renderTour(): void {
 
 function renderAssetInputs(): void {
   assetInputs.replaceChildren();
-  for (const asset of sampleTour.assets) {
+  for (const asset of activeTour.assets) {
     const row = document.createElement("label");
     row.className = "asset-row";
 
@@ -100,6 +110,34 @@ function renderAssetInputs(): void {
     row.append(name, input);
     assetInputs.appendChild(row);
   }
+}
+
+/**
+ * Make `tour` the working tour: clear stale file picks (they're keyed by the
+ * previous tour's asset ids), re-render the asset inputs for its assets, and
+ * refresh the preview.
+ */
+function activateTour(tour: Tour): void {
+  activeTour = tour;
+  picked.clear();
+  tourJsonStatus.textContent = "";
+  renderAssetInputs();
+  renderTour();
+}
+
+function useTourJson(): void {
+  try {
+    activateTour(parseTourJson(tourJsonInput.value));
+  } catch (error) {
+    // TourValidationError's message already names the JSON/invariant problem.
+    tourJsonStatus.textContent =
+      error instanceof Error ? error.message : String(error);
+    tourJsonStatus.dataset["state"] = "error";
+  }
+}
+
+async function loadTourJsonFile(file: File): Promise<void> {
+  tourJsonInput.value = await file.text();
 }
 
 async function packAndDownload(): Promise<void> {
@@ -134,8 +172,8 @@ async function showQr(): Promise<void> {
 }
 
 el<HTMLButtonElement>("load-sample").addEventListener("click", () => {
-  renderAssetInputs();
-  renderTour();
+  tourJsonInput.value = JSON.stringify(sampleTour, null, 2);
+  activateTour(sampleTour);
 });
 el<HTMLButtonElement>("pack").addEventListener("click", () => {
   void packAndDownload();
@@ -146,9 +184,17 @@ el<HTMLButtonElement>("generate-qr").addEventListener("click", () => {
 usePlaceholders.addEventListener("change", () => {
   packStatus.textContent = "";
 });
+tourJsonFile.addEventListener("change", () => {
+  const file = tourJsonFile.files?.[0];
+  if (file) void loadTourJsonFile(file);
+});
+el<HTMLButtonElement>("use-tour").addEventListener("click", () => {
+  useTourJson();
+});
 
 // The app base defaults to this page: scanning the QR from the dev server round
 // -trips to a real URL, so the ?tour= param can be checked end to end.
 appBase.value = `${location.origin}${location.pathname}`;
+tourJsonInput.value = JSON.stringify(sampleTour, null, 2);
 renderAssetInputs();
 renderTour();

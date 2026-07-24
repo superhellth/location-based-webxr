@@ -88,7 +88,8 @@
         color: #9aa7bd;
       }
       input[type="file"],
-      input[type="url"] {
+      input[type="url"],
+      textarea {
         font: inherit;
         font-size: 12px;
         color: #e9eef7;
@@ -96,6 +97,12 @@
         border: 1px solid #2a3550;
         border-radius: 6px;
         padding: 6px 8px;
+      }
+      textarea {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        resize: vertical;
+        width: 100%;
+        box-sizing: border-box;
       }
       p.status {
         min-height: 18px;
@@ -150,11 +157,12 @@
     <main>
       <h1>Component 5 — Tour packaging &amp; QR code</h1>
       <p class="lead">
-        The authoring-side export step. <code>packTour</code> bundles the sample
-        tour + its asset files into an <strong>uncompressed</strong> ZIP (store
-        mode, so component 6 can range-read a single asset without
-        decompressing); <code>buildTourUrl</code> + <code>generateQr</code> turn
-        the hosted ZIP's URL into a scannable viewing-mode link.
+        The authoring-side export step. <code>packTour</code> bundles a tour
+        (the sample fixture, or your own tour.json) + its asset files into an
+        <strong>uncompressed</strong> ZIP (store mode, so component 6 can
+        range-read a single asset without decompressing);
+        <code>buildTourUrl</code> + <code>generateQr</code> turn the hosted
+        ZIP's URL into a scannable viewing-mode link.
       </p>
       <div class="cols">
         <section class="panel">
@@ -163,6 +171,19 @@
             <button type="button" id="load-sample">Load sample tour</button>
             <button type="button" id="pack">Pack tour → download</button>
           </div>
+          <label class="field">
+            Your own tour.json (paste, edit, or upload)
+            <textarea id="tour-json-input" rows="10"></textarea>
+          </label>
+          <div class="buttons">
+            <input
+              type="file"
+              id="tour-json-file"
+              accept="application/json,.json"
+            />
+            <button type="button" id="use-tour">Use this tour</button>
+          </div>
+          <p class="status" id="tour-json-status"></p>
           <div id="asset-inputs"></div>
           <label class="toggle">
             <input type="checkbox" id="use-placeholders" checked />
