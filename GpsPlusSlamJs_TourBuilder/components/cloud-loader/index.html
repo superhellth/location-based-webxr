@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gps-plus-slam — cloud-loader demo (Component 6)</title>
+    <link rel="stylesheet" href="../shared/panel-demo.css" />
+    <style>
+      label.field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 10px;
+        font-size: 12px;
+        color: #9aa7bd;
+      }
+      input[type="url"] {
+        font: inherit;
+        font-size: 12px;
+        color: #e9eef7;
+        background: #0b0e14;
+        border: 1px solid #2a3550;
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      .assets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      #log {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        background: #0b0e14;
+        border: 1px solid #2a3550;
+        border-radius: 6px;
+        padding: 8px;
+        max-height: 260px;
+        overflow: auto;
+      }
+      #source {
+        font-weight: 600;
+      }
+      #preview img {
+        max-width: 160px;
+        border: 1px solid #2a3550;
+        border-radius: 6px;
+      }
+      .hint {
+        font-size: 11px;
+        color: #6b7688;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="demo">
+      <h1>Component 6 — Cloud-storage tour source</h1>
+      <p class="hint">
+        Paste a hosted <code>tour.zip</code> URL (direct download link, Range +
+        CORS capable — see RECIPE.md). Watch the tour + POIs appear before the
+        whole archive downloads, fetch an asset by range (a
+        <strong>206 Partial Content</strong> in the Network panel), then see the
+        background warm switch the byte-source to a local copy.
+      </p>
+      <p class="hint">
+        No-CORS host (e.g. Dropbox)? In dev, prefix it with the built-in proxy:
+        <code>/tour-proxy?u=&lt;encoded url&gt;</code> — see RECIPE.md.
+      </p>
+
+      <label class="field">
+        Tour zip URL (<code>?tour=</code> value)
+        <input id="url" type="url" placeholder="https://…/tour.zip" />
+      </label>
+      <button id="load" type="button">Load tour</button>
+
+      <p>Source: <span id="source">—</span></p>
+      <div id="tour"></div>
+      <div class="assets" id="assets"></div>
+      <div id="preview"></div>
+
+      <h2>Log</h2>
+      <div id="log"></div>
+    </main>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

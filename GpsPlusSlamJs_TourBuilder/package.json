@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
+    "@zip.js/zip.js": "2.8.26",
     "fflate": "^0.8.3",
     "gps-plus-slam-app-framework": "workspace:*",
     "qrcode": "^1.5.4",
