@@ -83,8 +83,6 @@ into `File`s, are still to come; see the plan's "Known gap" note.
 ## Plan
 
 [`plans/2026-07-14-packaging-plan.md`](../../../plans/2026-07-14-packaging-plan.md)
-(initial implementation),
-[`plans/2026-07-24-packaging-own-tour-plan.md`](../../../plans/2026-07-24-packaging-own-tour-plan.md)
-(load-your-own-tour iteration)
+(initial implementation + the 2026-07-24 load-your-own-tour iteration)
 · contract: [`plans/Shared-Contract.md`](../../../plans/Shared-Contract.md) §1
 (schema + Invariant 3), D13.

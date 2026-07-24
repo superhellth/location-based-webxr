@@ -3,9 +3,10 @@
 ## Context
 
 Component 5 is the **authoring-side export step**: take a `Tour` (from
-`selectExportedTour`) plus the author's asset `File` objects, bundle them into a
-single `tour.zip` stored **uncompressed** (ZIP "store" mode, no DEFLATE), and
-provide utilities to build the viewing-mode URL and render a QR code for it.
+`selectExportedTour`, or the author's own `tour.json`) plus the author's asset
+`File` objects, bundle them into a single `tour.zip` stored **uncompressed**
+(ZIP "store" mode, no DEFLATE), and provide utilities to build the viewing-mode
+URL and render a QR code for it.
 
 The uncompressed constraint is deliberate: component 6 range-reads individual
 assets as cheap byte-slices without a decompression step. DEFLATE would save almost
@@ -15,12 +16,16 @@ The contract is **already agreed** in `plans/Shared-Contract.md`. This plan
 implements it. The design below was resolved in a grilling on 2026-07-14 and
 revised after a plan review the same day.
 
+**Revised 2026-07-24:** added the ability to load an author's own `tour.json`
+(upload or paste) in the demo, not just the sample fixture — decisions 15–20,
+folded into the sections below.
+
 Package: **`GpsPlusSlamJs_TourBuilder/`**. All logic + demo live under
 `components/packaging/`, split `core/` + `view/` + `demo.ts` like components 1–4.
 
 ---
 
-## Decisions (resolved in the 2026-07-14 grilling)
+## Decisions
 
 | # | Branch | Decision |
 |---|--------|----------|
@@ -36,9 +41,15 @@ Package: **`GpsPlusSlamJs_TourBuilder/`**. All logic + demo live under
 | 9b | QR test | **`vi.mock("qrcode")`** — assert `toString` called with the correct URL + options. |
 | 10 | Missing asset error | **Throw immediately** with message listing missing ids. Never produce a partial ZIP. |
 | 11 | Filename convention | **`assetFilename(id, file): string`** pure helper → `assets/<id>.<ext>`. Used by the authoring UI (and the demo) when building `AssetEntry`; documented as the convention `packTour` relies on. |
-| 12 | ZIP entry-path safety (**new**) | `packTour` rejects duplicate `filename`s and unsafe paths. Contract §Invariant 3 assigns "every `AssetEntry.filename` is present in the zip" to component 5 — a silent overwrite would violate it. |
-| 13 | URL construction (**new**) | Pure helper **`buildTourUrl(appBaseUrl, zipUrl): string`**. The zip URL contains `://`, `?` and `&`, so it must be percent-encoded into the `?tour=` param. `generateQr` takes the finished URL and does no URL work. |
-| 14 | fflate API (**new**) | Async **`fflate.zip`** (callback, promisified), not `zipSync`. Same code size, no main-thread freeze on a 40 MB GLB. Streaming `Zip` + `ZipPassThrough` is the escape hatch if peak memory (~2× total bytes) becomes a problem — the swap is hidden behind `packTour`. |
+| 12 | ZIP entry-path safety | `packTour` rejects duplicate `filename`s and unsafe paths. Contract §Invariant 3 assigns "every `AssetEntry.filename` is present in the zip" to component 5 — a silent overwrite would violate it. |
+| 13 | URL construction | Pure helper **`buildTourUrl(appBaseUrl, zipUrl): string`**. The zip URL contains `://`, `?` and `&`, so it must be percent-encoded into the `?tour=` param. `generateQr` takes the finished URL and does no URL work. |
+| 14 | fflate API | Async **`fflate.zip`** (callback, promisified), not `zipSync`. Same code size, no main-thread freeze on a 40 MB GLB. Streaming `Zip` + `ZipPassThrough` is the escape hatch if peak memory (~2× total bytes) becomes a problem — the swap is hidden behind `packTour`. |
+| 15 | Own-tour input surface (**2026-07-24**) | One editable `<textarea>` for the tour JSON — populated by "Load sample tour", by picking a `.json` file, or by hand. Always editable regardless of source (a file upload is a shortcut to fill the textarea, not a separate path). |
+| 16 | Own-tour activation (**2026-07-24**) | Explicit **"Use this tour"** button, not live-as-you-type validation. Avoids re-parsing/re-rendering asset inputs on every keystroke and mid-edit error flicker. |
+| 17 | Sample tour stays default (**2026-07-24**) | "Load sample tour" fills the textarea with `sampleTour` JSON **and** activates it immediately (it's already known-valid — no reason to make the author click twice). |
+| 18 | Own-tour error type (**2026-07-24**) | JSON syntax errors are caught and rethrown as `TourValidationError` (the same class `validateTour` already throws), so the demo has exactly one error type to display, in a new `#tour-json-status` line matching the existing `#pack-status`/`#qr-status` pattern. |
+| 19 | Own-tour scope boundary (**2026-07-24**) | This component **packs**, it does not **unpack** an existing `tour.zip` — that is component 6's (`RangeZipAssetProvider`) job. "Own tour" means own `tour.json` text, not a hosted archive. |
+| 20 | Stale file picks (**2026-07-24**) | Activating a new tour (sample or custom) resets the `picked` asset-file map — asset ids from the previous tour are meaningless for a different one. |
 
 ---
 
@@ -85,6 +96,14 @@ export function buildTourUrl(appBaseUrl: string, zipUrl: string): string;
  * The caller passes the finished URL — use `buildTourUrl` to make one.
  */
 export function generateQr(tourUrl: string): Promise<string>;
+
+// components/packaging/core/parse-tour-json.ts (2026-07-24)
+/**
+ * Parse and validate raw tour.json text (typed, pasted, or uploaded).
+ * @throws {TourValidationError} on invalid JSON syntax (rethrown with the same
+ * error class validateTour uses) or on any validateTour invariant violation.
+ */
+export function parseTourJson(text: string): Tour;
 ```
 
 ---
@@ -98,6 +117,7 @@ components/packaging/
     build-tour-url.ts        build-tour-url.test.ts
     pack-tour.ts             pack-tour.test.ts
     generate-qr.ts           generate-qr.test.ts
+    parse-tour-json.ts       parse-tour-json.test.ts   (2026-07-24)
     README.md                # Purpose / Public API / Invariants / Examples / Tests
   view/
     download-blob.ts         # triggers the browser download of tour.zip
@@ -116,8 +136,8 @@ Conventions this follows (checked against the existing package, not assumed):
 - **One `*.test.ts` per source file**, colocated in `core/` (mirrors
   `panel-layout.ts` / `panel-layout.test.ts`).
 - **`core/` is pure/DOM-free and unit-tested; `view/` does the browser side
-  effects** and is exercised via the demo. `generate-qr.ts` is `core/`: it
-  touches no DOM.
+  effects** and is exercised via the demo. `generate-qr.ts` and
+  `parse-tour-json.ts` are `core/`: neither touches the DOM.
 - No `index.ts` barrel — consumers import the specific file they need.
 
 ---
@@ -194,6 +214,20 @@ Returns the SVG string. Options are pinned in this module (not caller-supplied):
 
 ---
 
+## `core/parse-tour-json.ts` internals (2026-07-24)
+
+The gate for the demo's "use your own tour" input (decisions 15–20). `JSON.parse`
+wrapped in try/catch — a `SyntaxError` is rethrown as `TourValidationError` with
+its message — then `validateTour(parsed)`. No new error class: the demo (and any
+future caller) only ever handles `TourValidationError`, whether the problem was
+bad JSON syntax or a failed invariant.
+
+This module adds no validation of its own beyond the JSON-parse step
+`validateTour` doesn't do; it does not belong to component 6's unpack-a-hosted-zip
+job (decision 19) — it only ever sees text the author already has.
+
+---
+
 ## Tests
 
 ### `core/asset-filename.test.ts`
@@ -235,19 +269,40 @@ Returns the SVG string. Options are pinned in this module (not caller-supplied):
   pinned options object.
 - Assert the returned string is the mocked SVG (non-empty).
 
+### `core/parse-tour-json.test.ts` (2026-07-24)
+- Valid tour JSON text → returns a `Tour` equal to the parsed object (`sampleTour`
+  stringified as the fixture).
+- Malformed JSON syntax → throws `TourValidationError`.
+- Syntactically valid JSON that fails a `validateTour` invariant → throws
+  `TourValidationError` carrying `validateTour`'s own message (forwarded
+  unchanged, not reworded).
+
 ---
 
 ## Demo page (`components/packaging/index.html` + `demo.ts`)
 
 Layout — two columns:
 
-**Left — Tour input:**
-- "Load sample tour" button: loads `store/fixtures/sample-tour.ts`, populates the
-  tour state display.
-- File inputs to override sample assets. Each picked `File` is turned into an
-  `AssetEntry` via **`assetFilename(id, file)`** — this is the demo exercising the
-  real authoring-UI path, and it is also what keeps `assetFilename` from tripping
-  `check:deadcode` (see Tooling).
+**Left — Tour input.** A module-level `activeTour: Tour` (initially `sampleTour`)
+drives both the asset inputs and the pack step; `renderAssetInputs()` and
+`currentTour()` read from it rather than the fixture directly.
+
+- "Load sample tour" button: writes `sampleTour` JSON into the tour.json textarea
+  (below) and activates it immediately — it's already known-valid (decision 17).
+- **Own-tour input (2026-07-24):** one editable `<textarea>` holding tour.json
+  text, fillable by typing, pasting, or picking a `.json` file (the file input
+  just reads the file's text into the textarea — decision 15). Nothing changes
+  until **"Use this tour"** parses the textarea with `parseTourJson` and, on
+  success, calls `activateTour(tour)`: sets `activeTour`, clears the stale
+  `picked` file map (decision 20), and re-renders the asset inputs + preview for
+  the new tour's assets. On failure, the `TourValidationError` message shows in
+  its own `#tour-json-status` line and the previous tour stays active (decision
+  16, 18).
+- File inputs to override `activeTour`'s assets, one **per declared asset** (so
+  it generalises to a tour with several assets of one type). Each picked `File`
+  is turned into an `AssetEntry` via **`assetFilename(id, file)`** — this is the
+  demo exercising the real authoring-UI path, and it is also what keeps
+  `assetFilename` from tripping `check:deadcode` (see Tooling).
 - "Pack tour" button: `packTour` → `view/download-blob.ts` triggers a `tour.zip` download.
 - Status line: success (ZIP size) or error (missing ids / bad paths).
 
@@ -264,9 +319,9 @@ sample fixture.
 **Known gap (deferred):** "works out of the box" needs real asset bytes for every
 `AssetEntry` in the fixture, fetched from `public/packaging/` into `File`s.
 `public/` currently holds only `billboard/`. Until those fixture files land, the
-demo can pack only after the author picks files. Also note the per-asset-type file
-inputs do not generalise to a fixture with two assets of one type — revisit when
-wiring the real sample assets.
+demo can pack only after the author picks files (or leaves "use placeholder
+bytes" on). Also note the per-asset-type file inputs do not generalise to a
+fixture with two assets of one type — revisit when wiring the real sample assets.
 
 ---
 
@@ -294,16 +349,27 @@ Actual changes needed:
 ## Verification
 
 1. `pnpm run test:unit` — all packaging tests pass, including the store-mode
-   raw-bytes check. **Confirm the `File` / `file.arrayBuffer()` globals resolve**:
-   `vitest.config.ts` sets no `environment`, so tests run in Node (≥20 provides
-   both) — if they don't, add `environment: "jsdom"` scoped to this suite.
+   raw-bytes check and `parse-tour-json.test.ts`. **Confirm the `File` /
+   `file.arrayBuffer()` globals resolve**: `vitest.config.ts` sets no
+   `environment`, so tests run in Node (≥20 provides both) — if they don't, add
+   `environment: "jsdom"` scoped to this suite.
 2. `pnpm run dev` → open `/components/packaging/`:
+   - Page loads with the sample tour active by default.
    - "Load sample tour" → state display populates.
    - "Pack tour" → `tour.zip` downloads; open it in any ZIP inspector and confirm
      every entry shows "Store" (not "Deflate").
    - Extract `tour.json` and run `validateTour` in the console — no errors.
    - Paste app base + a real upload URL → "Generate QR" → SVG renders → scan with a
      phone → the URL opens with the `?tour=` param intact.
+   - Edit the textarea to a different valid tour → "Use this tour" → asset inputs
+     and the preview update to the new tour's assets, no error shown.
+   - Break the JSON, or violate an invariant (e.g. `prefetchRadius < activeRadius`)
+     → "Use this tour" → the error line shows the problem, the previous tour
+     stays active and packable.
+   - Upload a `.json` file → its contents appear in the textarea, unmodified and
+     still editable, tour not yet active until "Use this tour" is clicked.
+   - "Load sample tour" after having a custom tour active → textarea + active
+     tour both revert to the sample immediately.
 3. `pnpm run test:core` — the full gate (format, lint, lint:css, jscpd, cycles,
    boundaries, deadcode, typecheck, typecheck:tests, **and** `test:unit`) passes.
    This supersedes step 1; step 1 is just the fast inner loop.
@@ -320,3 +386,5 @@ Each step lands with its tests **and** its directory `README.md` in the same com
    check, round-trip with component 3).
 4. `core/generate-qr.ts`.
 5. `view/` + demo page + tooling wiring (deps, vite input, gallery card).
+6. **(2026-07-24)** `core/parse-tour-json.ts` + test (TDD).
+7. **(2026-07-24)** `demo.ts` + `index.html` own-tour wiring, README updates.

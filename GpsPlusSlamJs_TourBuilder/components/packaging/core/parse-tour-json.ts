@@ -6,7 +6,7 @@
  * `TourValidationError` so it reads the same as an invariant violation from
  * `validateTour` — one error type, one status line.
  *
- * @see plans/2026-07-24-packaging-own-tour-plan.md (decision 4)
+ * @see plans/2026-07-14-packaging-plan.md (decision 18)
  */
 
 import type { Tour } from "../../../store/types.js";
