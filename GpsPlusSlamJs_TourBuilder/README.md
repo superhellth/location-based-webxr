@@ -1,49 +1,123 @@
-# gps-plus-slam-billboard-demo
+# gps-plus-slam-tour-builder
 
-Component 1 (warm-up) of the AR audio tour-guide lab: a **clickable cylindrical
-billboard sprite with audio + an in-world transport panel**. A 2D image at a
-world position that yaws to face the user but stays upright (rotates around Y
-only — never tilts or rolls), plays an audio clip when clicked, and shows a
-billboarded panel (play/stop + a seekable progress bar) below it.
+The lab package: the AR audio tour-guide prototype (`TASK.md`), built **one
+isolated component at a time**. Every component is a folder under
+`components/` with its own runnable demo page, its own pure unit-tested core,
+and no dependency on any sibling component. Composition into the two app modes
+(Authoring / Viewing) is the last step, not the first.
 
-It is the seed of the AR knight markers and tap-to-play story (component 8),
-which reuses this picking + billboard + transport logic with a GLTF model and an
-asset-provider URL in place of the plane and `HTMLAudioElement`.
+The single contract all components code against is `store/` — the `tour.json`
+schema types plus the Redux slices, pinned in `plans/Shared-Contract.md`
+(decisions D1–D17). Read that before touching tour/store code.
 
-## Structure
+## Components
 
-Pure, framework-free, unit-tested core — separated from the Three.js/DOM view:
+Each row is independently runnable: `pnpm dev`, then the listed path (root
+`index.html` is a gallery linking to all of them).
 
-| File                           | Kind | Role                                                 |
-| ------------------------------ | ---- | ---------------------------------------------------- |
-| `src/billboard-math.ts`        | pure | cylindrical-billboard Y-yaw                          |
-| `src/playback-transport.ts`    | pure | single-source-of-truth transport reducer + selectors |
-| `src/panel-layout.ts`          | pure | panel UV → toggle/seek hit-mapping                   |
-| `src/clickable-billboard.ts`   | view | sprite + panel + audio composition unit              |
-| `src/transport-panel-view.ts`  | view | `CanvasTexture` panel (XR-safe)                      |
-| `src/audio-player.ts`          | view | `HTMLAudioElement` wrapper                           |
-| `src/billboard-interaction.ts` | view | pointer raycast → sprite/panel hit                   |
-| `src/main.ts`                  | demo | scene + OrbitControls + dispatch/render loop         |
+| #   | Component                                                      | Demo path                    | What it is                                                                                                                      |
+| --- | -------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [Clickable billboard](components/billboard/README.md)          | `/components/billboard/`     | Yaw-to-face sprite + spatialized audio + in-world transport panel (play/stop, seekable bar). Seed of the AR knight markers.     |
+| 2   | [In-world text](components/in-world-text/README.md)            | `/components/in-world-text/` | Billboarded paginated text panel; HTML-in-3D backend with automatic `CanvasTexture` fallback (XR-safe).                         |
+| 3   | [Tour data model + store](store/README.md)                     | `/components/store/`         | The §2.2 contract: schema types, `validateTour`, slices, selectors, the two store factories.                                    |
+| 4   | [Proximity & zone machine](components/proximity/README.md)     | `/components/proximity/`     | `IDLE → PREFETCHING → ACTIVE` per waypoint with hysteresis, pure world-space (X/Z), no GPS/geo math. Replay-tested.             |
+| 5   | [Packaging & QR](components/packaging/README.md)               | `/components/packaging/`     | Bundles a `Tour` + asset files into an **uncompressed** `tour.zip`; turns the hosted URL into a scannable viewing link.         |
+| 6   | [Cloud-storage tour source](components/cloud-loader/README.md) | `/components/cloud-loader/`  | `?tour=<zipUrl>` → running tour: byte-range reads of the hosted ZIP, `AssetProvider` by id, local warm copy, no-range fallback. |
 
-Each behaviour file has a colocated `*.ts.md` sidecar.
+Supporting directories (not runnable components):
+
+- `components/shared/` — cross-component pure helpers (`billboard-math`,
+  `canvas-panel`, `panel-geometry`, `tap-gate`, `pointer-tap-picker`, …).
+  Defined once so the duplication gate stays green; a component may import
+  these, never another component's internals.
+- `store/` — lives at the package root, not under `components/`. Dependencies
+  flow **components → store** only (enforced by
+  `config/.dependency-cruiser.cjs`).
+- `public/billboard/` — throwaway fixtures (`marker-*.png`, `clip-*.wav`)
+  generated by `node scripts/make-fixtures.mjs`. A real tour ships GLB/MP3/OGG.
+
+## Structure of a component
+
+```
+components/<name>/
+  core/        pure, framework-free logic + unit tests — never imports Three.js or DOM
+  view/        Three.js / DOM layer (raycasting, CanvasTexture, audio, fetch) + replay e2e
+  demo.ts      the standalone demo for this one component
+  index.html   its page (also registered in vite.config.ts `build.rollupOptions.input`)
+  README.md    directory sidecar (see docs convention below)
+```
+
+The `core` / `view` split is the purity seam the "components first" rule
+demands: everything worth unit-testing (math, reducers, hit-mapping, wrapping,
+validation, zip layout) sits in `core` and runs headless.
+
+## Two test levels
+
+1. **Unit tests** for all pure logic, colocated in `core/` (and `store/`).
+2. **Replay e2e** on top, for anything with a movement dependency: real outdoor
+   recordings from `recordings/` are fed through `replayRecording` so the
+   component runs deterministically on a desktop with no phone. Today that is
+   `components/proximity/view/proximity-replay.e2e.test.ts`; component 6 has a
+   network integration test against a local fixture server.
+
+Both levels run under plain `vitest` (`vitest.config.ts` collects
+`components/**/*.test.ts` + `store/**/*.test.ts`) — there is no Playwright in
+this package.
+
+## Docs convention
+
+TourBuilder deliberately **does not** use the repo's per-file `*.md` sidecars.
+It uses **one README per directory**.
+In short:
+
+- The directory is the meaningful unit here: `core/` vs `view/` is the purity
+  seam, and the invariants worth recording (one-way data flow, who owns which
+  policy) span the modules in a directory rather than sitting in one file.
+- Modules are small (often < 100 lines) and carry rich module-level doc
+  comments; a per-file sidecar would largely duplicate that header.
+- One README per directory keeps cross-module contracts (e.g. reducer ⇄
+  reconcile ⇄ view command execution) in one place instead of split across N
+  sidecars.
+
+Consequences for contributors: per-file doc comments at the top of each module
+remain mandatory, and the directory README must be updated whenever a module's
+behavior changes — the same rule sidecars have elsewhere.
+Other packages keep per-file sidecars; extracting a TourBuilder module upstream
+means adding a sidecar at that point. Reviews should not re-flag the absent
+per-file sidecars as convention drift.
 
 ## Commands
 
+Run from this package directory.
+
 ```bash
-pnpm dev           # demo at http://localhost:5182
-pnpm test          # format + lint + typecheck + checks + unit (the gate)
-pnpm run test:unit # fast vitest loop
+pnpm dev            # builds the framework, then Vite on http://localhost:5182
+pnpm test           # the full gate (see below)
+pnpm run test:unit  # fast vitest loop
+pnpm run test:watch
 ```
 
-## Fixtures
+`pnpm test` = format → lint → lint:css → `check:all` → typecheck (app + tests) →
+unit. `check:all` is jscpd (duplication), dpdm (circular deps),
+dependency-cruiser (module boundaries) and knip (dead code).
 
-`public/marker-*.png` + `public/clip-*.wav` are throwaway placeholders generated
-by `node scripts/make-fixtures.mjs` (a real tour ships GLB/MP3/OGG).
+Focused iteration — the vitest config is at the package root, so no
+`--config config/…`:
 
-## Scope notes
+```bash
+pnpm exec vitest run components/proximity/core/proximity-machine.test.ts
+pnpm exec vitest run -t "hysteresis"
+```
 
-- **Tap-to-seek** (not drag-scrub): one gesture, identical on desktop and
-  immersive XR. Continuous drag is a possible later desktop enhancement.
-- No replay e2e: Component 1 has no movement dependency (the first
-  replay-tested component is the proximity state machine, #4). Proof here is
-  unit tests + the demo.
+TourBuilder is not yet wired into the repo-root aggregate `pnpm test` or
+`build:site`; run its gate from here.
+
+## Adding a component
+
+1. Write a dated plan in `plans/` (`YYYY-MM-DD-<name>-plan.md`) and iterate it
+   before coding.
+2. Create `components/<name>/{core,view}/`, `demo.ts`, `index.html`, `README.md`.
+3. Register the page in `vite.config.ts` (`build.rollupOptions.input`) and link
+   it from the root `index.html` gallery.
+4. Tests first; keep `core` free of Three.js and DOM.
+5. Green `pnpm test` before pushing.
