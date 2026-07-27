@@ -68,9 +68,16 @@
         "stylelint-config-standard"
       ]
     },
-    "GpsPlusSlamJs_BillboardDemo": {
-      "entry": ["config/stylelint.config.mjs"],
-      "project": ["src/**/*.ts"],
+    "GpsPlusSlamJs_TourBuilder": {
+      "entry": [
+        "components/*/demo.ts",
+        "config/stylelint.config.mjs",
+        "scripts/**/*.mjs",
+        "store/selectors.ts",
+        "store/types.ts",
+        "store/*-slice.ts"
+      ],
+      "project": ["components/**/*.ts", "store/**/*.ts"],
       "ignoreDependencies": [
         "@carlosjeurissen/stylelint-csstree-validator",
         "postcss-html",

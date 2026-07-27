@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "billboard-demo",
+      "name": "tourbuilder",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "gps-plus-slam-billboard-demo", "exec", "vite"],
+      "runtimeArgs": ["--filter", "gps-plus-slam-tour-builder", "dev"],
       "port": 5182
     }
   ]

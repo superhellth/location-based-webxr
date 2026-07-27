@@ -14,6 +14,10 @@
  * Convention: the plane's **+Z** local axis is its front (image) face — the
  * side the texture is seen from. `PlaneGeometry`'s front face has normal +Z, so
  * yawing +Z toward the camera shows the image to the user.
+ *
+ * Lives in `components/shared/` because it is reused verbatim by the billboard
+ * (component 1) and in-world-text (component 2) demos, and is an upstream-PR
+ * candidate (GPS-free, dependency-free).
  */
 
 /** A horizontal position; only the X/Z plane matters for yaw. */

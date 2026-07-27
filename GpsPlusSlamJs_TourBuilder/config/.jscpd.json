@@ -2,7 +2,7 @@
   "threshold": 0.5,
   "minTokens": 50,
   "reporters": ["console"],
-  "files": ["components/**/*.ts"],
+  "format": ["typescript"],
   "ignore": [
     "**/node_modules/**",
     "**/dist/**",

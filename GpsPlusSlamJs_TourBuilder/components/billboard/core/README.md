@@ -5,21 +5,11 @@ Framework-free, deterministic, unit-tested logic for the clickable billboard.
 output, so it runs on a desktop with no phone and is reused verbatim by the AR
 scene (component 8). The `view/` layer applies these results as side effects.
 
+> The face-the-user yaw (`computeBillboardYaw`) and `clamp01` now live in
+> [`components/shared/`](../../shared/README.md) because component 2 reuses them
+> too; this folder imports them from there.
+
 ## Modules
-
-### `billboard-math.ts` — face-the-user math
-
-`computeBillboardYaw(billboard, camera, fallback = 0)`: the single Y-rotation
-(radians) that turns a plane's **+Z front face** toward the camera in the XZ
-plane while keeping it upright.
-
-- +Z is the front (image) face — yawing +Z at the camera shows the texture.
-- Camera **height is ignored by design** — that keeps the marker level when the
-  user looks up/down at it.
-- The caller writes only `rotation.set(0, yaw, 0)`, so pitch/roll are never
-  touched.
-- **Degenerate case** (camera directly above/below): no horizontal facing
-  direction exists → returns `fallback` instead of snapping.
 
 ### `playback-transport.ts` — the transport reducer
 
@@ -48,20 +38,14 @@ decides what a tap means. `hitToIntent(uv, layout = DEFAULT_PANEL_LAYOUT)` →
   unambiguous.
 - A tap in the padding/gap → `null` (no phantom seek).
 
-### `clamp.ts` — shared helper
-
-`clamp01(value)` — clamp into the inclusive `[0, 1]` range. Used by the
-panel-layout seek mapping and the transport reducer's `seek` action, so the two
-share one definition instead of duplicating it.
+`panel-layout` builds on the shared `Rect` + `contains` UV-geometry primitive and
+the shared `clamp01`, both from [`components/shared/`](../../shared/README.md).
 
 ## Tests
 
-`billboard-math`, `playback-transport`, and `panel-layout` each have a colocated
-`*.test.ts` (`clamp.ts` is exercised transitively through them):
+`playback-transport` and `panel-layout` each have a colocated `*.test.ts` (the
+shared `billboard-math` and `panel-geometry` are tested under `components/shared/`):
 
-- `billboard-math.test.ts` — applies the yaw to a real `THREE.Object3D`; asserts
-  the +Z normal faces the camera horizontally, stays level regardless of camera
-  elevation, hits the four cardinals, and falls back when overhead.
 - `playback-transport.test.ts` — click start/switch/restart, toggle, seek
   (incl. clamp), tick, ended-at-end, the ignored stale `ended`, and selectors.
 - `panel-layout.test.ts` — button→toggle, track→seek fraction (centre/edges,

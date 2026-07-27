@@ -31,6 +31,9 @@ purpose.
 | D12 | `authoring` is a **persisted/recordable** slice (replayable authoring walks). `selectExportedTour` bridges draft → `Tour`. | Mirrors recorder's `refPoints` persistence. |
 | D13 | Two store factories selected at bootstrap from the `?tour=` URL param. **Mode is not a slice.** | — |
 | D14 | Asset-provider: `getAssetUrl(id) → Promise<url>` + `release(id)`, **ref-counted**, **reject-on-error**, blob-tier only, one interface / three backings, **injected not stored**. | Parsed-model LRU (tier 2) lives in component 8, not the provider. |
+| D15 | Component 4 writes the `zones` slice **only** — never imports the asset-provider or THREE.js. Consumers (component 8) subscribe to `zones` and own all asset/scene side effects, reacting to zone **edges**. Transitions are **monotonic single-step** in both directions (never IDLE↔ACTIVE directly). | Keeps component 4 pure/GPS-free/reusable (upstream-PR candidate); the single-step guarantee is what lets a consumer assume prefetch precedes activation (§2.5.3 anti-jank). |
+| D16 | Hysteresis margin is **fractional**: enter at `radius`, exit at `radius·(1+h)`, one global `h`. Supersedes the fixed-metre `HYSTERESIS_MARGIN_M` (§4). | Scales with each waypoint's own radius; never inverts on small radii (e.g. `activeRadius` 6). Grilled 2026-07-14. |
+| D17 | Proximity distance is **horizontal (X/Z)**, not full 3D `distanceTo`. | Altitude is the noisiest GPS axis and two sample waypoints omit it; tour is single-plane. Grilled 2026-07-14. |
 
 ---
 
@@ -189,6 +192,45 @@ authoring: addBreadcrumbPoint(point: TourCoord)
 // + selectExportedTour(state): Tour    (bridge draft → canonical Tour for packaging)
 ```
 
+#### 2.3.1 Selector contract (Component 3)
+
+All components that read store state **must** use the selectors in
+`store/selectors.ts`; a component needing a new read **adds its selector there**
+rather than selecting inline. This keeps state-shape knowledge in one file so a
+slice refactor touches one place. `selectWaypointVisual` takes a `Waypoint` (not
+`state`) — the caller already has it from `selectOrderedWaypoints`.
+
+#### 2.3.2 Implemented surface (Component 3) — additive to the above
+
+The implementation adds the following beyond the §2.3 list. They are **supersets**
+(the agreed names above are unchanged) needed by editing (component 10), the
+proximity driver (component 4), and tour reloading:
+
+```ts
+// Viewing actions
+tour:         clearTour()                        // reset; tourProgress + zones listen and reset too
+zones:        initZones(waypointIds: string[])   // seed all → IDLE at load (component-4 bootstrap)
+
+// Authoring actions
+authoring: updateWaypoint({ id, changes })       // changes.content is merged (transcript edited here)
+authoring: removeWaypoint(id)
+authoring: removeAsset(id)                        // also clears any waypoint slot referencing it
+authoring: clearAuthoring()
+
+// Additive selectors
+selectAssets(state): readonly AssetEntry[]        // loaded tour's assets
+selectWaypointById(state, id): Waypoint | undefined
+selectIsWaypointVisited(state, id): boolean
+selectVisitedWaypointIds(state): readonly string[]
+selectAuthoringWaypoints(state) / selectAuthoringName(state) / selectAuthoringDescription(state)
+```
+
+Clarification on `attachAsset`: its `slot` is an **asset-backed** slot
+(`model | sprite | audio`) and its payload carries an `AssetEntry` (registered in
+`assets` + wired to the waypoint, model/sprite kept mutually exclusive).
+`transcript` is inline text (D4), edited via `updateWaypoint({ content })`, not
+`attachAsset`.
+
 ### 2.4 Store factories (D13)
 
 ```ts
@@ -203,6 +245,39 @@ createAuthoringStore() // = createSlamAppStore({
 
 Both share the framework base (`gpsData`/`tracking`/`recording`), so one replay
 recording can drive either mode's e2e test.
+
+### 2.5 Zone-state consumer contract (component 4 → store → consumers, D15)
+
+Component 4 is the **only writer** of `zones.byWaypointId`. It writes zone *state*
+and nothing else — no asset-provider, no THREE.js, no timers (pure world-space
+distance → zone). Every lifecycle side effect belongs to the **consumer** that
+subscribes to the slice (component 8 in composition; the standalone demo just
+logs). Consumers react to the **edges** (diff previous vs next zone), and each
+`ZoneState` maps to a concrete memory/visibility tier:
+
+| ZoneState | Meaning | Consumer action on **entering** |
+|---|---|---|
+| `IDLE` | nothing loaded | dispose GPU (tier 2) + `release()` Blob (tier 1) |
+| `PREFETCHING` | model parsed + instantiated, **invisible** | `getAssetUrl` → parse/instantiate, keep `visible = false` |
+| `ACTIVE` | in view | `visible = true` |
+
+Guarantees component 4 gives its consumers:
+
+- **Monotonic single-step edges.** Between two updates a waypoint moves at most
+  one zone (`IDLE↔PREFETCHING↔ACTIVE`, never `IDLE↔ACTIVE` directly), in both
+  directions. So `PREFETCHING` (fetch+parse) always fires and gets ≥1 tick before
+  `ACTIVE` (visible) — this is what hides the GLTF parse jank (§2.5.3). Even on a
+  GPS teleport, activation lags by ≤1 tick (imperceptible).
+- **Downward through `PREFETCHING` keeps the model warm.** `ACTIVE→PREFETCHING`
+  only flips `visible = false`; the parsed model stays resident. Dispose+release
+  happen solely at `PREFETCHING→IDLE`, gated behind the outer hysteresis band, so
+  a visitor pacing on the active line never churns the GPU.
+- **Hysteresis-gated & frame-decoupled.** Enter at `radius`, exit at
+  `radius·(1+h)` (D16); positions jittering on a boundary emit no edge. Raw
+  position is read live from the framework and **never** hits Redux (D11).
+
+The slice is seeded by `initZones(waypointIds)` (all → `IDLE`) at tour load, and
+reset by `clearTour`. Consumers may assume every loaded waypoint has an entry.
 
 ---
 
@@ -259,11 +334,13 @@ interface AssetProvider {
 
 Radii are **per-waypoint** in `tour.json` (`Waypoint.prefetchRadius` /
 `activeRadius`). The only proximity constant in config is the hysteresis margin —
-a debounce detail component 4 owns, never persisted, not authorable:
+a debounce detail component 4 owns, never persisted, not authorable. The margin
+is **fractional** (D16), so it scales with each waypoint's own radius and never
+inverts on small radii:
 
 ```ts
 // config.ts
-export const HYSTERESIS_MARGIN_M = 2;  // exit band; component 4 internal, never persisted
+export const HYSTERESIS_FRACTION = 0.15; // exit band = radius·(1+h); component 4 internal, never persisted
 
 // authoring defaults (suggested values written onto each new waypoint at drop time;
 // the author can edit them — they are real per-waypoint data once written):
@@ -272,14 +349,16 @@ export const DEFAULT_ACTIVE_RADIUS_M   = 10; // PREFETCHING → ACTIVE
 ```
 
 Component 4 reads each waypoint's own `prefetchRadius` / `activeRadius` directly
-from the store; the enter/exit bands are `radius ± HYSTERESIS_MARGIN_M`.
+from the store. Per boundary: **enter** when horizontal distance `≤ radius`,
+**exit** when `> radius·(1 + HYSTERESIS_FRACTION)` (D16, D17).
 
 ---
 
 ## 5. What this contract deliberately leaves to the components
 
 - **Distance/proximity math** — component 4 (pure, world-space `Vector3`,
-  `userPos.distanceTo(obj.position)`; no geo math, §2.5.1).
+  **horizontal X/Z** distance, not full 3D `distanceTo` (D17); no geo math,
+  §2.5.1).
 - **Geo→world anchoring** — the framework's single `createGpsAnchor` step. The
   only place a `TourCoord` becomes a world position.
 - **Trail segmentation** ("which orbs lead to the next waypoint") — view-time in

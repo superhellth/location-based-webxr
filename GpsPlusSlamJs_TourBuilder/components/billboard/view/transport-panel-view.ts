@@ -13,10 +13,11 @@
  */
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
 
+import { roundRect, toPx } from "../../shared/canvas-panel.js";
+import type { Rect } from "../../shared/panel-geometry.js";
 import {
   DEFAULT_PANEL_LAYOUT,
   type PanelLayout,
-  type Rect,
 } from "../core/panel-layout.js";
 import {
   isPlaying,
@@ -34,22 +35,12 @@ export interface TransportPanel {
 const CANVAS_W = 512;
 const CANVAS_H = 176;
 
-/** Convert a UV rect (origin bottom-left) to a canvas pixel rect (origin top-left). */
-function toPx(r: Rect): { x: number; y: number; w: number; h: number } {
-  return {
-    x: r.x * CANVAS_W,
-    y: (1 - (r.y + r.h)) * CANVAS_H,
-    w: r.w * CANVAS_W,
-    h: r.h * CANVAS_H,
-  };
-}
-
 function drawButtonGlyph(
   ctx: CanvasRenderingContext2D,
   rect: Rect,
   playing: boolean,
 ): void {
-  const b = toPx(rect);
+  const b = toPx(rect, CANVAS_W, CANVAS_H);
   ctx.fillStyle = "#e9eef7";
   if (playing) {
     // Stop = filled square (centred, 56% of the button box).
@@ -74,7 +65,7 @@ function drawTrack(
   rect: Rect,
   fraction: number,
 ): void {
-  const t = toPx(rect);
+  const t = toPx(rect, CANVAS_W, CANVAS_H);
   const radius = t.h / 2;
   // Track background.
   ctx.fillStyle = "#2a2f3a";
@@ -84,19 +75,6 @@ function drawTrack(
   ctx.fillStyle = "#4f8cff";
   roundRect(ctx, t.x, t.y, Math.max(t.h, t.w * fraction), t.h, radius);
   ctx.fill();
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, radius);
 }
 
 export function createTransportPanel(
