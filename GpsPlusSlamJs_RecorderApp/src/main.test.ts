@@ -150,22 +150,8 @@ vi.mock('./state/recorder-store', async () => {
     './state/recorder-store'
   );
   return {
+    ...actual,
     createRecorderStore: () => mockStore,
-    store: mockStore,
-    startSession: vi.fn((payload: unknown) => ({
-      type: 'recording/startSession',
-      payload,
-    })),
-    endSession: vi.fn(() => ({ type: 'recording/endSession' })),
-    add2dImage: vi.fn((payload: unknown) => ({
-      type: 'recording/add2dImage',
-      payload,
-    })),
-    recordDepthSample: vi.fn((payload: unknown) => ({
-      type: 'recording/recordDepthSample',
-      payload,
-    })),
-    setCurrentScenarioName: actual.setCurrentScenarioName,
   };
 });
 
@@ -244,9 +230,7 @@ vi.mock('./storage/ref-point-loader', () => ({
 
 vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
   refPointVisualizer: {
-    displayPriorRefPoints: vi.fn(),
     setZeroRef: vi.fn(),
-    addCurrentRefPoint: vi.fn(),
   },
 }));
 
@@ -262,6 +246,13 @@ vi.mock('gps-plus-slam-app-framework/visualization/gps-compass-cubes', () => ({
   createGpsCompassCubes: vi.fn(),
 }));
 
+vi.mock('./ui/ref-point-view-wiring', () => ({
+  wireRefPointViews: vi.fn(() => ({
+    refreshMapMarkers: vi.fn(),
+    unsubscribe: vi.fn(),
+  })),
+}));
+
 vi.mock('./ui/hud', () => ({
   initUI: vi.fn(),
   showError: vi.fn(),
@@ -273,9 +264,9 @@ vi.mock('./ui/hud', () => ({
   showRecordingControls: vi.fn(),
   setStopButtonBusy: vi.fn(),
   showArReadyControls: vi.fn(),
-  setFolderSelected: vi.fn(),
   setSaveLocationSelected: vi.fn(),
   setFolderImportExpanded: vi.fn(),
+  setFolderImportProgress: vi.fn(),
   updateFolderStatus: vi.fn(),
   updateSaveStatus: vi.fn(),
   updateSyncStatus: vi.fn(),
@@ -326,6 +317,7 @@ vi.mock('./ui/confirm-dialog', () => ({
 // Mock navigation for back-during-recording tests (Issue 5 — 2026-02-27)
 vi.mock('./ui/navigation', () => ({
   initNavigation: vi.fn(),
+  getCurrentScreen: vi.fn(() => 'setup'),
   enableBeforeUnloadWarning: vi.fn(),
   disableBeforeUnloadWarning: vi.fn(),
   pushScreenState: vi.fn(),
@@ -383,48 +375,71 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
   extractOdomRotation: vi.fn().mockReturnValue([0, 0, 0, 1]),
 }));
 
-vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
-  loadRecordingOptions: vi.fn().mockReturnValue({
-    qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
-    images: { enabled: false, intervalMs: 1000, quality: 0.8 },
-    depth: { enabled: false, intervalMs: 1000 },
-    arCrashIsolation: {
-      enableDomOverlay: true,
-      enableCameraAccess: true,
-      enableDepthSensingFeature: true,
-      enableCss3dRenderer: true,
-      enableCameraTextureAcquisition: true,
-      applyChromiumProjectionLayerWorkaround: false,
+vi.mock('./state/recording-options', () => {
+  // The settings-modal OPTION_BINDINGS table dereferences the *_CONSTRAINTS
+  // exports at module load (slider bounds), so this factory must provide their
+  // shapes — values are inert here; the real bounds behavior is unit-tested in
+  // settings-modal.test.ts and recording-options.test.ts.
+  const range = { min: 0, max: 100, step: 1 };
+  return {
+    DEPTH_CONSTRAINTS: { intervalMs: range, gridSize: range },
+    IMAGE_CONSTRAINTS: {
+      intervalMs: range,
+      quality: range,
+      resolutionDivisor: range,
     },
-    occupancy: { cellSizeM: 0.15 },
-    frameTileDisplay: { divisor: 2 },
-    visualization: {
-      frameTiles: true,
-      occupancyCubes: true,
-      gpsAlignmentMarkers: true,
-      compassCubes: true,
+    MOTION_FILTER_CONSTRAINTS: {
+      maxAngularVelocity: range,
+      maxLinearVelocity: range,
     },
-  }),
-}));
+    QUALITY_FILTER_CONSTRAINTS: {
+      blurRelativeThreshold: range,
+      minMeanLuminance: range,
+    },
+    OCCUPANCY_CONSTRAINTS: {
+      cellSizeM: range,
+      minConfidence: range,
+      occluderRadiusM: range,
+    },
+    FRAME_TILE_DISPLAY_CONSTRAINTS: { divisor: range, maxTiles: range },
+    QR_CONSTRAINTS: { intervalMs: range, captureSize: range },
+    COMPASS_DEBUG_CONSTRAINTS: { voteWeight: range },
+    // main.ts also consumes the pure compassStoreOptions mapping — stubbed
+    // inert here; its real logic is unit-tested in recording-options.test.ts.
+    compassStoreOptions: () => ({}),
+    loadRecordingOptions: vi.fn().mockReturnValue({
+      qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
+      images: { enabled: false, intervalMs: 1000, quality: 0.8 },
+      depth: { enabled: false, intervalMs: 1000 },
+      arCrashIsolation: {
+        enableDomOverlay: true,
+        enableCameraAccess: true,
+        enableDepthSensingFeature: true,
+        enableCss3dRenderer: true,
+        enableCameraTextureAcquisition: true,
+        applyChromiumProjectionLayerWorkaround: false,
+      },
+      occupancy: { cellSizeM: 0.15 },
+      frameTileDisplay: { divisor: 2 },
+      visualization: {
+        frameTiles: true,
+        occupancyCubes: true,
+        gpsAlignmentMarkers: true,
+        compassCubes: true,
+      },
+      loopClosureDebug: { detectorEnabled: false },
+    }),
+  };
+});
 
-// Track setTrackingLostCallback calls for testing
-const {
-  mockSetTrackingLostCallback,
-  mockSetTrackingCallbacks,
-  mockSetTrackingRecoveredCallback,
-  mockOdometryTrackingRestarted,
-} = vi.hoisted(() => {
-  const mockSetTrackingLostCallback = vi.fn();
-  const mockSetTrackingCallbacks = vi.fn();
-  const mockSetTrackingRecoveredCallback = vi.fn();
+// odometryTrackingRestarted action creator mock (dispatched by the tracking
+// onRestarted callback passed to initAR).
+const { mockOdometryTrackingRestarted } = vi.hoisted(() => {
   const mockOdometryTrackingRestarted = vi.fn((payload: unknown) => ({
     type: 'gpsData/odometryTrackingRestarted',
     payload,
   }));
   return {
-    mockSetTrackingLostCallback,
-    mockSetTrackingCallbacks,
-    mockSetTrackingRecoveredCallback,
     mockOdometryTrackingRestarted,
   };
 });
@@ -435,24 +450,34 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   isWebXRSupported: vi.fn().mockResolvedValue(true),
   getCurrentArPose: vi.fn().mockReturnValue(null),
   applyAlignmentMatrix: vi.fn(),
-  setImageCaptureCallback: vi.fn(),
-  setImageQualityAnalyzer: vi.fn(),
   startImageCapture: vi.fn(),
   stopImageCapture: vi.fn(),
-  setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setFrameCallback: vi.fn(),
-  setTrackingLostCallback: mockSetTrackingLostCallback,
-  setTrackingCallbacks: mockSetTrackingCallbacks,
-  setTrackingRecoveredCallback: mockSetTrackingRecoveredCallback,
-  setTrackingStore: vi.fn(),
+  rebindTrackingStore: vi.fn(),
   getScene: vi.fn().mockReturnValue(null),
   getCamera: vi.fn().mockReturnValue(null),
   getArWorldGroup: vi.fn().mockReturnValue(null),
+  getDepthInfoFromFrame: vi.fn().mockReturnValue(null),
   getImageCaptureFrameCount: vi.fn().mockReturnValue(0),
   getDepthSampleCount: vi.fn().mockReturnValue(0),
 }));
+
+/**
+ * Extract the `callbacks` struct handed to the mocked initAR (4th argument).
+ * Since the pre-init setter fold (surface-reduction step 1), every wiring
+ * assertion that used to pin "setX was called before initAR" instead pins the
+ * corresponding field of this struct.
+ */
+async function getInitArCallbacks() {
+  const { initAR } =
+    await import('gps-plus-slam-app-framework/ar/webxr-session');
+  const call = vi.mocked(initAR).mock.calls[0];
+  expect(call).toBeDefined();
+  const callbacks = call![3];
+  expect(callbacks).toBeDefined();
+  return callbacks!;
+}
 
 // Mock the framework's core re-export — provides odometryTrackingRestarted action creator.
 // (After the Option-C migration, app code imports core symbols via
@@ -482,6 +507,7 @@ import {
   setReplayModeForTesting,
   handleReplayScenarioChangeForTesting,
   getReplaySessionEntriesForTesting,
+  handleRefPointIndexingSettled,
 } from './main';
 import { startSession as storageStartSession } from './storage/scenario-storage';
 import { resetForNewSession } from './storage/scenario-storage';
@@ -496,7 +522,9 @@ import {
   resetUIForNewRecording,
   populateScenarios,
   updateFolderStatus,
+  setFolderImportProgress,
 } from './ui/hud';
+import { showToast } from './ui/toast';
 import {
   listScenariosFromFolder,
   extractScenarioNamesFromZips,
@@ -925,13 +953,13 @@ describe('AR Partial Init Failure Cleanup (Issue #10)', () => {
 
   /**
    * Why this test matters (Issue #10):
-   * If initAR() succeeds but a later step throws (e.g., setImageCaptureCallback),
-   * the AR session is left running with incomplete wiring. The catch block must
-   * call endARSession() to tear down the XR session and free GPU resources.
-   * Without this, users see a camera feed but nothing works.
+   * If initAR() succeeds but a later step throws (e.g., the arWorldGroup
+   * wiring), the AR session is left running with incomplete wiring. The catch
+   * block must call endARSession() to tear down the XR session and free GPU
+   * resources. Without this, users see a camera feed but nothing works.
    */
   it('should call endARSession when post-init setup throws', async () => {
-    const { initAR, setImageCaptureCallback, endARSession } =
+    const { initAR, getArWorldGroup, endARSession } =
       await import('gps-plus-slam-app-framework/ar/webxr-session');
     const { showError } = await import('./ui/hud');
     const { handleEnterARForTesting } = await import('./main');
@@ -942,12 +970,16 @@ describe('AR Partial Init Failure Cleanup (Issue #10)', () => {
     // initAR succeeds
     vi.mocked(initAR).mockResolvedValue(undefined);
 
-    // setImageCaptureCallback throws (simulates post-init failure)
-    vi.mocked(setImageCaptureCallback).mockImplementation(() => {
+    // getArWorldGroup throws (simulates post-init failure)
+    vi.mocked(getArWorldGroup).mockImplementation(() => {
       throw new Error('Post-init failure');
     });
 
     await handleEnterARForTesting();
+
+    // Restore the default so later tests see the usual null return.
+    vi.mocked(getArWorldGroup).mockReset();
+    vi.mocked(getArWorldGroup).mockReturnValue(null);
 
     expect(initAR).toHaveBeenCalledWith(
       expect.any(HTMLElement),
@@ -957,12 +989,55 @@ describe('AR Partial Init Failure Cleanup (Issue #10)', () => {
         enableDepthSensingFeature: true,
         enableCss3dRenderer: true,
         enableCameraTextureAcquisition: true,
-      })
+      }),
+      // Live occluder OFF in the default mock options → depth occlusion not
+      // requested as a session feature (2026-06-29 two-occlusion-toggles).
+      expect.objectContaining({ requestDepthOcclusion: false }),
+      // The per-session callbacks struct (surface-reduction step 1).
+      expect.any(Object)
     );
 
     // endARSession should be called to clean up the XR session
     expect(endARSession).toHaveBeenCalled();
     expect(showError).toHaveBeenCalled();
+  });
+
+  /**
+   * Why this test matters (2026-06-29 two-composable-occlusion-toggles):
+   * the "Live depth occluder" checkbox (occupancy.liveOcclusion) must request
+   * the `requestDepthOcclusion` session feature so the session negotiates the
+   * `cpu-optimized` depth stream the live occluder consumes — even when depth
+   * *recording* is independent. This is the CI-testable half of the live
+   * wiring; the render-side integration is device-gated (see the follow-ups).
+   */
+  it('requests depth occlusion as a session feature when liveOcclusion is on', async () => {
+    const { initAR } =
+      await import('gps-plus-slam-app-framework/ar/webxr-session');
+    const { loadRecordingOptions } = await import('./state/recording-options');
+    const { handleEnterARForTesting, setRecordingOptionsForTesting } =
+      await import('./main');
+
+    vi.clearAllMocks();
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.mocked(initAR).mockResolvedValue(undefined);
+
+    // Turn the live occluder ON for this one Enter-AR by overriding the
+    // module-level recording options (spread the default mock so every other
+    // field main.ts reads stays intact).
+    const base = vi.mocked(loadRecordingOptions)();
+    setRecordingOptionsForTesting({
+      ...base,
+      occupancy: { ...base.occupancy, liveOcclusion: true },
+    });
+
+    await handleEnterARForTesting();
+
+    expect(initAR).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.any(Object),
+      expect.objectContaining({ requestDepthOcclusion: true }),
+      expect.any(Object)
+    );
   });
 });
 
@@ -970,7 +1045,6 @@ describe('AR Tracking Lost Callback', () => {
   beforeEach(() => {
     resetMainState();
     vi.clearAllMocks();
-    mockSetTrackingLostCallback.mockClear();
   });
 
   afterEach(() => {
@@ -981,22 +1055,19 @@ describe('AR Tracking Lost Callback', () => {
    * Why this test matters:
    * Field Test Readiness Issue #3 - When AR tracking is lost, the user
    * should be warned so they can move to a better location. This test
-   * verifies that handleEnterAR sets up the tracking lost callback.
+   * verifies that handleEnterAR wires the tracking group (store + onLost)
+   * into initAR's callbacks struct.
    */
-  it('should set up tracking lost callback during AR initialization', async () => {
+  it('should wire the tracking-lost callback into initAR during AR initialization', async () => {
     const { handleEnterARForTesting } = await import('./main');
 
     // Call handleEnterAR
     await handleEnterARForTesting();
 
-    // EXPECTED: setTrackingLostCallback should have been called with a function
-    expect(mockSetTrackingLostCallback).toHaveBeenCalled();
-    const calls = mockSetTrackingLostCallback.mock.calls as Array<[() => void]>;
-    expect(calls.length).toBeGreaterThan(0);
-
-    // The callback should be a function
-    const [callback] = calls[0];
-    expect(typeof callback).toBe('function');
+    const callbacks = await getInitArCallbacks();
+    // Store + callbacks arrive together in the tracking group.
+    expect(callbacks.tracking?.store).toBeDefined();
+    expect(typeof callbacks.tracking?.onLost).toBe('function');
   });
 
   /**
@@ -1010,17 +1081,12 @@ describe('AR Tracking Lost Callback', () => {
 
     // Reset the mock to capture fresh calls
     vi.clearAllMocks();
-    mockSetTrackingLostCallback.mockClear();
 
     // Call handleEnterAR
     await handleEnterARForTesting();
 
-    // Get the callback that was registered
-    expect(mockSetTrackingLostCallback).toHaveBeenCalled();
-    const trackingCalls = mockSetTrackingLostCallback.mock.calls as Array<
-      [() => void]
-    >;
-    const [trackingCallback] = trackingCalls[0]!;
+    const callbacks = await getInitArCallbacks();
+    const trackingCallback = callbacks.tracking!.onLost!;
 
     // Clear mocks before invoking callback to isolate its effects
     vi.mocked(showError).mockClear();
@@ -1051,21 +1117,18 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
   /**
    * Why this test matters:
-   * Phase 1 — setTrackingCallbacks must be wired before initAR() so that
-   * when the tracking slice detects an origin-reset recovery (Case 2),
-   * the store receives the odometryTrackingRestarted action to correct
-   * accumulated offsets and clear stale trajectory data.
+   * Phase 1 — the tracking `onRestarted` callback must ride into initAR's
+   * callbacks struct so that when the tracking slice detects an origin-reset
+   * recovery (Case 2), the store receives the odometryTrackingRestarted
+   * action to correct accumulated offsets and clear stale trajectory data.
    */
   it('should set up tracking restart callbacks during AR initialization', async () => {
     const { handleEnterARForTesting } = await import('./main');
 
     await handleEnterARForTesting();
 
-    expect(mockSetTrackingCallbacks).toHaveBeenCalledTimes(1);
-    const [callback] = mockSetTrackingCallbacks.mock.calls[0] as [
-      (payload: unknown) => void,
-    ];
-    expect(typeof callback).toBe('function');
+    const callbacks = await getInitArCallbacks();
+    expect(typeof callbacks.tracking?.onRestarted).toBe('function');
   });
 
   /**
@@ -1079,9 +1142,10 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
     await handleEnterARForTesting();
 
-    const [callback] = mockSetTrackingCallbacks.mock.calls[0] as [
-      (payload: unknown) => void,
-    ];
+    const callbacks = await getInitArCallbacks();
+    const callback = callbacks.tracking!.onRestarted! as (
+      payload: unknown
+    ) => void;
 
     const fakePayload = {
       posOffset: { x: 1, y: 2, z: 3 },
@@ -1116,9 +1180,10 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
     await handleEnterARForTesting();
 
-    const [callback] = mockSetTrackingCallbacks.mock.calls[0] as [
-      (payload: unknown) => void,
-    ];
+    const callbacks = await getInitArCallbacks();
+    const callback = callbacks.tracking!.onRestarted! as (
+      payload: unknown
+    ) => void;
 
     vi.mocked(updateArInfo).mockClear();
 
@@ -1135,7 +1200,7 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
   /**
    * Why this test matters:
-   * Phase 2 Case 1 — setTrackingRecoveredCallback handles seamless
+   * Phase 2 Case 1 — the tracking `onRecovered` callback handles seamless
    * recovery where the coordinate frame hasn't changed. It should
    * clear the "LOST" UI indicator without dispatching alignment correction.
    */
@@ -1144,11 +1209,8 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
     await handleEnterARForTesting();
 
-    expect(mockSetTrackingRecoveredCallback).toHaveBeenCalledTimes(1);
-    const [callback] = mockSetTrackingRecoveredCallback.mock.calls[0] as [
-      () => void,
-    ];
-    expect(typeof callback).toBe('function');
+    const callbacks = await getInitArCallbacks();
+    expect(typeof callbacks.tracking?.onRecovered).toBe('function');
   });
 
   /**
@@ -1164,8 +1226,8 @@ describe('AR Tracking Restart Callbacks (Phase 1+2)', () => {
 
     await handleEnterARForTesting();
 
-    const [recoveredCallback] = mockSetTrackingRecoveredCallback.mock
-      .calls[0] as [() => void];
+    const callbacks = await getInitArCallbacks();
+    const recoveredCallback = callbacks.tracking!.onRecovered!;
 
     vi.mocked(updateArInfo).mockClear();
     const dispatchSpy = vi.spyOn(mockStore, 'dispatch');
@@ -2029,6 +2091,44 @@ describe('resetForNewRecording (soft reset)', () => {
     expect(getImportedRefPoints()).toHaveLength(0);
     expect(hideSessionSummary).toHaveBeenCalled();
   });
+
+  // Why this test matters: the soft reset used to keep the WebXR session
+  // alive ("user returns to AR_READY"), but the setup screen it lands on
+  // requires pressing Enter AR again, and initAR() throws on a live session
+  // (re-entry guard, framework commit 8a4a2d2) — so the first Enter AR after
+  // a soft reset surfaced an error toast and needed a second press. The reset
+  // must end the session so the next Enter AR initializes cleanly. F3's
+  // session-end callback fires with requestedByApp: true here, which the
+  // system-session-end handler ignores — no double navigation or toast.
+  // See docs/2026-07-04-2319-soft-reset-end-ar-session-plan.md (GpsPlusSlamJs_Docs).
+  it('ends the AR session so the next Enter AR starts clean', async () => {
+    const { endARSession } =
+      await import('gps-plus-slam-app-framework/ar/webxr-session');
+    vi.mocked(endARSession).mockClear();
+
+    await resetForNewRecording();
+
+    expect(endARSession).toHaveBeenCalledTimes(1);
+  });
+
+  // Why this test matters: ending the session is best-effort — a rejected
+  // XRSession.end() (already-ended session, teardown race) must not abort
+  // the rest of the soft reset, or the user would be stranded on a
+  // half-reset screen. The framework's endARSession() already guarantees
+  // clean module state on rejection; the app just logs and continues.
+  it('completes the soft reset even when endARSession rejects', async () => {
+    const { endARSession } =
+      await import('gps-plus-slam-app-framework/ar/webxr-session');
+    vi.mocked(endARSession).mockClear();
+    vi.mocked(endARSession).mockRejectedValueOnce(new Error('already ended'));
+    vi.mocked(resetUIForNewRecording).mockClear();
+
+    await expect(resetForNewRecording()).resolves.toBeUndefined();
+
+    expect(endARSession).toHaveBeenCalledTimes(1);
+    // The reset still reaches the UI stage after the failed session end.
+    expect(resetUIForNewRecording).toHaveBeenCalled();
+  });
 });
 
 // ============================================================================
@@ -2842,5 +2942,92 @@ describe('handleReplayScenarioChange — zip metadata cache', () => {
     await expect(
       handleReplayScenarioChangeForTesting('MetadataOnly')
     ).resolves.toBeUndefined();
+  });
+});
+
+// ============================================================================
+// handleRefPointIndexingSettled — terminal outcome of the eager folder-import
+// indexing pass (D2/D3, 2026-07-05 plan Slice 4).
+//
+// Why these tests matter: the pass runs in the background and the user may
+// have entered AR before it settles — the toast (mounted in the #app overlay,
+// visible inside AR) is the only completion signal there, while the progress
+// bar's durable end state serves the start screen. Failure/abort must reset
+// the bar (failure additionally surfaces an error toast); a no-op pass stays
+// quiet (no toast spam when every store was already up to date).
+// ============================================================================
+
+describe('handleRefPointIndexingSettled', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('drives the durable bar end state and announces recovered points via toast', () => {
+    handleRefPointIndexingSettled({
+      status: 'success',
+      refPointsWritten: 5,
+      zipFilesScanned: 3,
+      zipFilesTotal: 3,
+      errors: [],
+    });
+
+    expect(setFolderImportProgress).toHaveBeenCalledWith({
+      kind: 'done',
+      refPointsWritten: 5,
+      zipFilesTotal: 3,
+    });
+    expect(showToast).toHaveBeenCalledWith(
+      'Recovered 5 reference points from 3 recordings',
+      { severity: 'info' }
+    );
+  });
+
+  it('uses singular copy for one point from one recording', () => {
+    handleRefPointIndexingSettled({
+      status: 'success',
+      refPointsWritten: 1,
+      zipFilesScanned: 1,
+      zipFilesTotal: 1,
+      errors: [],
+    });
+
+    expect(showToast).toHaveBeenCalledWith(
+      'Recovered 1 reference point from 1 recording',
+      { severity: 'info' }
+    );
+  });
+
+  it('stays quiet (end state only, no toast) when nothing was written', () => {
+    handleRefPointIndexingSettled({
+      status: 'success',
+      refPointsWritten: 0,
+      zipFilesScanned: 4,
+      zipFilesTotal: 4,
+      errors: [],
+    });
+
+    expect(setFolderImportProgress).toHaveBeenCalledWith({
+      kind: 'done',
+      refPointsWritten: 0,
+      zipFilesTotal: 4,
+    });
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('resets the bar and raises an error toast on failure', () => {
+    handleRefPointIndexingSettled({ status: 'error', message: 'boom' });
+
+    expect(setFolderImportProgress).toHaveBeenCalledWith(null);
+    expect(showToast).toHaveBeenCalledWith(
+      expect.stringContaining('boom'),
+      expect.objectContaining({ severity: 'error' })
+    );
+  });
+
+  it('resets the bar silently on abort', () => {
+    handleRefPointIndexingSettled({ status: 'aborted' });
+
+    expect(setFolderImportProgress).toHaveBeenCalledWith(null);
+    expect(showToast).not.toHaveBeenCalled();
   });
 });

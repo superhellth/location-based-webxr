@@ -2,7 +2,7 @@
  * AbsoluteOrientationSensor capture (Generic Sensor API).
  *
  * Phase 1 of the AbsoluteOrientationSensor plan
- * (GpsPlusSlamJs_Docs/docs/2026-06-25-absolute-orientation-sensor-plan.md §5.1):
+ * (GpsPlusSlamJs_Docs/docs/2026-06-25-0543-absolute-orientation-sensor-plan.md §5.1):
  * passive instrumentation that fuses accelerometer + gyroscope + magnetometer
  * into an Earth-referenced (ENU) quaternion, captured per GPS event as an
  * independent north reference. No production behaviour change.
@@ -99,13 +99,22 @@ function currentScreenAngleDeg(): number {
 async function sensorPermissionsUsable(): Promise<boolean> {
   const permissions = navigator.permissions;
   if (!permissions || typeof permissions.query !== 'function') return true;
+  const queryState = async (name: string): Promise<PermissionState> => {
+    // Some browsers/webviews throw a SYNCHRONOUS TypeError for an unsupported
+    // permission name (e.g. 'magnetometer') instead of rejecting the promise.
+    // Wrapping the call (not just chaining `.catch`) keeps the best-effort
+    // 'granted' fallback for both the sync-throw and async-rejection cases, so
+    // an unsupported name never aborts the whole watch — the constructor still
+    // surfaces any real denial.
+    try {
+      const p = await permissions.query({ name: name as PermissionName });
+      return p.state;
+    } catch {
+      return 'granted';
+    }
+  };
   const states = await Promise.all(
-    (['accelerometer', 'gyroscope', 'magnetometer'] as const).map((name) =>
-      permissions
-        .query({ name: name as PermissionName })
-        .then((p): PermissionState => p.state)
-        .catch((): PermissionState => 'granted')
-    )
+    ['accelerometer', 'gyroscope', 'magnetometer'].map(queryState)
   );
   return states.every((s) => s === 'granted' || s === 'prompt');
 }
@@ -123,9 +132,21 @@ export async function startAbsoluteOrientationWatch(
   stopAbsoluteOrientationWatch();
   const myGeneration = watchGeneration;
 
+  // `onStatus` is caller-supplied; an unguarded throw from it would reject
+  // this promise (or surface as an uncaught error from the sensor event
+  // listeners), breaking the documented "Never throws" contract. Isolate it —
+  // a broken consumer status handler must not take the watch down (PR #124).
+  const reportStatus = (status: AbsoluteOrientationStatus): void => {
+    try {
+      onStatus(status);
+    } catch (err) {
+      log.error('onStatus callback threw; continuing', err);
+    }
+  };
+
   const Ctor = getSensorCtor();
   if (!isAbsoluteOrientationAvailable() || Ctor === null) {
-    onStatus({
+    reportStatus({
       state: 'unavailable',
       reason: 'no AbsoluteOrientationSensor / insecure context',
     });
@@ -135,7 +156,10 @@ export async function startAbsoluteOrientationWatch(
   try {
     // All three underlying sensors must be granted-or-promptable (plan §5.1).
     if (!(await sensorPermissionsUsable())) {
-      onStatus({ state: 'unavailable', reason: 'sensor permission denied' });
+      reportStatus({
+        state: 'unavailable',
+        reason: 'sensor permission denied',
+      });
       return;
     }
 
@@ -150,7 +174,14 @@ export async function startAbsoluteOrientationWatch(
     });
     sensor = created;
 
+    // Each listener drops events from a SUPERSEDED instance: after a
+    // stop()/restart the old sensor's queued events can still fire (the spec
+    // does not guarantee listener removal on stop), and writing their stale
+    // data into `latest` or emitting their status would leak the previous
+    // session into the current one. `created === sensor` only holds while this
+    // exact instance is the live one.
     created.addEventListener('reading', () => {
+      if (created !== sensor) return;
       const q = created.quaternion;
       if (!q || q.length < 4) return;
       const x = q[0];
@@ -174,15 +205,17 @@ export async function startAbsoluteOrientationWatch(
       };
     });
     created.addEventListener('activate', () => {
+      if (created !== sensor) return;
       log.info('active');
-      onStatus({ state: 'active' });
+      reportStatus({ state: 'active' });
     });
     created.addEventListener('error', (event?: unknown) => {
+      if (created !== sensor) return;
       latest = null;
       const reason =
         (event as SensorErrorLike | undefined)?.error?.name ?? 'SensorError';
       log.error('sensor error:', reason);
-      onStatus({ state: 'error', reason });
+      reportStatus({ state: 'error', reason });
     });
 
     created.start();
@@ -190,7 +223,7 @@ export async function startAbsoluteOrientationWatch(
     sensor = null;
     latest = null;
     const reason = (err as Error)?.name ?? String(err);
-    onStatus({ state: 'error', reason });
+    reportStatus({ state: 'error', reason });
   }
 }
 

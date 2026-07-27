@@ -6,8 +6,8 @@
 
 - **Public API:**
   - `decideCapture(input): 'capture' | 'defer'` — stateless decision over
-    `{ windowMaxAngular, windowMaxLinear, maxAngularVelocity, maxLinearVelocity,
-msSinceDue, maxWaitMs }`. - Returns `'capture'` when both windowed maxima are at/below their
+    `{ windowMaxAngular, windowMaxLinear, maxAngularVelocity, maxLinearVelocity, msSinceDue, maxWaitMs }`.
+    Returns `'capture'` when both windowed maxima are at/below their
     thresholds (calm), OR when `msSinceDue >= maxWaitMs` (never-calm safety
     fallback). Otherwise `'defer'`.
   - `class MotionWindow(size?, angularGlitchCeiling?, linearGlitchCeiling?)` —
@@ -45,7 +45,7 @@ msSinceDue, maxWaitMs }`. - Returns `'capture'` when both windowed maxima are at
     windowMaxAngular: win.maxAngular(),
     windowMaxLinear: win.maxLinear(),
     maxAngularVelocity: 0.6,
-    maxLinearVelocity: 0.5,
+    maxLinearVelocity: 2.5,
     msSinceDue: 0,
     maxWaitMs: 4000,
   }); // 'capture' (calm)
@@ -56,5 +56,5 @@ msSinceDue, maxWaitMs }`. - Returns `'capture'` when both windowed maxima are at
   window not calm.
 
 - **Related docs:**
-  `GpsPlusSlamJs_Docs/docs/2026-06-23-blurry-frame-motion-gating-plan.md`
+  `GpsPlusSlamJs_Docs/docs/2026-06-23-2105-blurry-frame-motion-gating-plan.md`
   (§4.2-4.4), `pose-motion.ts.md`, `image-capture.ts.md`.

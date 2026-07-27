@@ -15,9 +15,12 @@ framework's `drawMapData` and no longer imports through this shim.)
 
 Re-exports verbatim from the framework module:
 
-- `addAccuracyCircles(map, samples, color): L.Circle[]`
-- `ACCURACY_CIRCLE_FILL_OPACITY` / `ACCURACY_CIRCLE_STROKE_OPACITY` /
-  `ACCURACY_CIRCLE_WEIGHT`
+- `addAccuracyCircles(map, samples, color): L.Circle[]` — **stroke-only** (no
+  fill) since 2026-06-28 (Finding 1).
+- `ACCURACY_CIRCLE_STROKE_OPACITY` / `ACCURACY_CIRCLE_WEIGHT`
+- `ACCURACY_CIRCLE_FILL_OPACITY` is **not** re-exported here (deprecated +
+  unused by any recorder module since circles went stroke-only). It still exists
+  on the framework module if ever needed — import it from there directly.
 
 The `AccuracyCircleSample` type is **not** re-exported here (no recorder module
 consumes it via this shim); import it directly from the framework if needed.

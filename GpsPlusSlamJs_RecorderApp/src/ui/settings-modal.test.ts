@@ -17,6 +17,7 @@ import {
   hideSettingsModal,
   isSettingsModalVisible,
   getWorkingOptions,
+  getOptionBindingIdsForTesting,
 } from './settings-modal';
 import {
   loadSettingsModalHtml,
@@ -26,7 +27,8 @@ import {
 import {
   loadRecordingOptions,
   DEFAULT_RECORDING_OPTIONS,
-} from 'gps-plus-slam-app-framework/state/recording-options';
+  COMPASS_DEBUG_CONSTRAINTS,
+} from '../state/recording-options';
 
 const { mockGetBuildInfo } = vi.hoisted(() => ({
   mockGetBuildInfo: vi.fn(() => ({
@@ -162,6 +164,45 @@ describe('settings-modal', () => {
       expect(html).toContain('id="occupancy-min-confidence-value"');
     });
 
+    it('includes the persistent mesh-occluder checkbox', () => {
+      // 2026-06-13 occupancy-mesh-options plan: the persistent depth-only
+      // occluder (occupancy.persistentOcclusion) must be toggleable here.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-persistent-occlusion"');
+    });
+
+    it('includes the live depth-occluder checkbox', () => {
+      // 2026-06-29 two-composable-occlusion-toggles: the live CPU-depth occluder
+      // (occupancy.liveOcclusion) is the second, independent checkbox.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-live-occlusion"');
+    });
+
+    it('includes the occluder debug-style selector with all five styles', () => {
+      // 2026-07-02 debug-viz-styles plan: a <select>
+      // (occupancy.occluderDebugStyle) replaced the former debug-viz checkbox —
+      // it picks which visible debug skin(s) render the persistent occluder
+      // mesh (matcap / depth-shaded / wireframe / both / off).
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-occluder-debug-style"');
+      expect(html).toContain('value="off"');
+      expect(html).toContain('value="matcap"');
+      expect(html).toContain('value="depth-shaded"');
+      expect(html).toContain('value="wireframe"');
+      expect(html).toContain('value="depth-shaded-wireframe"');
+    });
+
+    it('includes the occluder mesh-style selector with all three modes', () => {
+      // 2026-06-30 F2/F2b: a <select> (occupancy.occluderMeshMode) to switch the
+      // persistent-occluder mesher between blocky cubes, corner-fit cubes and
+      // surface nets so the surface-hugging meshers can be A/B-tested on-device.
+      const html = loadSettingsModalHtml();
+      expect(html).toContain('id="occupancy-occluder-mesh-mode"');
+      expect(html).toContain('value="greedy"');
+      expect(html).toContain('value="corner-fit"');
+      expect(html).toContain('value="smooth"');
+    });
+
     it('includes the frame-tile display-resolution slider and value display', () => {
       // D7-resolution, 2026-06-16 user feedback: the in-AR/replay tile display
       // resolution (frameTileDisplay.divisor) must be user-configurable here,
@@ -185,16 +226,100 @@ describe('settings-modal', () => {
       expect(html).toContain('id="btn-ar-minimal-baseline"');
     });
 
-    it('includes the four live debug-overlay toggles (Finding B)', () => {
+    it('includes the live debug-overlay toggles (Finding B) + heading-up map', () => {
       // Why this test matters: the `visualization` group must be operable from
-      // the settings modal — one checkbox per live overlay, with the DB-3
-      // section heading + note so users know it is live-only.
+      // the settings modal — one checkbox per live overlay (plus the heading-up
+      // minimap preference), with the DB-3 section heading + note so users know
+      // it is live-only.
       const html = loadSettingsModalHtml();
       expect(html).toContain('Show during recording (3D debug overlays)');
       expect(html).toContain('id="viz-frame-tiles"');
       expect(html).toContain('id="viz-occupancy-cubes"');
       expect(html).toContain('id="viz-gps-alignment-markers"');
       expect(html).toContain('id="viz-compass-cubes"');
+      expect(html).toContain('id="viz-heading-up-map"');
+      // Step 0 of the 2026-07-03 long-session fps plan: the perf stats
+      // toggle lives in the same section, with the dom-overlay dependency
+      // spelled out (with DOM overlay disabled it cannot composite in AR).
+      expect(html).toContain('id="viz-stats-overlay"');
+      expect(html).toContain('Stats need the DOM overlay');
+    });
+
+    it('populates the stats-overlay checkbox from saved options and updates the working copy', () => {
+      // Why this test matters: statsOverlay is the visualization group's one
+      // OFF-by-default field — the round-trip must preserve an operator's
+      // opt-in and the checkbox must never come up checked by default.
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ visualization: { statsOverlay: true } })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const checkbox = document.getElementById(
+        'viz-stats-overlay'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+
+      checkbox.checked = false;
+      checkbox.dispatchEvent(new Event('change'));
+      expect(getWorkingOptions()?.visualization.statsOverlay).toBe(false);
+    });
+
+    it('defaults the stats-overlay checkbox to off (debug tool, off by default)', () => {
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify({}));
+      initSettingsModal();
+      showSettingsModal();
+      const checkbox = document.getElementById(
+        'viz-stats-overlay'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
+
+    it('populates the occluder-radius slider (Step 2) and updates the working copy, labelling 0 as unlimited', () => {
+      // Why: occluderRadiusM bounds the per-refresh occluder snapshot/mesh
+      // cost — the slider must round-trip the stored value and present the
+      // 0 opt-out as "unlimited" (the safe pre-Step-2 fallback).
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { occluderRadiusM: 50 } })
+      );
+      initSettingsModal();
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'occupancy-occluder-radius'
+      ) as HTMLInputElement;
+      const label = document.getElementById('occupancy-occluder-radius-value');
+      expect(slider.value).toBe('50');
+      expect(label?.textContent).toBe('50 m');
+
+      slider.value = '0';
+      slider.dispatchEvent(new Event('input'));
+      expect(getWorkingOptions()?.occupancy.occluderRadiusM).toBe(0);
+      expect(label?.textContent).toBe('unlimited');
+    });
+
+    it('populates the live tile-cap slider (Step 4) and updates the working copy, labelling 0 as unlimited', () => {
+      // Why: the FIFO cap bounds live draw calls/GPU memory on long walks —
+      // the slider must round-trip the stored value and make the 0 opt-out
+      // legible as "unlimited" rather than a confusing "0 tiles".
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ frameTileDisplay: { maxTiles: 250 } })
+      );
+      initSettingsModal();
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'frame-tile-max-tiles'
+      ) as HTMLInputElement;
+      const label = document.getElementById('frame-tile-max-tiles-value');
+      expect(slider.value).toBe('250');
+      expect(label?.textContent).toBe('250');
+
+      slider.value = '0';
+      slider.dispatchEvent(new Event('input'));
+      expect(getWorkingOptions()?.frameTileDisplay.maxTiles).toBe(0);
+      expect(label?.textContent).toBe('unlimited');
     });
 
     it('includes "Clear Reference Point Cache" button', () => {
@@ -205,6 +330,44 @@ describe('settings-modal', () => {
       const html = loadSettingsModalHtml();
       expect(html).toContain('id="btn-clear-refpoint-cache"');
       expect(html).toContain('Clear Reference Point Cache');
+    });
+  });
+
+  describe('binding-table completeness (declarative wiring guard)', () => {
+    // Why this test matters: the option↔DOM wiring is driven by the
+    // OPTION_BINDINGS table, and a typo'd element id there would produce a
+    // silently DEAD control (getElementById → null → binding skipped — the
+    // "dead checkbox" failure mode several older tests guard per-control).
+    // This asserts every bound id resolves to the right element kind in the
+    // PRODUCTION modal HTML, and that every slider has its `${id}-value`
+    // label, so a dead control fails CI instead of shipping.
+    /** Classify a resolved element into the binding-kind vocabulary. */
+    function resolvedKind(el: HTMLElement | null): string {
+      if (el === null) return 'missing';
+      if (el instanceof HTMLSelectElement) return 'select';
+      if (el instanceof HTMLInputElement) {
+        if (el.type === 'checkbox') return 'checkbox';
+        if (el.type === 'range') return 'slider';
+        return `input[type=${el.type}]`;
+      }
+      return el.tagName.toLowerCase();
+    }
+
+    it('every bound control id resolves to the right element kind in production HTML', () => {
+      initSettingsModal();
+      const mismatches = getOptionBindingIdsForTesting()
+        .map(({ id, kind }) => ({
+          id,
+          expected: kind,
+          actual: resolvedKind(document.getElementById(id)),
+          valueLabelMissing:
+            kind === 'slider' &&
+            document.getElementById(`${id}-value`) === null,
+        }))
+        .filter((r) => r.actual !== r.expected || r.valueLabelMissing);
+      // Empty list = every control resolves to its declared kind and every
+      // slider has its value label; failures print the offending descriptors.
+      expect(mismatches).toEqual([]);
     });
   });
 
@@ -366,6 +529,157 @@ describe('settings-modal', () => {
         'occupancy-min-confidence-value'
       );
       expect(valueDisplay?.textContent).toBe('1 (unfiltered)');
+    });
+
+    it('populates the persistent-occluder checkbox from saved options (migrating the legacy field) and updates the working copy', () => {
+      // Persisted with the LEGACY single boolean — the options migration must
+      // map occlusionMeshEnabled=true onto persistentOcclusion so the checkbox
+      // reflects it (2026-06-29 two-boolean split).
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { occlusionMeshEnabled: true } })
+      );
+
+      showSettingsModal();
+
+      const checkbox = document.getElementById(
+        'occupancy-persistent-occlusion'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+
+      // Toggling it off mutates the working options (persisted on Save).
+      checkbox.checked = false;
+      checkbox.dispatchEvent(new Event('change'));
+      expect(getWorkingOptions()?.occupancy.persistentOcclusion).toBe(false);
+    });
+
+    it('defaults the persistent-occluder checkbox to ON (feature on by default since 2026-07-01)', () => {
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify({}));
+      showSettingsModal();
+      const checkbox = document.getElementById(
+        'occupancy-persistent-occlusion'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+    });
+
+    it('populates the live-occluder checkbox from saved options and updates the working copy', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { liveOcclusion: true } })
+      );
+
+      showSettingsModal();
+
+      const checkbox = document.getElementById(
+        'occupancy-live-occlusion'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+
+      // Toggling it off mutates the working options (persisted on Save).
+      checkbox.checked = false;
+      checkbox.dispatchEvent(new Event('change'));
+      expect(getWorkingOptions()?.occupancy.liveOcclusion).toBe(false);
+    });
+
+    it('defaults the live-occluder checkbox to off (feature off by default)', () => {
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify({}));
+      showSettingsModal();
+      const checkbox = document.getElementById(
+        'occupancy-live-occlusion'
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
+
+    it('populates the occluder debug-style select from saved options and updates the working copy', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { occluderDebugStyle: 'wireframe' } })
+      );
+
+      showSettingsModal();
+
+      const select = document.getElementById(
+        'occupancy-occluder-debug-style'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('wireframe');
+
+      // Switch to the combined style → working copy updates (persisted on Save).
+      select.value = 'depth-shaded-wireframe';
+      select.dispatchEvent(new Event('change'));
+      expect(getWorkingOptions()?.occupancy.occluderDebugStyle).toBe(
+        'depth-shaded-wireframe'
+      );
+    });
+
+    it("defaults the occluder debug-style select to 'off' (debug rendering off by default)", () => {
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify({}));
+      showSettingsModal();
+      const select = document.getElementById(
+        'occupancy-occluder-debug-style'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('off');
+    });
+
+    it("shows 'matcap' for a saved legacy occluderDebugViz=true (boolean migration)", () => {
+      // The pre-2026-07-02 boolean must keep its meaning: true used to enable
+      // the matcap skin, so the migrated select shows 'matcap' — not 'off'.
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { occluderDebugViz: true } })
+      );
+      showSettingsModal();
+      const select = document.getElementById(
+        'occupancy-occluder-debug-style'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('matcap');
+    });
+
+    it('populates the occluder mesh-style select from saved options and updates the working copy', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ occupancy: { occluderMeshMode: 'smooth' } })
+      );
+
+      showSettingsModal();
+
+      const select = document.getElementById(
+        'occupancy-occluder-mesh-mode'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('smooth');
+
+      // Switch to the improved-cube ('corner-fit') mesher → working copy updates.
+      select.value = 'corner-fit';
+      select.dispatchEvent(new Event('change'));
+      expect(getWorkingOptions()?.occupancy.occluderMeshMode).toBe(
+        'corner-fit'
+      );
+    });
+
+    it("defaults the occluder mesh-style select to 'smooth' (Naive Surface Nets, default since 2026-07-01)", () => {
+      localStorageMock.getItem.mockReturnValueOnce(JSON.stringify({}));
+      showSettingsModal();
+      const select = document.getElementById(
+        'occupancy-occluder-mesh-mode'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('smooth');
+    });
+
+    it('lets the live and persistent occluders be ticked together (they compose)', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({
+          occupancy: { liveOcclusion: true, persistentOcclusion: true },
+        })
+      );
+      showSettingsModal();
+      expect(
+        (
+          document.getElementById(
+            'occupancy-live-occlusion'
+          ) as HTMLInputElement
+        ).checked
+      ).toBe(true);
+      expect(
+        (
+          document.getElementById(
+            'occupancy-persistent-occlusion'
+          ) as HTMLInputElement
+        ).checked
+      ).toBe(true);
     });
 
     it('populates AR crash isolation checkbox from saved options', () => {
@@ -553,8 +867,9 @@ describe('settings-modal', () => {
       const slider = document.getElementById(
         'occupancy-cell-size'
       ) as HTMLInputElement;
-      // default 15 cm
-      expect(slider.value).toBe('15');
+      // default 16 cm (framework reconstruction default; 2026-07-16 evening
+      // on-device framerate/mesh trade-off pass)
+      expect(slider.value).toBe('16');
 
       slider.value = '10';
       slider.dispatchEvent(new Event('input'));
@@ -647,9 +962,11 @@ describe('settings-modal', () => {
       ) as HTMLInputElement | null;
       expect(angular).not.toBeNull();
       expect(linear).not.toBeNull();
-      // Defaults from DEFAULT_MOTION_FILTER (0.6 rad/s, 0.5 m/s).
+      // Defaults from DEFAULT_MOTION_FILTER (0.6 rad/s, 2.5 m/s — the linear
+      // threshold was raised 0.5 → 2.5 on 2026-07-02 to stop deferring walking;
+      // see 2026-07-02-0117-image-capture-rate-motion-gate-finding.md).
       expect(parseFloat(angular!.value)).toBeCloseTo(0.6, 6);
-      expect(parseFloat(linear!.value)).toBeCloseTo(0.5, 6);
+      expect(parseFloat(linear!.value)).toBeCloseTo(2.5, 6);
     });
 
     it('persists edited threshold values through save/load', () => {
@@ -820,21 +1137,83 @@ describe('settings-modal', () => {
       expect(blur.disabled).toBe(true);
       expect(luma.disabled).toBe(true);
     });
+
+    // Why these tests matter: the blur-metric select (2026-07-12 toggle plan)
+    // is the only UI to A/B the FFT metric on device; it must round-trip
+    // through persisted options and follow the same disabled rules as the
+    // other quality-gate controls, or a dead/mislabeled control would fake a
+    // field test that never ran.
+    it('exposes the blur-metric select with both metrics, default first', () => {
+      const select = document.getElementById(
+        'images-blur-metric'
+      ) as HTMLSelectElement | null;
+      expect(select).not.toBeNull();
+      expect(select!.value).toBe('variance-of-laplacian');
+      expect([...select!.options].map((o) => o.value)).toEqual([
+        'variance-of-laplacian',
+        'high-frequency-energy-ratio',
+      ]);
+    });
+
+    it('persists an edited blur metric through save/load (gate on)', () => {
+      const qualityFilter = document.getElementById(
+        'images-quality-filter'
+      ) as HTMLInputElement;
+      const select = document.getElementById(
+        'images-blur-metric'
+      ) as HTMLSelectElement;
+
+      qualityFilter.checked = true;
+      qualityFilter.dispatchEvent(new Event('change'));
+      select.value = 'high-frequency-energy-ratio';
+      select.dispatchEvent(new Event('change'));
+
+      document.getElementById('btn-settings-save')?.click();
+
+      const saved = loadRecordingOptions().images.qualityFilter;
+      expect(saved.enabled).toBe(true);
+      expect(saved.blurMetric).toBe('high-frequency-energy-ratio');
+    });
+
+    it('disables the blur-metric select when the gate (or capture) is off', () => {
+      const imagesEnabled = document.getElementById(
+        'images-enabled'
+      ) as HTMLInputElement;
+      const qualityFilter = document.getElementById(
+        'images-quality-filter'
+      ) as HTMLInputElement;
+      const select = document.getElementById(
+        'images-blur-metric'
+      ) as HTMLSelectElement;
+
+      // Gate off (the default) → select disabled.
+      expect(select.disabled).toBe(true);
+
+      qualityFilter.checked = true;
+      qualityFilter.dispatchEvent(new Event('change'));
+      expect(select.disabled).toBe(false);
+
+      imagesEnabled.checked = false;
+      imagesEnabled.dispatchEvent(new Event('change'));
+      expect(select.disabled).toBe(true);
+    });
   });
 
   describe('live debug-overlay toggles (Finding B)', () => {
-    // Why these tests matter: each toggle gates a live overlay (frame tiles,
-    // occupancy cubes, GPS+VIO alignment spheres, compass cubes). All four
-    // default ON (purely additive). The settings UI must round-trip each:
-    // populate from saved options and persist a change back to storage.
+    // Why these tests matter: each toggle gates a live feature (frame tiles,
+    // occupancy cubes, GPS+VIO alignment spheres, compass cubes, heading-up
+    // minimap). All default ON (purely additive). The settings UI must
+    // round-trip each: populate from saved options and persist a change back to
+    // storage.
     const TOGGLE_IDS = [
       ['viz-frame-tiles', 'frameTiles'],
       ['viz-occupancy-cubes', 'occupancyCubes'],
       ['viz-gps-alignment-markers', 'gpsAlignmentMarkers'],
       ['viz-compass-cubes', 'compassCubes'],
+      ['viz-heading-up-map', 'headingUpMap'],
     ] as const;
 
-    it('all four default to checked (ON) — purely additive', () => {
+    it('all default to checked (ON) — purely additive', () => {
       initSettingsModal();
       showSettingsModal();
 
@@ -892,6 +1271,10 @@ describe('settings-modal', () => {
       ['compass-cold-start-override', 'coldStartOverride'],
       ['compass-rotation-prior', 'rotationPrior'],
       ['compass-webxr-consistency', 'webXRConsistency'],
+      // 2026-07-19 field-test toggles (enablement plan): the experiment combo
+      // (prior + tolerance 15° + C′) and the alternative robust-solver comparison arm.
+      ['compass-experiment', 'experiment'],
+      ['compass-robust-solver-comparison', 'robustSolverComparison'],
     ] as const;
 
     const COMPASS_DEFAULT_CHECKED: Record<
@@ -901,6 +1284,8 @@ describe('settings-modal', () => {
       coldStartOverride: true,
       rotationPrior: false,
       webXRConsistency: false,
+      experiment: false,
+      robustSolverComparison: false,
     };
 
     it('default checkbox states match the per-flag defaults (Stage 0 on, others off)', () => {
@@ -948,6 +1333,204 @@ describe('settings-modal', () => {
       showSettingsModal();
 
       const cb = document.getElementById(id) as HTMLInputElement | null;
+      expect(cb?.checked).toBe(true);
+    });
+
+    it('vote-weight slider defaults to 0.1 (census optimum), persists a change, and populates from a saved value', () => {
+      // Why: the slider is the field-test surface for the 2026-07-19
+      // vote-weight curve. Default moved 0.3 → 0.1 on 2026-07-20 (census
+      // optimum; settings-clarity follow-up §4.6). It must round-trip through
+      // save/load like the sibling compass toggles and render its value.
+      initSettingsModal();
+      showSettingsModal();
+
+      const slider = document.getElementById(
+        'compass-vote-weight'
+      ) as HTMLInputElement | null;
+      const valueSpan = document.getElementById('compass-vote-weight-value');
+      expect(slider).not.toBeNull();
+      expect(Number(slider!.value)).toBeCloseTo(0.1, 6);
+      expect(valueSpan?.textContent).toContain('0.10');
+
+      slider!.value = '0.3';
+      slider!.dispatchEvent(new Event('input'));
+      expect(valueSpan?.textContent).toContain('0.30');
+      document.getElementById('btn-settings-save')?.click();
+      expect(loadRecordingOptions().compassDebug.voteWeight).toBeCloseTo(
+        0.3,
+        6
+      );
+    });
+
+    it('vote-weight slider matches its sibling sliders: accessible name, shared track classes, constraints injected from COMPASS_DEBUG_CONSTRAINTS', () => {
+      // Why: PR 205 review (coderabbit) — the slider shipped without the
+      // aria-label and shared track styling every other modal slider carries
+      // (browser-default track, no accessible name), and with min/max/step
+      // hardcoded in the HTML although initSettingsModal injects them from
+      // COMPASS_DEBUG_CONSTRAINTS (the single source of truth). Class parity
+      // with a sibling slider pins the visual consistency; the constraint
+      // assertions prove the injection covers the removed HTML attributes.
+      initSettingsModal();
+      showSettingsModal();
+      const slider = document.getElementById(
+        'compass-vote-weight'
+      ) as HTMLInputElement;
+      const sibling = document.getElementById(
+        'images-interval'
+      ) as HTMLInputElement;
+      expect(slider.getAttribute('aria-label')).toBe('Vote weight');
+      expect(slider.className).toBe(sibling.className);
+      const { min, max, step } = COMPASS_DEBUG_CONSTRAINTS.voteWeight;
+      expect(slider.min).toBe(String(min));
+      expect(slider.max).toBe(String(max));
+      expect(slider.step).toBe(String(step));
+    });
+
+    it('populates the vote-weight slider from a saved 0.5', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ compassDebug: { voteWeight: 0.5 } })
+      );
+      initSettingsModal();
+      showSettingsModal();
+      const slider = document.getElementById(
+        'compass-vote-weight'
+      ) as HTMLInputElement | null;
+      expect(Number(slider?.value)).toBeCloseTo(0.5, 6);
+    });
+
+    // Why these tests matter: the 2026-07-20 settings-clarity follow-up (§3.4,
+    // §4.2) found the vote-weight slider looked live in the Stage-0-only
+    // default state although nothing consumes it, and that checking Stage C
+    // next to the experiment silently does nothing extra. The gating below
+    // mirrors compassStoreOptions (slider) and the config-derivation semantics
+    // (experiment implies Stage C at 15°). Decision §4.6: greyed-out Stage C
+    // KEEPS its stored value and both flags keep being recorded.
+    describe('compass control gating (settings-clarity §4.2)', () => {
+      const el = (id: string) =>
+        document.getElementById(id) as HTMLInputElement;
+
+      it('greys the vote-weight slider out until the experiment or Stage C can consume it', () => {
+        initSettingsModal();
+        showSettingsModal();
+        // Stage-0-only default state: the weight reaches no consumer.
+        expect(el('compass-vote-weight').disabled).toBe(true);
+
+        el('compass-experiment').checked = true;
+        el('compass-experiment').dispatchEvent(new Event('change'));
+        expect(el('compass-vote-weight').disabled).toBe(false);
+
+        el('compass-experiment').checked = false;
+        el('compass-experiment').dispatchEvent(new Event('change'));
+        expect(el('compass-vote-weight').disabled).toBe(true);
+
+        el('compass-rotation-prior').checked = true;
+        el('compass-rotation-prior').dispatchEvent(new Event('change'));
+        expect(el('compass-vote-weight').disabled).toBe(false);
+      });
+
+      it('greys Stage C out while the experiment implies it, keeping and persisting its stored value', () => {
+        localStorageMock.getItem.mockReturnValueOnce(
+          JSON.stringify({
+            compassDebug: { rotationPrior: true, experiment: true },
+          })
+        );
+        initSettingsModal();
+        showSettingsModal();
+        const stageC = el('compass-rotation-prior');
+        expect(stageC.disabled).toBe(true);
+        expect(stageC.checked).toBe(true); // value preserved while greyed
+
+        // Saving while greyed persists BOTH flags (keep-value-record-both).
+        document.getElementById('btn-settings-save')?.click();
+        const saved = loadRecordingOptions().compassDebug;
+        expect(saved.rotationPrior).toBe(true);
+        expect(saved.experiment).toBe(true);
+
+        el('compass-experiment').checked = false;
+        el('compass-experiment').dispatchEvent(new Event('change'));
+        expect(stageC.disabled).toBe(false);
+        expect(stageC.checked).toBe(true);
+      });
+
+      it('applies the gating when the modal opens with a saved prior (slider live, Stage C enabled)', () => {
+        localStorageMock.getItem.mockReturnValueOnce(
+          JSON.stringify({ compassDebug: { rotationPrior: true } })
+        );
+        initSettingsModal();
+        showSettingsModal();
+        expect(el('compass-vote-weight').disabled).toBe(false);
+        expect(el('compass-rotation-prior').disabled).toBe(false);
+      });
+    });
+
+    // Why these tests matter: §3.2/§3.5/§3.7 of the follow-up — "trust" used
+    // to name two unrelated mechanisms in adjacent labels (the compass↔GPS
+    // trust machine vs the compass↔WebXR consistency gate), and the group help
+    // text neither covered all six controls nor the full calibration rule.
+    describe('compass group copy (trust-naming split + calibration rule)', () => {
+      it('names the WebXR mechanism "Consistency gate" and reserves "trust" for the trust machine', () => {
+        initSettingsModal();
+        showSettingsModal();
+        const gateLabel =
+          document.getElementById('compass-webxr-consistency')?.closest('label')
+            ?.textContent ?? '';
+        expect(gateLabel).toContain('Consistency gate');
+        expect(gateLabel.toLowerCase()).not.toContain('trust');
+      });
+
+      it('help text states the full calibration rule (Stage 0 AND experiment toggles OFF) and the 0.1 expectation', () => {
+        initSettingsModal();
+        showSettingsModal();
+        const help =
+          document.getElementById('compass-debug-help')?.textContent ?? '';
+        // Full §6a calibration rule — not just "Stage 0 OFF".
+        expect(help).toMatch(/Stage 0.*experiment.*OFF/is);
+        // One line of corpus expectation-setting for field testers.
+        expect(help).toContain('0.1');
+      });
+
+      it('visually separates the robust-solver A/B arm from the compass mechanisms', () => {
+        initSettingsModal();
+        showSettingsModal();
+        const divider = document.getElementById('compass-ab-arm-divider');
+        expect(divider).not.toBeNull();
+        expect(divider!.textContent).toMatch(/not a compass/i);
+      });
+    });
+
+    it('persists + populates the loop-closure capture toggle (experimental, default OFF)', () => {
+      // Why: the loop-closure detector wiring is opt-in per the 2026-07-06
+      // recorder wiring plan — the checkbox must default unchecked, persist an
+      // opt-in through save, and populate from a saved ON value.
+      initSettingsModal();
+      showSettingsModal();
+
+      const cb = document.getElementById(
+        'loop-closure-detector'
+      ) as HTMLInputElement | null;
+      expect(cb).not.toBeNull();
+      expect(cb!.checked).toBe(false);
+
+      cb!.checked = true;
+      cb!.dispatchEvent(new Event('change'));
+      document.getElementById('btn-settings-save')?.click();
+
+      expect(loadRecordingOptions().loopClosureDebug.detectorEnabled).toBe(
+        true
+      );
+    });
+
+    it('populates loop-closure-detector CHECKED from a saved ON value', () => {
+      localStorageMock.getItem.mockReturnValueOnce(
+        JSON.stringify({ loopClosureDebug: { detectorEnabled: true } })
+      );
+
+      initSettingsModal();
+      showSettingsModal();
+
+      const cb = document.getElementById(
+        'loop-closure-detector'
+      ) as HTMLInputElement | null;
       expect(cb?.checked).toBe(true);
     });
 
@@ -1129,6 +1712,50 @@ describe('settings-modal', () => {
       slider.dispatchEvent(new Event('input'));
 
       expect(valueDisplay?.textContent).toBe('4.0s');
+    });
+
+    it('shows sub-second image intervals in ms (splat-scan cadence)', () => {
+      // Why this test matters: IMAGE_CONSTRAINTS.intervalMs.min dropped to
+      // 250 ms (2026-07-10 splat-orbit finding) and `(250/1000).toFixed(1)`
+      // would render a misleading "0.3s" — sub-second values must show exact
+      // milliseconds (mirroring the QR interval display).
+      const slider = document.getElementById(
+        'images-interval'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('images-interval-value');
+
+      slider.value = '250';
+      slider.dispatchEvent(new Event('input'));
+
+      expect(valueDisplay?.textContent).toBe('250 ms');
+    });
+
+    it('shows quarter-second image intervals ≥1s with exact decimals', () => {
+      // Why this test matters: IMAGE_CONSTRAINTS.intervalMs.step is 250 ms,
+      // so 1250/1750 are reachable slider values — `toFixed(1)` would render
+      // them as a misleading "1.3s"/"1.8s" (PR #178 review). Quarter-second
+      // values must show two decimals while half-second multiples keep the
+      // clean one-decimal form.
+      const slider = document.getElementById(
+        'images-interval'
+      ) as HTMLInputElement;
+      const valueDisplay = document.getElementById('images-interval-value');
+
+      slider.value = '1250';
+      slider.dispatchEvent(new Event('input'));
+      expect(valueDisplay?.textContent).toBe('1.25s');
+
+      slider.value = '1750';
+      slider.dispatchEvent(new Event('input'));
+      expect(valueDisplay?.textContent).toBe('1.75s');
+
+      slider.value = '1500';
+      slider.dispatchEvent(new Event('input'));
+      expect(valueDisplay?.textContent).toBe('1.5s');
+
+      slider.value = '1000';
+      slider.dispatchEvent(new Event('input'));
+      expect(valueDisplay?.textContent).toBe('1.0s');
     });
 
     it('updates images quality value display', () => {

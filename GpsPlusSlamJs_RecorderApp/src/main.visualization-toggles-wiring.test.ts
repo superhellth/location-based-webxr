@@ -2,7 +2,7 @@
 /**
  * Integration tests for the four live debug-overlay toggles in handleEnterAR
  * (main.ts) — Finding B / Slice 4 of
- * 2026-06-14-followup-frame-tile-legacy-aspect-and-live-toggle.md.
+ * 2026-06-14-0012-frame-tile-legacy-aspect-and-live-toggle-followup.md.
  *
  * Why these tests matter:
  * The `visualization` recording-options group must gate ONLY what is drawn live
@@ -41,7 +41,15 @@ const {
   mockCreateGpsCompassCubes,
   mockGpsEventVisualizer,
   mockRecordingOptions,
+  mockCreateStatsOverlay,
+  mockStatsOverlayInstance,
 } = vi.hoisted(() => {
+  const mockStatsOverlayInstance = {
+    dom: {} as HTMLElement,
+    panelCount: 3,
+    update: vi.fn(),
+    dispose: vi.fn(),
+  };
   const mockFrameTileVisualizerInstance = {
     addTile: vi.fn(),
     clear: vi.fn(),
@@ -92,6 +100,8 @@ const {
       }
     ),
     occupancyDisposers,
+    mockCreateStatsOverlay: vi.fn(() => mockStatsOverlayInstance),
+    mockStatsOverlayInstance,
     mockCreateGpsCompassCubes: vi.fn(),
     mockGpsEventVisualizer: {
       setVisible: vi.fn(),
@@ -106,13 +116,15 @@ const {
       images: { enabled: false, intervalMs: 1000, quality: 0.8 },
       depth: { enabled: false, intervalMs: 1000 },
       occupancy: { cellSizeM: 0.15, minConfidence: 3 },
-      frameTileDisplay: { divisor: 2 },
+      frameTileDisplay: { divisor: 2, maxTiles: 100 },
       visualization: {
         frameTiles: true,
         occupancyCubes: true,
         gpsAlignmentMarkers: true,
         compassCubes: true,
+        statsOverlay: false,
       },
+      loopClosureDebug: { detectorEnabled: false },
     },
   };
 });
@@ -142,9 +154,12 @@ vi.mock('./visualization/wire-frame-tile-subscribers', () => ({
 vi.mock('gps-plus-slam-app-framework/ar/occupancy-grid', () => ({
   OccupancyGrid: mockOccupancyGridCtor,
 }));
-vi.mock('./visualization/occupancy-cubes-visualizer', () => ({
-  OccupancyCubesVisualizer: mockOccupancyVisualizerCtor,
-}));
+vi.mock(
+  'gps-plus-slam-app-framework/visualization/occupancy-cubes-visualizer',
+  () => ({
+    OccupancyCubesVisualizer: mockOccupancyVisualizerCtor,
+  })
+);
 vi.mock('./visualization/wire-occupancy-grid-subscribers', () => ({
   wireOccupancyGridSubscribers: mockWireOccupancyGridSubscribers,
 }));
@@ -169,17 +184,11 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   isWebXRSupported: vi.fn().mockResolvedValue(true),
   getCurrentArPose: vi.fn().mockReturnValue(null),
   applyAlignmentMatrix: vi.fn(),
-  setImageCaptureCallback: vi.fn(),
   startImageCapture: vi.fn(),
   stopImageCapture: vi.fn(),
-  setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setFrameCallback: vi.fn(),
-  setTrackingLostCallback: vi.fn(),
-  setTrackingCallbacks: vi.fn(),
-  setTrackingRecoveredCallback: vi.fn(),
-  setTrackingStore: vi.fn(),
+  rebindTrackingStore: vi.fn(),
   getScene: mockGetScene,
   getCamera: mockGetCamera,
   getArWorldGroup: mockGetArWorldGroup,
@@ -201,6 +210,13 @@ vi.mock('gps-plus-slam-app-framework/utils/logger', () => ({
     debug: vi.fn(),
   }),
 }));
+vi.mock('./ui/ref-point-view-wiring', () => ({
+  wireRefPointViews: vi.fn(() => ({
+    refreshMapMarkers: vi.fn(),
+    unsubscribe: vi.fn(),
+  })),
+}));
+
 vi.mock('./ui/hud', () => ({
   initUI: vi.fn(),
   showError: vi.fn(),
@@ -214,9 +230,9 @@ vi.mock('./ui/hud', () => ({
   validateEnterButton: vi.fn(),
   updatePermissionStatus: vi.fn(),
   setPermissionsReady: vi.fn(),
-  setFolderSelected: vi.fn(),
   setSaveLocationSelected: vi.fn(),
   setFolderImportExpanded: vi.fn(),
+  setFolderImportProgress: vi.fn(),
   updateFolderStatus: vi.fn(),
   updateSaveStatus: vi.fn(),
   updateSyncStatus: vi.fn(),
@@ -255,6 +271,7 @@ vi.mock('./ui/ref-point-picker', () => ({
 }));
 vi.mock('./ui/navigation', () => ({
   initNavigation: vi.fn(),
+  getCurrentScreen: vi.fn(() => 'setup'),
   enableBeforeUnloadWarning: vi.fn(),
   disableBeforeUnloadWarning: vi.fn(),
   pushScreenState: vi.fn(),
@@ -356,7 +373,10 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
   extractOdomPosition: vi.fn().mockReturnValue([0, 0, 0]),
   extractOdomRotation: vi.fn().mockReturnValue([0, 0, 0, 1]),
 }));
-vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
+vi.mock('./state/recording-options', () => ({
+  // main.ts also consumes the pure compassStoreOptions mapping — stubbed
+  // inert here; its real logic is unit-tested in recording-options.test.ts.
+  compassStoreOptions: () => ({}),
   loadRecordingOptions: vi.fn().mockReturnValue(mockRecordingOptions),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
@@ -391,16 +411,6 @@ vi.mock('gps-plus-slam-app-framework/sensors/permission-checker', () => ({
 vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
   refPointVisualizer: {},
 }));
-vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
-  MapOverlay: vi.fn().mockImplementation(() => ({
-    isVisible: vi.fn().mockReturnValue(false),
-    toggle: vi.fn(),
-    updatePosition: vi.fn(),
-    setGpsPosition: vi.fn(),
-    getGpsPosition: vi.fn().mockReturnValue(null),
-    dispose: vi.fn(),
-  })),
-}));
 vi.mock(
   'gps-plus-slam-app-framework/visualization/leaflet-map-overlay',
   () => ({
@@ -428,6 +438,9 @@ vi.mock('gps-plus-slam-app-framework', () => ({
 }));
 vi.mock('./ui/hud-tracking-quality-subscriber', () => ({
   subscribeHudToTrackingQuality: vi.fn(() => vi.fn()),
+}));
+vi.mock('gps-plus-slam-app-framework/visualization/perf-stats-overlay', () => ({
+  createPerfStatsOverlay: mockCreateStatsOverlay,
 }));
 vi.mock('./replay/replay-handlers', () => ({
   createReplayHandlers: vi.fn().mockReturnValue({
@@ -482,12 +495,15 @@ describe('Visualization overlay toggles in live AR (Finding B)', () => {
     vi.clearAllMocks();
     frameTileDisposers.length = 0;
     occupancyDisposers.length = 0;
-    // Reset to the additive default (all overlays ON) before each test.
+    mockRecordingOptions.frameTileDisplay.maxTiles = 100;
+    // Reset to the additive default (all overlays ON, stats OFF) before each
+    // test — statsOverlay is the group's one off-by-default field.
     mockRecordingOptions.visualization = {
       frameTiles: true,
       occupancyCubes: true,
       gpsAlignmentMarkers: true,
       compassCubes: true,
+      statsOverlay: false,
     };
     document.body.innerHTML = `
       <div id="app"></div>
@@ -529,6 +545,19 @@ describe('Visualization overlay toggles in live AR (Finding B)', () => {
       expect(mockFrameTileVisualizerCtor).toHaveBeenCalledTimes(1);
       expect(mockWireFrameTileSubscribers).toHaveBeenCalledTimes(1);
     });
+
+    it('passes the LIVE-only frameTileDisplay.maxTiles cap to the visualizer (Step 4, 2026-07-03 fps plan)', async () => {
+      // Why: the FIFO tile cap is a live-session bound; the replay wiring
+      // deliberately omits it (asserted in replay-mode.test.ts). This pins
+      // that the live constructor actually receives the stored setting.
+      mockRecordingOptions.frameTileDisplay.maxTiles = 42;
+      await handleEnterARForTesting();
+
+      expect(mockFrameTileVisualizerCtor).toHaveBeenCalledWith(
+        expect.anything(),
+        { maxTiles: 42 }
+      );
+    });
   });
 
   describe('compassCubes toggle', () => {
@@ -560,6 +589,38 @@ describe('Visualization overlay toggles in live AR (Finding B)', () => {
       await handleEnterARForTesting();
 
       expect(mockGpsEventVisualizer.setVisible).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('statsOverlay toggle (Step 0 of the 2026-07-03 long-session fps plan)', () => {
+    it('does NOT mount the stats overlay by default (off — debug tool)', async () => {
+      await handleEnterARForTesting();
+
+      expect(mockCreateStatsOverlay).not.toHaveBeenCalled();
+    });
+
+    it('mounts the stats overlay into the #app dom-overlay root when on', async () => {
+      mockRecordingOptions.visualization.statsOverlay = true;
+      await handleEnterARForTesting();
+
+      expect(mockCreateStatsOverlay).toHaveBeenCalledTimes(1);
+      // Must be (inside) the dom-overlay root or it cannot composite in AR.
+      expect(mockCreateStatsOverlay).toHaveBeenCalledWith(
+        document.getElementById('app')
+      );
+    });
+
+    it('disposes a previous cycle overlay on re-enter so panels never stack', async () => {
+      mockRecordingOptions.visualization.statsOverlay = true;
+      await handleEnterARForTesting();
+      expect(mockStatsOverlayInstance.dispose).not.toHaveBeenCalled();
+
+      // Second Enter-AR cycle (back-to-setup → Enter AR): the stale overlay
+      // must be disposed even when the toggle is now off.
+      mockRecordingOptions.visualization.statsOverlay = false;
+      await handleEnterARForTesting();
+      expect(mockStatsOverlayInstance.dispose).toHaveBeenCalledTimes(1);
+      expect(mockCreateStatsOverlay).toHaveBeenCalledTimes(1);
     });
   });
 

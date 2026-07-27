@@ -50,7 +50,12 @@
             <span class="text-gray-400">Sync:</span>
             <span id="sync-status" class="text-green-400">--</span>
           </div>
-          <div id="abs-compass-info" class="text-sm mt-1 hidden">
+          <div
+            id="abs-compass-info"
+            class="text-sm mt-1 hidden"
+            role="status"
+            aria-live="polite"
+          >
             <span class="text-gray-400">🧭 AbsCompass:</span>
             <span id="abs-compass-status" class="text-green-400">--</span>
           </div>
@@ -737,6 +742,33 @@ No errors</pre
                     >
                       ❌ No folder selected
                     </p>
+                    <!-- D2 (2026-07-05): determinate progress for the eager
+                       ref-point indexing pass that starts when the folder is
+                       granted. Text label above a small bar; driven by
+                       hud.setFolderImportProgress (hidden when idle). -->
+                    <div
+                      id="folder-import-progress"
+                      data-testid="folder-import-progress"
+                      class="hidden space-y-1"
+                      role="progressbar"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-labelledby="folder-import-progress-text"
+                    >
+                      <p
+                        id="folder-import-progress-text"
+                        class="text-xs text-gray-300"
+                      ></p>
+                      <div
+                        class="w-full bg-gray-600 rounded h-1.5 overflow-hidden"
+                      >
+                        <div
+                          id="folder-import-progress-bar"
+                          class="bg-blue-500 h-full rounded"
+                          style="width: 0%"
+                        ></div>
+                      </div>
+                    </div>
                   </div>
                 </details>
               </div>
@@ -889,7 +921,7 @@ No errors</pre
 
             <!-- Enter AR Hint - explains why the button is disabled -->
             <p id="enter-ar-hint" class="text-xs text-yellow-400 text-center">
-              Select a folder to continue
+              Choose a save location for this recording
             </p>
 
             <!-- Primary action (D6 item 9: dominant CTA — larger, bold). -->
@@ -935,7 +967,7 @@ No errors</pre
         class="hidden fixed inset-0 z-[70] bg-black/50 flex items-center justify-center"
       >
         <div
-          class="bg-gray-800 rounded-lg p-6 w-80 max-h-[90vh] overflow-y-auto"
+          class="bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto"
         >
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-semibold text-white">Recording Settings</h2>
@@ -991,6 +1023,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-max-angular"
+                  aria-label="Max rotation speed"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1002,6 +1035,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-max-linear"
+                  aria-label="Max move speed"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1018,6 +1052,27 @@ No errors</pre
                   >Skip blurry/black frames (image)</span
                 >
               </label>
+              <!-- Blur metric (2026-07-12 toggle plan): which sharpness score -->
+              <!-- the gate's relative rule runs on. VoL is the shipped        -->
+              <!-- default; the FFT energy ratio won "sharp vs degraded" in    -->
+              <!-- the offline benchmark and is exposed for on-device A/B.     -->
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Blur metric</span>
+                </div>
+                <select
+                  id="images-blur-metric"
+                  aria-label="Blur metric"
+                  class="w-full bg-gray-600 text-sm text-gray-200 rounded-lg p-1 cursor-pointer"
+                >
+                  <option value="variance-of-laplacian">
+                    Variance of Laplacian (default)
+                  </option>
+                  <option value="high-frequency-energy-ratio">
+                    High-frequency energy (experimental)
+                  </option>
+                </select>
+              </div>
               <!-- Image-quality thresholds (for on-device field tuning). Blur is -->
               <!-- relative (fraction of the recent sharpness median); blackness  -->
               <!-- is an absolute 0–255 luma cutoff (0 = off). Higher blur =       -->
@@ -1032,6 +1087,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-blur-threshold"
+                  aria-label="Blur sensitivity"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1043,6 +1099,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-min-luminance"
+                  aria-label="Black cutoff"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1054,6 +1111,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-interval"
+                  aria-label="Image capture interval"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1065,6 +1123,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-quality"
+                  aria-label="Image quality"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1076,6 +1135,7 @@ No errors</pre
                 <input
                   type="range"
                   id="images-resolution-divisor"
+                  aria-label="Image resolution"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1091,6 +1151,7 @@ No errors</pre
                 <input
                   type="range"
                   id="frame-tile-display-divisor"
+                  aria-label="Display resolution (AR tiles)"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
                 <p class="text-xs text-gray-500">
@@ -1098,6 +1159,25 @@ No errors</pre
                   frames (not a camera zoom). This only changes how sharply
                   they’re drawn, to save memory — the saved image quality is set
                   by “Resolution” above.
+                </p>
+              </div>
+              <!-- Live frame-tile cap (Step 4, 2026-07-03 long-session fps    -->
+              <!-- plan): FIFO bound on live tiles; replay is never capped.    -->
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Max live tiles (0 = unlimited)</span>
+                  <span id="frame-tile-max-tiles-value">100</span>
+                </div>
+                <input
+                  type="range"
+                  id="frame-tile-max-tiles"
+                  aria-label="Max live tiles"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <p class="text-xs text-gray-500">
+                  During recording, only the newest tiles stay in the scene
+                  (oldest are removed) so long walks keep a steady framerate.
+                  Replay always shows every captured frame.
                 </p>
               </div>
             </div>
@@ -1127,6 +1207,7 @@ No errors</pre
                 <input
                   type="range"
                   id="depth-interval"
+                  aria-label="Depth sampling interval"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1138,6 +1219,7 @@ No errors</pre
                 <input
                   type="range"
                   id="depth-grid"
+                  aria-label="Depth grid size"
                   class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
@@ -1192,11 +1274,120 @@ No errors</pre
                 />
               </div>
               <p class="text-[11px] text-gray-400">
-                How many times a voxel must be observed before it is drawn.
-                Higher hides single-frame depth noise (e.g. phantom voxels below
-                the floor) but may drop briefly-seen surfaces. 1 = unfiltered.
-                Applies the next time you enter AR or load a replay.
+                How many times a voxel must be observed before it counts as
+                occupied — the same floor gates the debug cubes, the occluder
+                mesh and the COLMAP export. Higher hides single-frame depth
+                noise (e.g. phantom voxels below the floor) but may drop
+                briefly-seen surfaces. 1 = unfiltered. Applies the next time you
+                enter AR or load a replay.
               </p>
+              <label class="flex items-center gap-2 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  id="occupancy-live-occlusion"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Live depth occluder (experimental)</span
+                >
+              </label>
+              <p class="text-[11px] text-gray-400">
+                Hide virtual objects behind the real surface the camera sees
+                right now (sharp, no memory). Experimental: occlusion quality is
+                still being tuned on device. Off by default. Tick together with
+                the persistent mesh below to combine live + remembered
+                occlusion.
+              </p>
+              <label class="flex items-center gap-2 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  id="occupancy-persistent-occlusion"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Persistent mesh occluder</span
+                >
+              </label>
+              <p class="text-[11px] text-gray-400">
+                Mesh the occupancy grid into an invisible depth-only surface so
+                real geometry hides virtual objects placed behind it — including
+                surfaces you already walked past. On by default (meshed
+                off-thread, so it no longer stalls rendering). Applies the next
+                time you enter AR or load a replay.
+              </p>
+              <label
+                class="block text-sm text-gray-200 mt-1"
+                for="occupancy-occluder-mesh-mode"
+                >Occluder mesh style</label
+              >
+              <select
+                id="occupancy-occluder-mesh-mode"
+                class="w-full mt-1 text-sm bg-gray-700 text-gray-200 rounded px-2 py-1"
+              >
+                <option value="greedy">Cubes (blocky)</option>
+                <option value="corner-fit">Corner-fit cubes (smoothed)</option>
+                <option value="smooth" selected>
+                  Surface nets (smoothest)
+                </option>
+              </select>
+              <p class="text-[11px] text-gray-400">
+                How the persistent occluder mesh is built. “Surface nets” is the
+                default — the smoothest (hugs the floor, but an open sheet over
+                thin features, so it can leak occlusion at concave wall–floor
+                seams); “Cubes” is blocky but watertight; “Corner-fit” nudges
+                the cube corners toward the measured surface while keeping their
+                cube shape (gap-free/watertight). Pick an “Occluder debug style”
+                below to see the shape. Only affects the persistent mesh
+                occluder above; applies the next time you enter AR or load a
+                replay.
+              </p>
+              <label class="block text-sm text-gray-200 mt-1"
+                >Occluder debug style</label
+              >
+              <select
+                id="occupancy-occluder-debug-style"
+                class="w-full mt-1 text-sm bg-gray-700 text-gray-200 rounded px-2 py-1"
+              >
+                <option value="off" selected>Off</option>
+                <option value="matcap">Matcap (shiny surface)</option>
+                <option value="depth-shaded">
+                  Depth-shaded (near bright, far dark + rim)
+                </option>
+                <option value="wireframe">Wireframe (triangulation)</option>
+                <option value="depth-shaded-wireframe">
+                  Depth-shaded + wireframe
+                </option>
+              </select>
+              <p class="text-[11px] text-gray-400">
+                Renders the persistent occluder mesh visibly so its shape and
+                structure can be judged: “Depth-shaded” separates overlapping
+                near/far layers (distance fade + silhouette rim), “Wireframe”
+                shows the actual triangulation of the mesh style above. It still
+                occludes in every style. Only visible when the persistent mesh
+                occluder above is on. Off by default; applies the next time you
+                enter AR or load a replay.
+              </p>
+              <!-- Camera-local occluder window (Step 2, 2026-07-03           -->
+              <!-- long-session fps plan): bounds the per-refresh snapshot    -->
+              <!-- + re-mesh by the neighbourhood. 0 = unlimited.             -->
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-gray-400">
+                  <span>Occluder radius (0 = unlimited)</span>
+                  <span id="occupancy-occluder-radius-value">25 m</span>
+                </div>
+                <input
+                  type="range"
+                  id="occupancy-occluder-radius"
+                  aria-label="Occluder radius"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <p class="text-[11px] text-gray-400">
+                  Only surfaces within this distance occlude virtual content —
+                  keeps long walks fast. Everything stays remembered: walking
+                  back rebuilds far geometry instantly. Applies the next time
+                  you enter AR or load a replay.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1308,6 +1499,31 @@ No errors</pre
                   >Compass orientation cubes</span
                 >
               </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-heading-up-map"
+                  class="w-4 h-4 accent-blue-500"
+                  checked
+                />
+                <span class="text-sm text-gray-200"
+                  >Rotate minimap to my heading (heading-up)</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="viz-stats-overlay"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Performance stats (FPS / ms / MB) — also in replay</span
+                >
+              </label>
+              <p class="text-[11px] text-gray-400">
+                Stats need the DOM overlay: with "DOM Overlay" disabled under AR
+                crash isolation they can't be shown in AR.
+              </p>
             </div>
           </div>
 
@@ -1320,13 +1536,23 @@ No errors</pre
               >
             </div>
             <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
-              <p class="text-[11px] text-gray-400">
+              <p id="compass-debug-help" class="text-[11px] text-gray-400">
                 Feed the absolute-orientation compass into the live GPS
-                alignment. Stage 0 is ON by default (fixes initial rotation);
-                Stage C + the trust gate are experimental (off). Applies on the
-                next session / reload. These flags are recorded into the session
-                (replay re-enables them), so turn Stage 0 OFF for compass
-                calibration sets.
+                alignment. Applies on the next session / reload; all flags are
+                recorded into the session (replay re-enables them). Stage 0 (ON
+                by default) owns the yaw only until it becomes observable from
+                GPS. Stage C keeps a small steady-state vote afterwards, gated
+                by the compass↔GPS <em>trust machine</em> (8° tolerance — too
+                strict to activate on the field corpus). The compass experiment
+                is the recommended field-test combo: the Stage C vote at the
+                census-backed 15° trust tolerance plus C′ pair selection — it
+                implies Stage C, so that checkbox greys out. The consistency
+                gate is a different mechanism than the trust machine: a
+                compass↔WebXR drift check applied only once yaw is observable
+                (with only Stage 0 on it barely acts). Vote weight scales the
+                Stage C / experiment vote — 0.1 measured best (2026-07-19 weight
+                census). Calibration rule: Stage 0 AND the experiment toggles
+                must all be OFF for §6a compass-calibration recordings.
               </p>
               <label class="flex items-center gap-2 cursor-pointer">
                 <input
@@ -1346,8 +1572,8 @@ No errors</pre
                   class="w-4 h-4 accent-blue-500"
                 />
                 <span class="text-sm text-gray-200"
-                  >Stage C — steady-state rotation prior (trust-gated
-                  vote)</span
+                  >Stage C — steady-state rotation prior (trust-machine-gated
+                  vote; implied by the experiment)</span
                 >
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
@@ -1357,8 +1583,80 @@ No errors</pre
                   class="w-4 h-4 accent-blue-500"
                 />
                 <span class="text-sm text-gray-200"
-                  >Trust gate — only use compass when consistent with
-                  WebXR</span
+                  >Consistency gate — down-weight the compass while it drifts
+                  against WebXR</span
+                >
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="compass-experiment"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Compass experiment — Stage C vote at 15° trust tolerance + C′
+                  pair selection (field test)</span
+                >
+              </label>
+              <div>
+                <div class="flex justify-between text-sm text-gray-200 mb-1">
+                  <span>Vote weight (steady-state compass influence)</span>
+                  <span id="compass-vote-weight-value">0.10</span>
+                </div>
+                <input
+                  type="range"
+                  id="compass-vote-weight"
+                  aria-label="Vote weight"
+                  class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <p class="text-[11px] text-gray-400">
+                  Only active while the experiment / Stage C is on (greyed out
+                  otherwise). Default 0.1 — the corpus-measured optimum
+                  (2026-07-19 weight census).
+                </p>
+              </div>
+              <div
+                id="compass-ab-arm-divider"
+                class="border-t border-gray-600 pt-2 text-[11px] text-gray-400"
+              >
+                A/B comparison arm — not a compass mechanism (seed-dependent;
+                attribute its effects to the solver, not the compass):
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="compass-robust-solver-comparison"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Robust-solver comparison — plain outlier rejection</span
+                >
+              </label>
+            </div>
+          </div>
+
+          <!-- Loop-closure capture (experimental) -->
+          <div class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-xl">🔁</span>
+              <span class="font-medium text-white">Loop closures (debug)</span>
+            </div>
+            <div class="bg-gray-700/50 rounded-lg p-3 space-y-3">
+              <p class="text-[11px] text-gray-400">
+                Record AR relocalization jumps (&gt;1 m between frames) as
+                loop-closure events. Each closure also corrects the live
+                trajectory, changing the live alignment. Applies on the next
+                session. Needed to collect loop-closure field data.
+              </p>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="loop-closure-detector"
+                  class="w-4 h-4 accent-blue-500"
+                />
+                <span class="text-sm text-gray-200"
+                  >Detect + record loop closures (experimental, off by
+                  default)</span
                 >
               </label>
             </div>

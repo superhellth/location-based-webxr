@@ -9,7 +9,9 @@ opt OUT without a rebuild via `?coldStartOverride=0`. The value is passed to
 
 - `coldStartOverrideEnabledFromSearch(search: string): boolean` — `true` by
   default (absent/empty/any non-opt-out value); `false` only for the explicit
-  opt-out spellings `coldStartOverride=0` or `=false`.
+  opt-out spellings `coldStartOverride=0` or `=false`. The opt-out match is
+  **case-insensitive and whitespace-trimmed** (`False`, `FALSE`, `" false "` all
+  opt out) so a field-tester-typed capitalization can't silently leave Stage-0 on.
 
 ## Invariants & assumptions
 
@@ -19,7 +21,7 @@ opt OUT without a rebuild via `?coldStartOverride=0`. The value is passed to
   a field-validated default-on feature). Pass `?coldStartOverride=0` to disable —
   e.g. when collecting §6a field-calibration recordings so the captured compass
   behaviour is unmodified. See
-  [`GpsPlusSlamJs_Docs/docs/2026-06-26-stage0-field-collection-and-enablement.md`](../../../GpsPlusSlamJs_Docs/docs/2026-06-26-stage0-field-collection-and-enablement.md).
+  [`GpsPlusSlamJs_Docs/docs/2026-06-26-0701-stage0-field-collection-and-enablement.md`](../../../GpsPlusSlamJs_Docs/docs/2026-06-26-0701-stage0-field-collection-and-enablement.md).
 
 ## Examples
 
@@ -36,4 +38,5 @@ store = createSlamAppStore({
 
 `cold-start-override-flag.test.ts` — defaults to `true` (absent/empty/`=1`/`=yes`,
 incl. alongside other params); returns `false` only for the explicit opt-out
-`=0`/`=false`.
+`=0`/`=false`, including case-insensitive / whitespace-padded spellings
+(`False`, `FALSE`, `" false "`, `" 0 "`).

@@ -16,7 +16,7 @@
  * makes correct use the easy path and stashing the awkward one. Do NOT retain
  * `ctx` or its fields beyond the callback's synchronous execution.
  *
- * See `2026-06-03-threejs-arbutton-minimal-ar-example-user-feedback.md`
+ * See `2026-06-03-0553-threejs-arbutton-minimal-ar-example-user-feedback.md`
  * §6.2/§6.3 (option H-A2) for the design rationale.
  */
 
@@ -45,6 +45,13 @@ export interface XrFrameContext {
 export type XrFrameUpdate = (ctx: XrFrameContext) => void;
 
 const updates = new Set<XrFrameUpdate>();
+/**
+ * Cached iteration snapshot of {@link updates}, invalidated on every registry
+ * mutation. The snapshot SEMANTICS (a register/unregister during a tick defers
+ * to the next frame) are unchanged — caching only avoids re-allocating an
+ * identical array at 60–90 Hz between (rare) registry changes (PR #67 review).
+ */
+let snapshot: readonly XrFrameUpdate[] | null = null;
 
 /**
  * Register a per-frame XR-access callback. Returns an unregister function.
@@ -54,8 +61,10 @@ const updates = new Set<XrFrameUpdate>();
  */
 export function registerXrFrameUpdate(fn: XrFrameUpdate): () => void {
   updates.add(fn);
+  snapshot = null;
   return () => {
     updates.delete(fn);
+    snapshot = null;
   };
 }
 
@@ -75,8 +84,8 @@ export function registerXrFrameUpdate(fn: XrFrameUpdate): () => void {
  * loop continues — mirroring `runFrameUpdates`.
  */
 export function runXrFrameUpdates(ctx: XrFrameContext): void {
-  const snapshot = Array.from(updates);
-  for (const fn of snapshot) {
+  const fns = snapshot ?? (snapshot = Array.from(updates));
+  for (const fn of fns) {
     try {
       fn(ctx);
     } catch (error) {
@@ -91,4 +100,5 @@ export function runXrFrameUpdates(ctx: XrFrameContext): void {
  */
 export function clearXrFrameUpdates(): void {
   updates.clear();
+  snapshot = null;
 }

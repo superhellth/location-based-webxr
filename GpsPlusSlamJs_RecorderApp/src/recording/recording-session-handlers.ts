@@ -16,12 +16,15 @@ import {
   createGpsPositionHandler,
   updateDeviceOrientation,
 } from 'gps-plus-slam-app-framework/state/gps-event-coordinator';
-import { startSession, endSession } from '../state/recorder-store';
+import {
+  startSession,
+  endSession,
+} from 'gps-plus-slam-app-framework/state/recording-slice';
 import type { RecorderStore } from '../state/recorder-store';
 import { wireStoreSubscribers } from 'gps-plus-slam-app-framework/state/store-subscribers';
-import { wireRefPointSubscribers } from '../state/ref-point-subscribers';
 import { selectRefPointEntries } from '../state/ref-points-slice';
-import type { RecordingOptions } from 'gps-plus-slam-app-framework/state/recording-options';
+import { buildSessionSummary } from './build-session-summary';
+import type { RecordingOptions } from '../state/recording-options';
 import { formatTimestamp } from 'gps-plus-slam-app-framework/storage/file-system-utils';
 import {
   startSession as startStorageSession,
@@ -61,7 +64,6 @@ import {
   getCurrentArPose,
   startImageCapture,
   stopImageCapture,
-  setImageQualityAnalyzer,
   startDepthCapture,
   stopDepthCapture,
   getImageCaptureFrameCount,
@@ -91,10 +93,7 @@ import {
   setAbsCompassStatus,
   hideAbsCompass,
 } from '../ui/hud';
-import {
-  showSessionSummary,
-  type SessionSummaryData,
-} from '../ui/session-summary';
+import { showSessionSummary } from '../ui/session-summary';
 import { showConfirmDialog } from '../ui/confirm-dialog';
 import {
   enableBeforeUnloadWarning,
@@ -104,17 +103,13 @@ import {
 } from '../ui/navigation';
 import { gpsEventVisualizer } from 'gps-plus-slam-app-framework/visualization/gps-event-markers';
 import { refPointVisualizer } from '../visualization/ref-point-visualizer';
-import { computeFusedPath } from 'gps-plus-slam-app-framework/utils/fused-path';
 import {
   gpsPathToCoverageCells,
   H3_RESOLUTION,
 } from 'gps-plus-slam-app-framework/geo';
 import { createLogger } from 'gps-plus-slam-app-framework/utils/logger';
 import type { LatLong, Matrix4 } from 'gps-plus-slam-app-framework/core';
-import {
-  calcGpsCoords,
-  magneticHeadingFromEnuQuat,
-} from 'gps-plus-slam-app-framework/core';
+import { magneticHeadingFromEnuQuat } from 'gps-plus-slam-app-framework/core';
 import type { LeafletMapOverlay } from 'gps-plus-slam-app-framework/visualization/leaflet-map-overlay';
 import type { MapData } from 'gps-plus-slam-app-framework/visualization/map-data';
 import { getBuildInfo } from '../utils/build-info';
@@ -177,9 +172,20 @@ export interface RecordingSessionDeps {
    * recording. Without this, the new store's `tracking.phase` stays at
    * `'initializing'` and the tracking-quality phase gate keeps the HUD
    * pinned to "AR LOST" for the entire recording (Finding #1,
-   * 2026-05-23 user feedback).
+   * 2026-05-23 user feedback). Main injects the framework's
+   * `rebindTrackingStore` — the one runtime mutation that survived the
+   * fold of the pre-init setters into initAR's callbacks struct.
    */
-  setTrackingStore: (store: RecorderStore) => void;
+  rebindTrackingStore: (store: RecorderStore) => void;
+  /**
+   * Swap the off-thread image-quality analyzer for the CURRENT recording
+   * (or clear it with `null`). Recordings start/stop within one AR session,
+   * so the per-recording Worker cannot be an initAR-time constant — main.ts
+   * passes initAR a stable wrapper delegating to the ref this setter writes.
+   */
+  setImageQualityAnalyzer: (
+    analyzer: ImageQualityClient['analyze'] | null
+  ) => void;
   /** Create a fresh store instance. */
   createNewStore: () => RecorderStore;
   /** Read the current recording options (owned by main.ts). */
@@ -250,7 +256,6 @@ export function createRecordingSessionHandlers(
   let backDuringRecordingInProgress = false;
   let stopInProgress = false;
   let unsubscribeStore: (() => void) | null = null;
-  let unsubscribeRefPoints: (() => void) | null = null;
   /** Off-thread blur/blackness analyzer worker for this recording (null when the
    *  quality gate is disabled). Owned here: created on start, disposed on stop. */
   let imageQualityClient: ImageQualityClient | null = null;
@@ -330,6 +335,15 @@ export function createRecordingSessionHandlers(
     }
 
     try {
+      // A3 (2026-07-06 round-4): load + dispatch BEFORE the zeroRef wait.
+      // The entries live in local OPFS and the 2D map needs only lat/lon from
+      // the store; only the 3D sphere placement needs GPS (the visualizer
+      // stays zeroRef-gated internally). Ordering the load after the wait
+      // starved the live map for up to 30 s — or entirely on timeout.
+      const { refPointCount, observationCount } =
+        await deps.loadAndDisplayRefPoints(scenarioHandle);
+      const loadedSummary = `${refPointCount} ref points (${observationCount} observations) loaded`;
+
       updateStatus('Waiting for GPS signal...');
 
       const zeroRef = await deps.waitForZeroReference(30000);
@@ -339,18 +353,18 @@ export function createRecordingSessionHandlers(
         showError(
           'No GPS signal received. Move outdoors for better reception.'
         );
-        updateStatus(`Recording: ${currentSessionName} | GPS unavailable`);
+        // The status must reflect BOTH durable facts: GPS is missing (3D/AR
+        // placement is degraded) AND the local load succeeded (the map shows
+        // the points) — round-4 interview decision 6.
+        updateStatus(
+          `Recording: ${currentSessionName} | GPS unavailable | ${loadedSummary}`
+        );
         return;
       }
 
       refPointVisualizer.setZeroRef(zeroRef);
 
-      const { refPointCount, observationCount } =
-        await deps.loadAndDisplayRefPoints(scenarioHandle);
-
-      updateStatus(
-        `Recording: ${currentSessionName} | ${refPointCount} ref points (${observationCount} observations) loaded`
-      );
+      updateStatus(`Recording: ${currentSessionName} | ${loadedSummary}`);
     } catch (err) {
       log.error('Failed to load prior reference points:', err);
     }
@@ -394,7 +408,7 @@ export function createRecordingSessionHandlers(
     // now, every `poseReceived` dispatch flows into the orphaned store and
     // the new store's `tracking.phase` never leaves `'initializing'`, which
     // pins the tracking-quality HUD to "AR LOST" for the whole recording.
-    deps.setTrackingStore(store);
+    deps.rebindTrackingStore(store);
 
     // Generate session name from timestamp
     const now = new Date();
@@ -419,9 +433,6 @@ export function createRecordingSessionHandlers(
       render(data: MapData): void {
         deps.getMapOverlay()?.render(data);
       },
-      addCurrentMarker(lat: number, lon: number, name: string): void {
-        deps.getMapOverlay()?.addCurrentMarker(lat, lon, name);
-      },
     };
     unsubscribeStore = wireStoreSubscribers(store, {
       applyAlignmentMatrix: deps.applyAlignmentMatrix,
@@ -429,7 +440,10 @@ export function createRecordingSessionHandlers(
       mapOverlay: mapOverlayProxy,
       onNewGpsLatLng: deps.onNewGpsLatLng,
     });
-    unsubscribeRefPoints = wireRefPointSubscribers(store, refPointVisualizer);
+    // NOTE: the ref-point VIEW subscribers (3D spheres + live-map markers)
+    // are no longer wired here. They are AR-scoped and follow store swaps
+    // via main's storeRef (ui/ref-point-view-wiring.ts, round-3 feedback
+    // 2026-07-05) — the setStore(store) call above triggers their re-wire.
 
     // Initialize failure trackers
     writeFailureTracker = createWriteFailureTracker({ onWarning: showError });
@@ -483,7 +497,7 @@ export function createRecordingSessionHandlers(
     // single config object, so a newly-added tunable reaches the sampler
     // without editing this seam. Re-listing fields here is the field-drop
     // hazard that left `resolutionDivisor` bolted on and the depth knobs dead
-    // (see 2026-06-12-payload-rebuild-field-drop-audit.md F3).
+    // (see 2026-06-12-1130-payload-rebuild-field-drop-audit.md F3).
     if (recordingOptions.images.enabled) {
       const { enabled: _imagesEnabled, ...imageConfig } =
         recordingOptions.images;
@@ -494,10 +508,15 @@ export function createRecordingSessionHandlers(
       // worker can't leak into this one.
       if (imageConfig.qualityFilter.enabled) {
         try {
+          // A client can still be live here only when a start races/skips the
+          // stop (performStop disposes on the normal flow) — dispose it so the
+          // previous recording's Worker can't leak, matching this block's
+          // stated contract.
+          imageQualityClient?.dispose();
           imageQualityClient = createImageQualityAnalyzer(
             imageConfig.qualityFilter
           );
-          setImageQualityAnalyzer(imageQualityClient.analyze);
+          deps.setImageQualityAnalyzer(imageQualityClient.analyze);
           log.info('Image-quality gate enabled (off-thread blur/blackness)');
         } catch (err) {
           // The worker is constructed synchronously; on a locked-down
@@ -506,14 +525,14 @@ export function createRecordingSessionHandlers(
           // recording rather than aborting a session whose GPS/orientation
           // watches are already running.
           imageQualityClient = null;
-          setImageQualityAnalyzer(null);
+          deps.setImageQualityAnalyzer(null);
           log.warn(
             'Image-quality gate unavailable (worker init failed) — recording without it',
             err
           );
         }
       } else {
-        setImageQualityAnalyzer(null);
+        deps.setImageQualityAnalyzer(null);
       }
       startImageCapture(imageConfig);
       log.info(
@@ -607,19 +626,21 @@ export function createRecordingSessionHandlers(
     }
   }
 
-  async function performStop(): Promise<void> {
-    log.info('Stop recording');
-
-    disableBeforeUnloadWarning();
-
-    // Capture counts before stopping
-    const imageCount = getImageCaptureFrameCount();
-    const depthSampleCount = getDepthSampleCount();
-
+  /**
+   * Stop everything that actively FEEDS a recording — captures, sensor
+   * watches, the off-thread quality analyzer — plus their HUD readouts. The
+   * ONE teardown for this resource cluster, shared by `performStop` (the
+   * ordered stop flow) and `cleanupForNewRecording` (the XR-session-end /
+   * start-over path), which previously skipped it and left the camera/GPS
+   * feeds and the analyzer Worker running (recurring PR #115/#120/#123 review
+   * finding). Every call is idempotent, so running it on an already-stopped
+   * session is a no-op.
+   */
+  function stopLiveFeeds(): void {
     stopImageCapture();
-    // Tear down the off-thread quality analyzer (worker) for this recording and
-    // clear the injected callback so the next recording starts clean.
-    setImageQualityAnalyzer(null);
+    // Tear down the off-thread quality analyzer (worker) for this recording
+    // and clear the injected callback so the next recording starts clean.
+    deps.setImageQualityAnalyzer(null);
     imageQualityClient?.dispose();
     imageQualityClient = null;
     hideFrameCount();
@@ -630,6 +651,18 @@ export function createRecordingSessionHandlers(
     stopAbsCompassHudUpdates();
     stopAbsoluteOrientationWatch();
     hideAbsCompass();
+  }
+
+  async function performStop(): Promise<void> {
+    log.info('Stop recording');
+
+    disableBeforeUnloadWarning();
+
+    // Capture counts before stopping
+    const imageCount = getImageCaptureFrameCount();
+    const depthSampleCount = getDepthSampleCount();
+
+    stopLiveFeeds();
 
     // Capture authoritative end time immediately when recording stops,
     // before async operations (metadata write, sync, ZIP export) that
@@ -638,6 +671,18 @@ export function createRecordingSessionHandlers(
 
     // Get state before dispatch
     const store = deps.getStore();
+
+    // Drain the persistence middleware's async WriteQueue BEFORE anything
+    // reads this session's `actions/` (the final external sync and the OPFS
+    // zip export below) — an action dispatched moments before Stop could
+    // otherwise land after the export enumerated the directory and silently
+    // miss the zip (indoor-loop enablement follow-up §3.6b, 2026-07-12).
+    try {
+      await store.flushPendingActionWrites();
+    } catch (err) {
+      log.error('Failed to flush pending action writes:', err);
+    }
+
     const state = store.getState();
     const sessionMetadata = state.recording.sessionMetadata;
     const gpsEvents = state.gpsData?.gpsEvents;
@@ -717,10 +762,6 @@ export function createRecordingSessionHandlers(
       unsubscribeStore();
       unsubscribeStore = null;
     }
-    if (unsubscribeRefPoints) {
-      unsubscribeRefPoints();
-      unsubscribeRefPoints = null;
-    }
 
     // Collect tracker errors before resetting
     const errors: string[] = [];
@@ -770,75 +811,25 @@ export function createRecordingSessionHandlers(
     // Dispatch session end
     store.dispatch(endSession());
 
-    // Build summary data
-    const firstGps = gpsPositions.length > 0 ? gpsPositions[0] : null;
-    const lastGps =
-      gpsPositions.length > 0 ? gpsPositions[gpsPositions.length - 1] : null;
-
-    const odomPositions = gpsEvents?.odometryPositions ?? [];
-    let totalDistanceMeters = 0;
-    for (let i = 1; i < odomPositions.length; i++) {
-      const prev = odomPositions[i - 1]!;
-      const curr = odomPositions[i]!;
-      const dx = curr[0] - prev[0];
-      const dy = curr[1] - prev[1];
-      const dz = curr[2] - prev[2];
-      totalDistanceMeters += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    // Convert alignment snapshot NUE positions to GPS coordinates (Issue #1)
-    const snapshotZeroRef = firstGps?.zeroRef ?? null;
-    const alignmentSnapshotPath = snapshotZeroRef
-      ? gpsEventVisualizer.getAlignmentSnapshotPositions().map((nuePos) => {
-          const gps = calcGpsCoords(snapshotZeroRef, nuePos);
-          return { lat: gps.lat, lng: gps.lon };
-        })
-      : [];
-
-    const summaryData: SessionSummaryData = {
-      duration: {
-        startTime: sessionMetadata?.startTime ?? endTime,
-        endTime,
-      },
-      gpsEventCount: gpsPositions.length,
-      refPointCount: refPoints.length,
+    // Build summary data (pure derivation — see build-session-summary.ts)
+    const summaryData = buildSessionSummary({
+      endTime,
+      startTime: sessionMetadata?.startTime,
       imageCount,
       depthSampleCount,
       errors,
-      firstGps: firstGps
-        ? { lat: firstGps.latitude, lng: firstGps.longitude }
-        : null,
-      lastGps: lastGps
-        ? { lat: lastGps.latitude, lng: lastGps.longitude }
-        : null,
-      totalDistanceMeters,
       failedWriteCount: state.recording.failedWriteCount,
-      rawGpsPath: gpsPositions.map((p) => ({
-        lat: p.latitude,
-        lng: p.longitude,
-        ...(typeof p.latLongAccuracy === 'number' && p.latLongAccuracy > 0
-          ? { accuracy: p.latLongAccuracy }
-          : {}),
-      })),
-      fusedPath: computeFusedPath({
-        odometryPositions: odomPositions,
-        alignmentMatrix: gpsEvents?.alignmentMatrix ?? null,
-        zeroRef: firstGps?.zeroRef ?? null,
-      }),
-      referencePointsForMap: refPoints.map((rp) => ({
-        lat: rp.gpsPoint?.latitude ?? rp.rawGpsPoint.latitude,
-        lng: rp.gpsPoint?.longitude ?? rp.rawGpsPoint.longitude,
-        name: rp.name ?? rp.id,
-        timestamp: rp.timestamp,
-      })),
-      zipSizeBytes: lastSyncResult?.blob?.size,
-      zipFileCount: lastSyncResult?.fileCount,
-      zipBlob: lastSyncResult?.blob,
+      gpsPositions,
+      odometryPositions: gpsEvents?.odometryPositions ?? [],
+      alignmentMatrix: gpsEvents?.alignmentMatrix ?? null,
+      alignmentSnapshotNuePositions:
+        gpsEventVisualizer.getAlignmentSnapshotPositions(),
+      refPoints,
+      syncResult: lastSyncResult,
       zipFilename: lastSyncResult
         ? (getSaveFileName() ?? generateSessionFilename())
         : undefined,
-      alignmentSnapshotPath,
-    };
+    });
 
     // Clean up sync result reference
     lastSyncResult = null;
@@ -883,13 +874,12 @@ export function createRecordingSessionHandlers(
   // --- Lifecycle ---
 
   function cleanupForNewRecording(): void {
+    // Teardown parity with performStop: this path (XR session end, start-over)
+    // must also stop the captures/watches/analyzer, not only the bookkeeping.
+    stopLiveFeeds();
     if (unsubscribeStore) {
       unsubscribeStore();
       unsubscribeStore = null;
-    }
-    if (unsubscribeRefPoints) {
-      unsubscribeRefPoints();
-      unsubscribeRefPoints = null;
     }
 
     if (writeFailureTracker) {

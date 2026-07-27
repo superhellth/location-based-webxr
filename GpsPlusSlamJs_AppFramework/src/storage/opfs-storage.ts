@@ -217,12 +217,50 @@ export function getAppRootHandle(): FileSystemDirectoryHandle | null {
 // ============================================================================
 
 /**
+ * True when the name `name` is already taken under `dir` (by a session
+ * directory — or by a file, which the follow-up `{ create: true }` call could
+ * not replace either). Used by {@link createSession} to avoid silently reusing
+ * a directory when two recordings start within the same (second-resolution)
+ * timestamp. Rethrows unexpected probe errors (storage failures) so the caller
+ * fails loudly instead of mislabeling the name.
+ */
+async function sessionDirExists(
+  dir: FileSystemDirectoryHandle,
+  name: string
+): Promise<boolean> {
+  try {
+    await dir.getDirectoryHandle(name, { create: false });
+    return true;
+  } catch (err) {
+    // Only NotFoundError means the name is free. A FILE occupying the name
+    // rejects with TypeMismatchError — report it TAKEN so the probe advances
+    // to the next suffix instead of crashing on the follow-up
+    // `{ create: true }` (which also rejects for a file-occupied name).
+    // Anything else (InvalidStateError etc.) is a storage failure, not
+    // knowledge about the name: rethrow ("free" would crash later with a
+    // misleading create-time error; "taken" would loop the probe forever).
+    if (err instanceof DOMException && err.name === 'NotFoundError') {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === 'TypeMismatchError') {
+      return true;
+    }
+    throw err;
+  }
+}
+
+/**
  * Create a new recording session.
  *
  * Creates the directory structure:
  * - /gps-plus-slam/sessions/recording-{timestamp}/
  * - /gps-plus-slam/sessions/recording-{timestamp}/actions/
  * - /gps-plus-slam/sessions/recording-{timestamp}/images/ (legacy: frames/)
+ *
+ * The folder name is `recording-{timestamp}` at whole-second resolution; if a
+ * directory with that name already exists (two recordings started in the same
+ * UTC second), a numeric suffix (`-2`, `-3`, …) is appended so the new session
+ * never silently reuses and corrupts the earlier one's directory.
  *
  * @param timestamp - Session start time (used for folder naming)
  * @param _contextTag - Opaque tag; not used by the flat layout but accepted
@@ -240,7 +278,19 @@ export async function createSession(
     );
   }
 
-  const sessionName = `recording-${formatTimestamp(timestamp)}`;
+  // `formatTimestamp` resolves to whole UTC seconds, so two recordings started
+  // within the same second collide on `recording-<ts>/`. Because the handle is
+  // opened with `{ create: true }`, a colliding name silently REUSES the
+  // existing directory and mixes both recordings' session.json/actions/frames.
+  // Probe for a free name and append a numeric suffix on collision so each
+  // session owns a distinct directory (the first keeps the bare timestamp).
+  const baseName = `recording-${formatTimestamp(timestamp)}`;
+  let sessionName = baseName;
+  let suffix = 1;
+  while (await sessionDirExists(sessionsDir, sessionName)) {
+    suffix += 1;
+    sessionName = `${baseName}-${suffix}`;
+  }
   currentSessionHandle = await sessionsDir.getDirectoryHandle(sessionName, {
     create: true,
   });

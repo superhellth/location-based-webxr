@@ -19,7 +19,7 @@ Factory function. Returns a handlers object that owns the recording lifecycle.
 | `createNewStore`          | `() => RecorderStore`                                    | Create a fresh store for each recording   |
 | `getCurrentScenarioName`  | `() => string`                                           | Read current scenario name                |
 | `getRecordingOptions`     | `() => RecordingOptions`                                 | Read capture settings (depth, interval)   |
-| `getMapOverlay`           | `() => MapOverlay \| null`                               | Access the map overlay                    |
+| `getMapOverlay`           | `() => LeafletMapOverlay \| null`                        | Access the map overlay                    |
 | `clearRefPointUsage`      | `() => void`                                             | Reset ref-point tracking for new session  |
 | `getSessionNotes`         | `() => string`                                           | Read session notes from UI                |
 | `waitForZeroReference`    | `(timeoutMs?) => Promise<LatLong \| null>`               | Wait for GPS zero reference               |
@@ -50,6 +50,12 @@ Factory function. Returns a handlers object that owns the recording lifecycle.
 - `syncManager` / `lastSyncResult` — external zip sync lifecycle
 - `backDuringRecordingInProgress` — guard against double-tap of back button
 - `unsubscribeStore` — store subscriber cleanup
+
+Note: the ref-point VIEW subscribers (3D spheres + live-map markers) are NOT
+wired here any more — they are AR-scoped and store-swap-following via main's
+`storeRef` ([ui/ref-point-view-wiring.ts](../ui/ref-point-view-wiring.md),
+round-3 feedback 2026-07-05); the `setStore(newStore)` call in
+`handleStartRecording` is what triggers their re-wire.
 
 ## Invariants
 

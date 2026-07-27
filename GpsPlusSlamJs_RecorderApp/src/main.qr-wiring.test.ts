@@ -62,20 +62,13 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   isWebXRSupported: vi.fn().mockResolvedValue(true),
   getCurrentArPose: vi.fn().mockReturnValue(null),
   applyAlignmentMatrix: vi.fn(),
-  setImageCaptureCallback: vi.fn(),
   startImageCapture: vi.fn(),
   stopImageCapture: vi.fn(),
-  setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setCameraFrameCallback: vi.fn(),
   startCameraFrameCapture: vi.fn(),
   stopCameraFrameCapture: vi.fn(),
-  setFrameCallback: vi.fn(),
-  setTrackingLostCallback: vi.fn(),
-  setTrackingCallbacks: vi.fn(),
-  setTrackingRecoveredCallback: vi.fn(),
-  setTrackingStore: vi.fn(),
+  rebindTrackingStore: vi.fn(),
   getScene: mockGetScene,
   getCamera: mockGetCamera,
   getArWorldGroup: mockGetArWorldGroup,
@@ -97,6 +90,13 @@ vi.mock('gps-plus-slam-app-framework/utils/logger', () => ({
     debug: vi.fn(),
   }),
 }));
+vi.mock('./ui/ref-point-view-wiring', () => ({
+  wireRefPointViews: vi.fn(() => ({
+    refreshMapMarkers: vi.fn(),
+    unsubscribe: vi.fn(),
+  })),
+}));
+
 vi.mock('./ui/hud', () => ({
   initUI: vi.fn(),
   showError: vi.fn(),
@@ -110,9 +110,9 @@ vi.mock('./ui/hud', () => ({
   validateEnterButton: vi.fn(),
   updatePermissionStatus: vi.fn(),
   setPermissionsReady: vi.fn(),
-  setFolderSelected: vi.fn(),
   setSaveLocationSelected: vi.fn(),
   setFolderImportExpanded: vi.fn(),
+  setFolderImportProgress: vi.fn(),
   updateFolderStatus: vi.fn(),
   updateSaveStatus: vi.fn(),
   updateSyncStatus: vi.fn(),
@@ -151,6 +151,7 @@ vi.mock('./ui/ref-point-picker', () => ({
 }));
 vi.mock('./ui/navigation', () => ({
   initNavigation: vi.fn(),
+  getCurrentScreen: vi.fn(() => 'setup'),
   enableBeforeUnloadWarning: vi.fn(),
   disableBeforeUnloadWarning: vi.fn(),
   pushScreenState: vi.fn(),
@@ -252,7 +253,10 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
   extractOdomPosition: vi.fn().mockReturnValue([0, 0, 0]),
   extractOdomRotation: vi.fn().mockReturnValue([0, 0, 0, 1]),
 }));
-vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
+vi.mock('./state/recording-options', () => ({
+  // main.ts also consumes the pure compassStoreOptions mapping — stubbed
+  // inert here; its real logic is unit-tested in recording-options.test.ts.
+  compassStoreOptions: () => ({}),
   loadRecordingOptions: vi.fn().mockReturnValue({
     // QR ENABLED — this file exercises the wired path.
     qr: { enabled: true, intervalMs: 125, captureSize: 1024 },
@@ -265,6 +269,7 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
       gpsAlignmentMarkers: true,
       compassCubes: false,
     },
+    loopClosureDebug: { detectorEnabled: false },
     arCrashIsolation: {
       enableDomOverlay: true,
       enableCameraAccess: true,
@@ -384,7 +389,7 @@ vi.mock('./storage/folder-manager', () => ({
 
 // Import after all mocks are set up.
 import { handleEnterARForTesting, resetMainState } from './main';
-import { setCameraFrameCallback } from 'gps-plus-slam-app-framework/ar/webxr-session';
+import { initAR } from 'gps-plus-slam-app-framework/ar/webxr-session';
 
 describe('Live-QR wiring in live AR (qr.enabled)', () => {
   beforeEach(() => {
@@ -400,11 +405,14 @@ describe('Live-QR wiring in live AR (qr.enabled)', () => {
     `;
   });
 
-  it('registers the camera-frame callback (before initAR) and wires QR recording when enabled', async () => {
+  it('passes the camera-frame callback to initAR and wires QR recording when enabled', async () => {
     await handleEnterARForTesting();
 
-    // Camera-frame callback registered (the producer's frame feed).
-    expect(setCameraFrameCallback).toHaveBeenCalledTimes(1);
+    // Camera-frame callback rides into initAR's callbacks struct (the
+    // producer's frame feed) — since the setter fold this replaces the old
+    // "setCameraFrameCallback called before initAR" ordering assertion.
+    const callbacks = vi.mocked(initAR).mock.calls[0]?.[3];
+    expect(typeof callbacks?.cameraFrame?.onFrame).toBe('function');
 
     // QR recording wired once, after AR init, with the expected options.
     expect(mockWireQrRecording).toHaveBeenCalledTimes(1);

@@ -16,7 +16,7 @@
  * maxLinear / maxWaitMs (plan §5.1). Keeping the stateful policy here (not in a
  * speculative framework-wide service) matches the plan's §4.1 scope note.
  *
- * @see GpsPlusSlamJs_Docs/docs/2026-06-23-blurry-frame-motion-gating-plan.md §4.2-4.4
+ * @see GpsPlusSlamJs_Docs/docs/2026-06-23-2105-blurry-frame-motion-gating-plan.md §4.2-4.4
  */
 
 /** Default number of recent frames the gate judges motion over (~50 ms @ 60fps). */
@@ -63,15 +63,27 @@ export interface MotionFilterConfig {
 }
 
 /**
- * Default motion-filter configuration. Enabled by default (plan §1). Thresholds
- * are PLACEHOLDERS pending on-device field tuning (plan §7) — record measured
- * values in implementation-progress.md once known. `maxWaitMs` of 4000 ms is
- * 2× the default 2000 ms image interval.
+ * Default motion-filter configuration. Enabled by default (plan §1).
+ *
+ * `maxLinearVelocity` was raised `0.5 → 2.5` m/s on 2026-07-02 after a
+ * 5-recording field analysis: at 0.5 m/s (~⅓ of a ~1.4 m/s walking pace) the
+ * gate deferred ~90 % of captures to the never-calm `maxWaitMs` fallback,
+ * collapsing the walking capture rate from the configured 0.5 Hz to ~0.17 Hz.
+ * Measured 1 Hz-averaged walking speed was a tight band (median 1.38, max
+ * 1.73 m/s); allowing for higher instantaneous per-frame stride peaks, 2.5 m/s
+ * clears steady and brisk walking while still deferring genuine lunges/jogging
+ * — demoting the (weak-at-scanning-distance) linear signal to a gross-motion
+ * safety net and letting the well-behaved angular gate be the primary blur
+ * selector. See
+ * `GpsPlusSlamJs_Docs/docs/2026-07-02-0117-image-capture-rate-motion-gate-finding.md`.
+ *
+ * `maxAngularVelocity` remains a PLACEHOLDER pending on-device field tuning
+ * (plan §7). `maxWaitMs` of 4000 ms is 2× the default 2000 ms image interval.
  */
 export const DEFAULT_MOTION_FILTER: MotionFilterConfig = {
   enabled: true,
   maxAngularVelocity: 0.6,
-  maxLinearVelocity: 0.5,
+  maxLinearVelocity: 2.5,
   maxWaitMs: 4000,
 };
 

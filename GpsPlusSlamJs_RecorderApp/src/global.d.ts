@@ -12,6 +12,7 @@
  */
 
 import type { RefPointPickerResult } from './ui/ref-point-picker';
+import type { FolderImportProgressState } from './ui/hud';
 import type { PermissionCheckResult } from 'gps-plus-slam-app-framework/sensors/permission-checker';
 import type { TrackingQualityReport } from 'gps-plus-slam-app-framework';
 import type { SessionSummaryData } from './ui/session-summary';
@@ -52,9 +53,10 @@ declare global {
       clearGpsEventVisualizer: () => void;
       /**
        * §3c — Replay-mode diagnostic. Adds a GPS event with optional 1σ
-       * accuracy to the visualizer. Creates an offline scene + arWorldGroup
-       * via `setSceneForTesting` so the visualizer can run without an
-       * active WebXR session.
+       * accuracy to the visualizer. Creates a module-local offline scene +
+       * arWorldGroup in e2e-hooks and points the visualizer at it via
+       * `gpsEventVisualizer.setSceneSource` (live scene wins when present),
+       * so the visualizer can run without an active WebXR session.
        */
       addGpsEventForTest: (
         gpsCoords: [number, number, number],
@@ -73,8 +75,9 @@ declare global {
       // Tracking quality indicator hook
       updateTrackingQuality: (report: TrackingQualityReport) => void;
       // Mandatory storage selection hooks (Task 1a-fix)
-      setFolderSelected: (selected: boolean) => void;
       setFolderImportExpanded: (expanded: boolean, hint?: string) => void;
+      /** Folder-import indexing progress bar (D2, 2026-07-05). */
+      setFolderImportProgress: (state: FolderImportProgressState) => void;
       setSaveLocationSelected: (selected: boolean) => void;
       /**
        * Step 4B — mount the map-centric recording browser with fixture tours

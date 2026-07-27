@@ -111,6 +111,21 @@ describe('AbsoluteOrientationSensor capture', () => {
       );
       expect(getLatestAbsoluteOrientation()).toBeNull();
     });
+
+    it('honours the documented never-throws contract even when the onStatus callback itself throws', async () => {
+      // Why this test matters (PR #124 review): startAbsoluteOrientationWatch
+      // documents "Never throws", but onStatus is caller-supplied — an
+      // unguarded throw from it rejected the start promise (and would surface
+      // as an uncaught error from the sensor event listeners). The status
+      // reporter must isolate the consumer callback.
+      delete (window as unknown as Record<string, unknown>)
+        .AbsoluteOrientationSensor;
+      await expect(
+        startAbsoluteOrientationWatch(() => {
+          throw new Error('consumer status handler boom');
+        })
+      ).resolves.toBeUndefined();
+    });
   });
 
   describe('capture', () => {
@@ -177,6 +192,32 @@ describe('AbsoluteOrientationSensor capture', () => {
       });
       expect(getLatestAbsoluteOrientation()).toBeNull();
     });
+
+    // Why this matters (PR #128 review): a real AbsoluteOrientationSensor can
+    // still deliver a queued event after `stop()` returns (the spec does not
+    // guarantee listener removal on stop). Without a current-instance guard,
+    // such a late `reading`/`error`/`activate` from a SUPERSEDED instance writes
+    // stale data into `latest` or emits a stale status from the previous session.
+    it('ignores listener callbacks from a superseded sensor after stop()', async () => {
+      const onStatus = vi.fn();
+      await startAbsoluteOrientationWatch(onStatus);
+      const inst = FakeAbsoluteOrientationSensor.lastInstance!;
+      inst.quaternion = [0, 0, 0, 1];
+      inst.emit('reading');
+      expect(getLatestAbsoluteOrientation()).not.toBeNull();
+
+      stopAbsoluteOrientationWatch();
+      onStatus.mockClear();
+
+      // The old instance's late/queued events must be dropped.
+      inst.quaternion = [0.5, 0.5, 0.5, 0.5];
+      inst.emit('reading');
+      inst.emit('error', { error: { name: 'NotReadableError' } });
+      inst.emit('activate');
+
+      expect(getLatestAbsoluteOrientation()).toBeNull();
+      expect(onStatus).not.toHaveBeenCalled();
+    });
   });
 
   describe('permissions', () => {
@@ -209,6 +250,32 @@ describe('AbsoluteOrientationSensor capture', () => {
       });
       await startAbsoluteOrientationWatch();
       expect(FakeAbsoluteOrientationSensor.lastInstance).not.toBeNull();
+    });
+
+    // Why this matters (PR #129 review): some browsers/webviews throw a
+    // SYNCHRONOUS TypeError from `permissions.query({name:'magnetometer'})`
+    // because the permission name is unsupported, instead of returning a
+    // rejected promise. A synchronous throw bypasses the per-query `.catch()`
+    // best-effort 'granted' fallback, so the watch would abort with `error` and
+    // never construct the sensor — even though the sensor itself may work fine.
+    // It must be tolerated exactly like a rejected query (best-effort proceed).
+    it('tolerates a synchronous throw from permissions.query (still constructs)', async () => {
+      Object.defineProperty(navigator, 'permissions', {
+        value: {
+          query: vi.fn(() => {
+            throw new TypeError(
+              "'magnetometer' is not a valid permission name"
+            );
+          }),
+        },
+        configurable: true,
+      });
+      const onStatus = vi.fn();
+      await startAbsoluteOrientationWatch(onStatus);
+      expect(FakeAbsoluteOrientationSensor.lastInstance).not.toBeNull();
+      expect(onStatus).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'error' })
+      );
     });
   });
 

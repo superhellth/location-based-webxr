@@ -3,8 +3,8 @@
  *
  * Phase A of docs/2026-05-16-tracking-quality-metrics-plan.md. Focus
  * is on the pure compute helpers (§4.1–§4.7) and the slice/listener
- * wiring. The full Investigation parameter sweep is exercised
- * separately in `GpsPlusSlamJs_Investigation/src/investigations/tracking-quality.test.ts`.
+ * wiring. The full corpus parameter sweep is exercised separately in the
+ * downstream analysis harness.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -163,15 +163,18 @@ describe('matrixDelta', () => {
     const r2 = matrixDelta(IDENTITY, infTranslation);
     expect(Number.isFinite(r2.rotationDeltaDeg)).toBe(true);
     expect(Number.isFinite(r2.translationDeltaM)).toBe(true);
+    // Assert the EXACT zero fallback (not just finiteness) so a regression to a
+    // non-zero finite value is caught — mirrors the r1 assertion. (PR #127 review.)
+    expect(r2).toEqual({ rotationDeltaDeg: 0, translationDeltaM: 0 });
   });
 
   // Why this test matters: §11 (a) of the tracking-quality plan requires
   // matrixDelta to agree numerically with the gl-matrix-quat reference
-  // kernel used by GpsPlusSlamJs_Investigation/src/investigation-helpers.ts
+  // kernel the downstream corpus-analysis harness uses
   // (`computeStabilityDelta`). The §6.1 corpus sweep correlates the
-  // AppFramework's runtime convergence score with the Investigation's
-  // hindsight error — both must use the same numeric definition or the
-  // correlation is meaningless. The reference kernel below mirrors
+  // AppFramework's runtime convergence score with the harness's hindsight
+  // error — both must use the same numeric definition or the correlation
+  // is meaningless. The reference kernel below mirrors
   // computeStabilityDelta exactly; this test asserts identical output on
   // a tricky compound-rotation+translation case.
   it('matches the gl-matrix quat-based reference kernel on compound transforms', async () => {
@@ -309,6 +312,29 @@ describe('computeConvergence', () => {
       { observationIndex: 2, matrix: nanMatrix },
     ]);
     // The corrupt pair must drag the score DOWN, never sit at the healthy 1.
+    expect(corrupt.score).toBeLessThan(healthy.score);
+    expect(corrupt.score).toBe(0);
+  });
+
+  // Why this matters (PR #127 review): a finite but WRONG-LENGTH matrix (e.g. a
+  // truncated/corrupt snapshot — `AlignmentSnapshot.matrix` is typed `number[]`,
+  // not a fixed 16-tuple) passed `isFiniteMatrix` (which only checked finiteness)
+  // and then hit `matrixDelta`'s own length guard, which returns ZERO deltas =
+  // "perfectly stable". So a malformed snapshot inflated the score to the healthy
+  // 1 instead of degrading it — the same defect class the non-finite guard above
+  // fixes. A wrong-length matrix must score on the fail side too.
+  it('does not let a finite but wrong-length matrix improve the score', () => {
+    const healthy = computeConvergence([
+      { observationIndex: 1, matrix: [...IDENTITY] },
+      { observationIndex: 2, matrix: [...IDENTITY] },
+    ]);
+    expect(healthy.score).toBe(1);
+
+    const truncated = [...IDENTITY].slice(0, 15); // 15 finite elements, not 16
+    const corrupt = computeConvergence([
+      { observationIndex: 1, matrix: [...IDENTITY] },
+      { observationIndex: 2, matrix: truncated },
+    ]);
     expect(corrupt.score).toBeLessThan(healthy.score);
     expect(corrupt.score).toBe(0);
   });
@@ -730,8 +756,9 @@ describe('EMA-smoothed convergence (Finding 4)', () => {
   });
 
   it('blends prior smoothed value with the new raw value via alpha', () => {
-    // Prior smoothed = 0.0, alpha = 0.3, raw convergence = 1.0 →
-    // smoothed = 0.0 + 0.3 * (1.0 - 0.0) = 0.3.
+    // Prior smoothed = 0.0, default alpha = 0.25 (re-tuned with E-1 — the EMA
+    // advances per observation now), raw convergence = 1.0 →
+    // smoothed = 0.0 + 0.25 * (1.0 - 0.0) = 0.25.
     const root = buildRootState({
       alignmentMatrix: IDENTITY,
       gpsPositions: [gps(0, 0, 0, 2)],
@@ -741,7 +768,10 @@ describe('EMA-smoothed convergence (Finding 4)', () => {
       smoothedConvergence: 0,
     });
     const report = computeTrackingQualityReport(root as never);
-    expect(report.subScores.convergence).toBeCloseTo(0.3, 5);
+    expect(report.subScores.convergence).toBeCloseTo(
+      DEFAULT_TRACKING_QUALITY_OPTIONS.convergenceEmaAlpha,
+      5
+    );
   });
 
   it('respects custom alpha option', () => {
@@ -1082,6 +1112,53 @@ describe('createTrackingQualityListenerMiddleware', () => {
     // With the dispatch gate quantising sub-threshold changes, none of
     // these jitter frames should produce a fresh report reference.
     expect(reportRefChanges).toBe(0);
+  });
+
+  // Why this test matters: E-1 (2026-07-10 quality review) skips the
+  // per-frame report recompute when the tracking phase is unchanged. The
+  // skip must NOT swallow the first pose frame after a reset — the HUD
+  // would otherwise show no report until the next GPS event (~1 s).
+  it('recomputes the report on the first pose frame after a session reset', () => {
+    const store = makeListenerStore(snapshotGpsAfter(null, [], []));
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+    expect(selectTrackingQuality(store.getState())).not.toBeNull();
+
+    store.dispatch({ type: 'tracking/resetTracking' });
+    expect(selectTrackingQuality(store.getState())).toBeNull();
+
+    // Same phase as before the reset — the phase-skip must still recompute
+    // because no report exists yet.
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+    expect(selectTrackingQuality(store.getState())).not.toBeNull();
+  });
+
+  // Why this test matters: the phase transition IS the report input pose
+  // actions carry (E-1) — losing tracking must still reach the report as
+  // 'ar-lost' immediately, not wait for the next GPS event.
+  it('still updates the report on a phase transition (poseLost)', () => {
+    const store = makeListenerStore(snapshotGpsAfter(null, [], []));
+    store.dispatch(
+      poseReceived({
+        pose: DEFAULT_POSE,
+        sensorOrientation: DEFAULT_ORIENTATION,
+      })
+    );
+    const before = selectTrackingQuality(store.getState());
+    expect(before?.state).not.toBe('ar-lost');
+
+    store.dispatch(poseLost());
+    const after = selectTrackingQuality(store.getState());
+    expect(after?.state).toBe('ar-lost');
   });
 });
 

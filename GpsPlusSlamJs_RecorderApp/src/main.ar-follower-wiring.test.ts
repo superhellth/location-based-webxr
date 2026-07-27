@@ -27,12 +27,7 @@ const { mockCreateCameraFollower, mockFollower, mockCreateGpsCompassCubes } =
     };
   });
 
-const {
-  mockGetArWorldGroup,
-  mockGetScene,
-  mockGetCamera,
-  mockSetFrameCallback,
-} = vi.hoisted(() => {
+const { mockGetArWorldGroup, mockGetScene, mockGetCamera } = vi.hoisted(() => {
   const mockArWorldGroup = { name: 'ar-world' };
   const mockScene = { name: 'scene' };
   const mockCamera = { name: 'camera' };
@@ -40,7 +35,6 @@ const {
     mockGetArWorldGroup: vi.fn().mockReturnValue(mockArWorldGroup),
     mockGetScene: vi.fn().mockReturnValue(mockScene),
     mockGetCamera: vi.fn().mockReturnValue(mockCamera),
-    mockSetFrameCallback: vi.fn(),
   };
 });
 
@@ -73,17 +67,11 @@ vi.mock('gps-plus-slam-app-framework/ar/webxr-session', () => ({
   isWebXRSupported: vi.fn().mockResolvedValue(true),
   getCurrentArPose: vi.fn().mockReturnValue(null),
   applyAlignmentMatrix: vi.fn(),
-  setImageCaptureCallback: vi.fn(),
   startImageCapture: vi.fn(),
   stopImageCapture: vi.fn(),
-  setDepthCaptureCallback: vi.fn(),
   startDepthCapture: vi.fn(),
   stopDepthCapture: vi.fn(),
-  setFrameCallback: mockSetFrameCallback,
-  setTrackingLostCallback: vi.fn(),
-  setTrackingCallbacks: vi.fn(),
-  setTrackingRecoveredCallback: vi.fn(),
-  setTrackingStore: vi.fn(),
+  rebindTrackingStore: vi.fn(),
   getScene: mockGetScene,
   getCamera: mockGetCamera,
   getArWorldGroup: mockGetArWorldGroup,
@@ -108,6 +96,15 @@ vi.mock('gps-plus-slam-app-framework/utils/logger', () => ({
     debug: vi.fn(),
   }),
 }));
+vi.mock('./ui/ref-point-view-wiring', () => ({
+  wireRefPointViews: vi.fn(() => ({
+    refreshMapMarkers: vi.fn(),
+    unsubscribe: vi.fn(),
+  })),
+}));
+
+import { wireRefPointViews } from './ui/ref-point-view-wiring';
+
 vi.mock('./ui/hud', () => ({
   initUI: vi.fn(),
   showError: vi.fn(),
@@ -121,9 +118,9 @@ vi.mock('./ui/hud', () => ({
   validateEnterButton: vi.fn(),
   updatePermissionStatus: vi.fn(),
   setPermissionsReady: vi.fn(),
-  setFolderSelected: vi.fn(),
   setSaveLocationSelected: vi.fn(),
   setFolderImportExpanded: vi.fn(),
+  setFolderImportProgress: vi.fn(),
   updateFolderStatus: vi.fn(),
   updateSaveStatus: vi.fn(),
   updateSyncStatus: vi.fn(),
@@ -162,6 +159,7 @@ vi.mock('./ui/ref-point-picker', () => ({
 }));
 vi.mock('./ui/navigation', () => ({
   initNavigation: vi.fn(),
+  getCurrentScreen: vi.fn(() => 'setup'),
   enableBeforeUnloadWarning: vi.fn(),
   disableBeforeUnloadWarning: vi.fn(),
   pushScreenState: vi.fn(),
@@ -262,7 +260,10 @@ vi.mock('gps-plus-slam-app-framework/state/gps-event-coordinator', () => ({
   extractOdomPosition: vi.fn().mockReturnValue([0, 0, 0]),
   extractOdomRotation: vi.fn().mockReturnValue([0, 0, 0, 1]),
 }));
-vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
+vi.mock('./state/recording-options', () => ({
+  // main.ts also consumes the pure compassStoreOptions mapping — stubbed
+  // inert here; its real logic is unit-tested in recording-options.test.ts.
+  compassStoreOptions: () => ({}),
   loadRecordingOptions: vi.fn().mockReturnValue({
     qr: { enabled: false, intervalMs: 125, captureSize: 1024 },
     images: { enabled: false, intervalMs: 1000, quality: 0.8 },
@@ -275,6 +276,7 @@ vi.mock('gps-plus-slam-app-framework/state/recording-options', () => ({
       gpsAlignmentMarkers: true,
       compassCubes: true,
     },
+    loopClosureDebug: { detectorEnabled: false },
   }),
 }));
 vi.mock('gps-plus-slam-app-framework/sensors/gps', () => ({
@@ -311,16 +313,6 @@ vi.mock('gps-plus-slam-app-framework/visualization/reference-points', () => ({
 }));
 vi.mock('gps-plus-slam-app-framework/visualization/gps-event-markers', () => ({
   gpsEventVisualizer: { setVisible: vi.fn(), clearAll: vi.fn() },
-}));
-vi.mock('gps-plus-slam-app-framework/visualization/map-overlay', () => ({
-  MapOverlay: vi.fn().mockImplementation(() => ({
-    isVisible: vi.fn().mockReturnValue(false),
-    toggle: vi.fn(),
-    updatePosition: vi.fn(),
-    setGpsPosition: vi.fn(),
-    getGpsPosition: vi.fn().mockReturnValue(null),
-    dispose: vi.fn(),
-  })),
 }));
 vi.mock(
   'gps-plus-slam-app-framework/visualization/leaflet-map-overlay',
@@ -450,13 +442,15 @@ describe('Issue 8: CameraFollower wiring in live AR', () => {
   it('frame callback updates the CameraFollower', async () => {
     await handleEnterARForTesting();
 
-    // setFrameCallback should have been called with a function
-    expect(mockSetFrameCallback).toHaveBeenCalledTimes(1);
-    const frameCallback = mockSetFrameCallback.mock.calls[0][0];
+    // Since the setter fold, the per-frame tick rides into initAR's
+    // callbacks struct as `onFrame`.
+    const { initAR } =
+      await import('gps-plus-slam-app-framework/ar/webxr-session');
+    const frameCallback = vi.mocked(initAR).mock.calls[0]?.[3]?.onFrame;
     expect(typeof frameCallback).toBe('function');
 
     // Invoke the callback — it should call follower.update()
-    (frameCallback as () => void)();
+    frameCallback!();
 
     expect(mockFollower.update).toHaveBeenCalledTimes(1);
     // Should pass camera and a positive dt (no arWorldGroup needed)
@@ -544,5 +538,63 @@ describe('Tracking-quality HUD subscription cleanup', () => {
     resetMainState();
 
     expect(trackingQualityDisposers[0]).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Why these tests matter:
+ * Round-3 feedback (2026-07-05): the ref-point view wirers (3D spheres +
+ * live-map markers) used to be session-scoped, so a folder import finishing
+ * before the first recording filled the store with no view subscribed. They
+ * are now AR-scoped and storeRef-following (ui/ref-point-view-wiring.ts) —
+ * wired at Enter AR, disposed before re-wiring on a second entry and on
+ * resetMainState, mirroring the tracking-quality subscription lifecycle.
+ */
+describe('Ref-point view wiring lifecycle (AR-scoped)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMainState();
+
+    document.body.innerHTML = `
+      <div id="app"></div>
+      <div id="setup-modal">
+        <h1 id="setup-title">Recorder</h1>
+      </div>
+      <div id="controls"></div>
+      <div id="replay-controls" class="hidden"></div>
+      <div id="ref-point-picker-modal"></div>
+    `;
+  });
+
+  function wiringResult(index: number): {
+    unsubscribe: ReturnType<typeof vi.fn>;
+  } {
+    return vi.mocked(wireRefPointViews).mock.results[index]!.value as {
+      unsubscribe: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  it('wires the ref-point views on AR entry (storeRef-following, AR_READY covered)', async () => {
+    await handleEnterARForTesting();
+
+    expect(wireRefPointViews).toHaveBeenCalledTimes(1);
+    expect(wiringResult(0).unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('disposes the previous wiring before re-wiring on a second AR entry', async () => {
+    await handleEnterARForTesting();
+    await handleEnterARForTesting();
+
+    expect(wireRefPointViews).toHaveBeenCalledTimes(2);
+    expect(wiringResult(0).unsubscribe).toHaveBeenCalledTimes(1);
+    expect(wiringResult(1).unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('disposes the live wiring on resetMainState', async () => {
+    await handleEnterARForTesting();
+
+    resetMainState();
+
+    expect(wiringResult(0).unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
