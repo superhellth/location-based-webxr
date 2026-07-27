@@ -97,7 +97,7 @@ Dev servers (per app dir): `pnpm run dev` (builds framework, then Vite). The rec
 ## Conventions
 
 - **TDD by default** (red → green → refactor), enforced culturally and by CI.
-- **Sidecar docs are mandatory.** Every behavior-implementing file has a colocated `*.md` (Purpose / Public API / Invariants / Examples / Tests). Update it when you change behavior.
+- **Sidecar docs are mandatory.** Every behavior-implementing file has a colocated `*.md` (Purpose / Public API / Invariants / Examples / Tests). Update it when you change behavior. Exception: TourBuilder deliberately uses one README per directory instead of per-file sidecars — see `docs/adr/0001-per-directory-sidecar-docs-in-tourbuilder.md`; the update-on-behavior-change rule applies to those READMEs the same way.
 - **Quality guards block merge:** strict TypeScript (no unjustified `any`), Prettier, ESLint, no circular deps (`dpdm`/`check:cycles`), no dead code (`knip`), no duplication (`jscpd`), module boundaries (`dependency-cruiser`). Run the package's full `pnpm test` before pushing.
 - **Conventional Commits** (`feat`/`fix`/`refactor`/`test`/`docs` with a scope, e.g. `feat(framework): …`). Commit per finished logical step, not per work-session; keep refactors in separate commits from behavior changes.
 - **Upstream contribution etiquette** (see `CONTRIBUTING.md`): fork → feature branch from `main`, tests first, small focused PRs, sign the CLA on first PR, PRs are squash-merged. Follow the project's existing style even where it differs from your own.

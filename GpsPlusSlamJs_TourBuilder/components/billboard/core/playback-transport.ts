@@ -7,8 +7,10 @@
  * (`toggle`), and the seekable progress bar (`seek` + `tick` + `progressFraction`).
  * Keeping it one model — rather than a per-sprite flag plus a separate
  * "who's playing" map — is what removes the chance of the two drifting and what
- * lets us ignore a *stale* `ended` (an event from a clip the user already
- * switched away from) instead of letting it stop the new clip.
+ * lets us ignore *stale* `ended` and `tick` events (from a clip the user
+ * already switched away from — pausing an element emits a final `timeupdate`)
+ * instead of letting them stop or scrub the new clip. Both actions carry the
+ * source clip's id for exactly that reason; callers forward events blindly.
  *
  * Framework-free and view-free: no Three.js, no DOM, no audio element. The view
  * layer maps these actions to `HTMLAudioElement` calls and forwards `tick` /
@@ -35,6 +37,8 @@ export type TransportAction =
   | { readonly type: "seek"; readonly fraction: number }
   | {
       readonly type: "tick";
+      /** The clip whose audio element emitted the tick (stale ticks ignored). */
+      readonly id: string;
       readonly positionSec: number;
       readonly durationSec: number;
     }
@@ -50,7 +54,8 @@ export const INITIAL: TransportState = {
 /**
  * Apply `update` only when a clip is active; otherwise the action is a no-op
  * (returns the same state). Centralises the idle guard shared by `toggle` /
- * `seek` / `tick` so the reducer itself stays simple.
+ * `seek` so the reducer itself stays simple (`tick` / `ended` guard by id
+ * instead, which subsumes the idle case).
  */
 function whenActive(
   state: TransportState,
@@ -66,12 +71,14 @@ export function transportReducer(
   switch (action.type) {
     case "click":
       // A sprite click always (re)starts that clip from the beginning and makes
-      // it the sole active clip. Duration is unknown until the next `tick`.
+      // it the sole active clip. Re-clicking the active clip keeps its known
+      // duration (same element, still valid — the bar must not flash empty);
+      // for a new clip the duration is unknown until the next `tick`.
       return {
         activeId: action.id,
         status: "playing",
         positionSec: 0,
-        durationSec: 0,
+        durationSec: action.id === state.activeId ? state.durationSec : 0,
       };
 
     case "toggle":
@@ -87,13 +94,16 @@ export function transportReducer(
       }));
 
     case "tick":
-      // Only the active clip's audio element drives ticks; the idle guard in
-      // `whenActive` defensively ignores any stray tick.
-      return whenActive(state, (s) => ({
-        ...s,
-        positionSec: action.positionSec,
-        durationSec: action.durationSec,
-      }));
+      // Ignore a stale tick, symmetric with `ended`: pausing the previous
+      // clip's element emits a final `timeupdate` that must not scrub the
+      // clip the user just switched to. (Also covers the idle case.)
+      return action.id === state.activeId
+        ? {
+            ...state,
+            positionSec: action.positionSec,
+            durationSec: action.durationSec,
+          }
+        : state;
 
     case "ended":
       // Ignore a stale `ended` from a clip that is no longer active — otherwise

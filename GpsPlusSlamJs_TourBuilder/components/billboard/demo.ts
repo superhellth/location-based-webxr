@@ -32,7 +32,7 @@ import {
   type TransportAction,
   type TransportState,
 } from "./core/playback-transport.js";
-import { hitToIntent } from "./core/panel-layout.js";
+import { hitToAction } from "./core/panel-layout.js";
 import {
   createClickableBillboard,
   type ClickableBillboard,
@@ -138,12 +138,10 @@ for (const spec of specs) {
     texture,
     audio,
     listener,
-    onTick: (id, positionSec, durationSec) => {
-      // Only the active clip drives the model (defensive against stray ticks).
-      if (id === state.activeId) {
-        dispatch({ type: "tick", positionSec, durationSec });
-      }
-    },
+    // Events are forwarded blindly — the reducer ignores stale ticks/ended
+    // by id, so no caller-side guard is needed (or allowed to drift).
+    onTick: (id, positionSec, durationSec) =>
+      dispatch({ type: "tick", id, positionSec, durationSec }),
     onEnded: (id) => dispatch({ type: "ended", id }),
   });
   billboards.push(billboard);
@@ -156,11 +154,9 @@ createBillboardInteraction({
   getPickTargets: () => billboards.flatMap((b) => b.pickTargets),
   onSpriteClick: (id) => dispatch({ type: "click", id }),
   onPanelHit: (_id, uv) => {
-    const intent = hitToIntent(uv);
-    if (intent?.type === "toggle") {
-      dispatch({ type: "toggle" });
-    } else if (intent?.type === "seek") {
-      dispatch({ type: "seek", fraction: intent.fraction });
+    const action = hitToAction(uv);
+    if (action !== null) {
+      dispatch(action);
     }
   },
 });

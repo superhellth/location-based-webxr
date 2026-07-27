@@ -1,9 +1,14 @@
 /**
  * Tap-vs-drag-gated raycast picking, shared by every component whose desktop
  * interaction is "click a mesh, get the hit" (component 1's billboard,
- * component 2's in-world text). A small drag guard distinguishes a tap from an
- * OrbitControls camera-drag; component 8 swaps this `pointerup`-raycast for the
- * WebXR `select` ray while keeping the same downstream hit handling.
+ * component 2's in-world text). The tap-vs-drag decision itself is the pure
+ * `isTap` gate in `tap-gate.ts`; component 8 swaps this `pointerup`-raycast for
+ * the WebXR `select` ray while keeping the same downstream hit handling.
+ *
+ * Multi-touch safe: only one pointer is tracked as a potential tap, identified
+ * by `pointerId`. A second concurrent `pointerdown` (a pinch/rotate gesture) or
+ * a `pointercancel` invalidates the gesture, so a finger lifting mid-pinch can
+ * never fire a phantom tap against the wrong down-coordinates.
  *
  * Owns the raycast mechanics only — interpreting the hit's `userData` (which
  * mesh, which role) is each component's own concern via `onTap`.
@@ -16,8 +21,7 @@ import {
   type Object3D,
 } from "three";
 
-const DRAG_TOLERANCE_PX = 5;
-const MAX_CLICK_MS = 400;
+import { isTap, type PointerSample } from "./tap-gate.js";
 
 /** The raycast target set every `*-interaction.ts` wrapper also takes. */
 export interface PointerTapPickerTargetOptions {
@@ -33,25 +37,43 @@ export function createPointerTapPicker(
 ): { dispose(): void } {
   const raycaster = new Raycaster();
   const ndc = new Vector2();
-  let downX = 0;
-  let downY = 0;
-  let downTime = 0;
+  // The single pointer currently tracked as a potential tap; null while idle
+  // or after the gesture was invalidated (second finger / cancel).
+  let pending: {
+    readonly pointerId: number;
+    readonly down: PointerSample;
+  } | null = null;
+
+  const sample = (event: PointerEvent): PointerSample => ({
+    x: event.clientX,
+    y: event.clientY,
+    timeMs: performance.now(),
+  });
 
   const onPointerDown = (event: PointerEvent): void => {
-    downX = event.clientX;
-    downY = event.clientY;
-    downTime = performance.now();
+    // A second finger while one is tracked = pinch/rotate, not a tap — drop
+    // the whole gesture rather than re-basing on the new finger.
+    pending =
+      pending === null
+        ? { pointerId: event.pointerId, down: sample(event) }
+        : null;
   };
 
   const onPointerUp = (event: PointerEvent): void => {
-    const movedPx = Math.hypot(event.clientX - downX, event.clientY - downY);
-    if (
-      movedPx > DRAG_TOLERANCE_PX ||
-      performance.now() - downTime > MAX_CLICK_MS
-    ) {
-      return; // a drag / long-press — a camera orbit, not a tap
+    if (pending === null || pending.pointerId !== event.pointerId) {
+      return;
     }
-    pick(event);
+    const { down } = pending;
+    pending = null;
+    if (isTap(down, sample(event))) {
+      pick(event);
+    }
+  };
+
+  const onPointerCancel = (event: PointerEvent): void => {
+    if (pending !== null && pending.pointerId === event.pointerId) {
+      pending = null;
+    }
   };
 
   function pick(event: PointerEvent): void {
@@ -71,11 +93,13 @@ export function createPointerTapPicker(
 
   options.domElement.addEventListener("pointerdown", onPointerDown);
   options.domElement.addEventListener("pointerup", onPointerUp);
+  options.domElement.addEventListener("pointercancel", onPointerCancel);
 
   return {
     dispose(): void {
       options.domElement.removeEventListener("pointerdown", onPointerDown);
       options.domElement.removeEventListener("pointerup", onPointerUp);
+      options.domElement.removeEventListener("pointercancel", onPointerCancel);
     },
   };
 }
