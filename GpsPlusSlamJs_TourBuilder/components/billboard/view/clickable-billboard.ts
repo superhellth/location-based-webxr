@@ -46,8 +46,13 @@ export interface BillboardUserData {
 export interface ClickableBillboard {
   readonly id: string;
   readonly group: Group;
-  /** Meshes the raycaster should test (sprite + panel). */
-  readonly pickTargets: readonly Mesh[];
+  /**
+   * Meshes the raycaster should test *right now*: the sprite always, the panel
+   * only while it is shown. The raycaster does not skip invisible meshes, so
+   * a hidden panel in the target set would soak up taps meant for whatever is
+   * behind it — this accessor owns that decision so no caller has to.
+   */
+  getPickTargets(): readonly Mesh[];
   faceCamera(cameraWorldPosition: HorizontalPoint): void;
   applyState(state: TransportState): void;
   dispose(): void;
@@ -133,7 +138,8 @@ export function createClickableBillboard(options: {
   return {
     id,
     group,
-    pickTargets: [spriteMesh, panel.mesh],
+    getPickTargets: () =>
+      panel.mesh.visible ? [spriteMesh, panel.mesh] : [spriteMesh],
     faceCamera,
     applyState,
     dispose(): void {

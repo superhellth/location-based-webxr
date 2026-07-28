@@ -151,8 +151,10 @@ for (const spec of specs) {
 createBillboardInteraction({
   domElement: renderer.domElement,
   camera,
-  getPickTargets: () => billboards.flatMap((b) => b.pickTargets),
+  getPickTargets: () => billboards.flatMap((b) => b.getPickTargets()),
   onSpriteClick: (id) => dispatch({ type: "click", id }),
+  // Only the active billboard's panel is ever pickable (getPickTargets), so
+  // the hit id always matches the active clip and toggle/seek need no id.
   onPanelHit: (_id, uv) => {
     const action = hitToAction(uv);
     if (action !== null) {

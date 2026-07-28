@@ -3,8 +3,10 @@
 The impure side. These modules turn `core/`'s pure results into meshes, canvas
 pixels, audio playback, and pointer picking. They hold **no playback state** of
 their own — they read `core/` selectors and forward DOM events back in as
-actions. Not unit-tested (WebGL/DOM/media are view-layer); verified via the
-demo. This is the layer component 8 swaps piece-by-piece for AR.
+actions. Mostly not unit-tested (WebGL/DOM/media are view-layer); verified via
+the demo. The exception is `clickable-billboard`'s pick-target policy, which is
+node-tested with the media/canvas pieces mocked. This is the layer component 8
+swaps piece-by-piece for AR.
 
 ## Modules
 
@@ -22,7 +24,10 @@ asset-provider URL.
   (seek-vs-leave-alone epsilon, play/pause diffing) is the pure, unit-tested
   `reconcilePlayer` in `core/transport-reconcile.ts`; this layer only executes
   the returned commands (panel visibility/redraw, seek, play/pause).
-- Only the active billboard's panel is `visible` (and thus pickable).
+- Only the active billboard's panel is `visible`, and `getPickTargets()`
+  returns the panel **only while it is shown** — the raycaster does not skip
+  invisible meshes, so a hidden panel in the target set would soak up taps
+  meant for whatever is behind it. Pickability is owned here, not by callers.
 - Stamps `BillboardUserData` (`{ billboardId, role: "sprite" | "panel" }`) on
   each pickable mesh for raycaster classification.
 - Adds the player's `spatialNode` (`PositionalAudio`) to the group, so audio
@@ -61,8 +66,8 @@ Raycasts the sprite + panel meshes on a click and reports a classified hit — a
 sprite click (by id → `core` `click`) or a panel hit (by id + local UV →
 `core` `hitToAction`). The tap-vs-drag gate (≤ 5 px, released ≤ 400 ms, pure and
 unit-tested) and the multi-touch/`pointercancel` bookkeeping live in the shared
-`pointer-tap-picker` / `tap-gate`. Inactive panels are skipped, so only the
-open panel is interactive. This is the **only** desktop/AR difference:
+`pointer-tap-picker` / `tap-gate`. Inactive panels never enter the raycast set
+(`getPickTargets()`), so only the open panel is interactive. This is the **only** desktop/AR difference:
 component 8 swaps the `pointerup`-raycast for the WebXR `select` ray, keeping
 the same callbacks.
 
