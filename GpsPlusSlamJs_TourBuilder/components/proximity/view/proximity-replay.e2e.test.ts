@@ -5,12 +5,13 @@ import { replayRecording } from "gps-plus-slam-app-framework/state";
 import { Vector3 } from "three";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import {
-  step,
-  type ProximityObject,
-  type StepConfig,
-  type ZoneMap,
+import type {
+  ProximityObject,
+  StepConfig,
+  ZoneMap,
+  ZoneTransition,
 } from "../core/proximity-machine.js";
+import { createProximityDriver } from "./proximity-driver.js";
 import type { ZoneState } from "../../../store/types.js";
 
 /**
@@ -22,8 +23,11 @@ import type { ZoneState } from "../../../store/types.js";
  * We replay the recording once, take the user's ordered world-space path
  * (`odometryPositions`), synthesize waypoint anchors *from that same path* so the
  * whole test lives in one self-consistent metric frame (plan Q10 — no alignment
- * matrix, no geo math needed; distance is rigid-transform-invariant), then run
- * `step()` over every sample.
+ * matrix, no geo math needed; distance is rigid-transform-invariant), then feed
+ * every sample through `createProximityDriver` — the exact impure half the
+ * composed app runs, with its default movement-epsilon gate live. That the
+ * assertions below hold with the gate enabled is the proof the gate is
+ * behaviour-preserving on real GPS noise, not just on synthetic poses.
  *
  * The assertions are geometry-derived, not hand-tuned (plan Q11):
  *  - **deepest zone reached == what the real minimum distance implies** — proves
@@ -120,21 +124,33 @@ describe("proximity replay e2e — real Task 1 walk", () => {
     expect(path.length).toBeGreaterThan(50);
     const objects = cases.map((c) => c.obj);
 
-    // Replay-then-iterate: run step() over every recorded sample, recording each
-    // waypoint's zone per sample and the transitions it emitted.
-    let prev: ZoneMap = Object.fromEntries(objects.map((o) => [o.id, "IDLE"]));
+    // Replay-then-iterate: feed every recorded sample through the real driver
+    // (default movement-epsilon gate), mirroring the composition's store
+    // round-trip — `onTransition` applies the edge, `getZones` reads it back.
+    const zones: Record<string, ZoneState> = Object.fromEntries(
+      objects.map((o) => [o.id, "IDLE" as ZoneState]),
+    );
     const zoneSeq = new Map<string, ZoneState[]>(
       objects.map((o) => [o.id, []]),
     );
-    const edges = new Map<string, { from: ZoneState; to: ZoneState }[]>(
+    const edges = new Map<string, ZoneTransition[]>(
       objects.map((o) => [o.id, []]),
     );
-    for (const userPos of path) {
-      const r = step(prev, userPos, objects, CONFIG);
-      for (const o of objects) zoneSeq.get(o.id)!.push(r.zones[o.id]!);
-      for (const t of r.transitions)
-        edges.get(t.id)!.push({ from: t.from, to: t.to });
-      prev = r.zones;
+    let userPos = path[0]!;
+    const driver = createProximityDriver({
+      getUserWorldPos: () => userPos,
+      getObjects: () => objects,
+      getZones: () => zones as ZoneMap,
+      onTransition: (t) => {
+        edges.get(t.id)!.push(t);
+        zones[t.id] = t.to;
+      },
+      config: CONFIG,
+    });
+    for (const p of path) {
+      userPos = p;
+      driver.tick();
+      for (const o of objects) zoneSeq.get(o.id)!.push(zones[o.id]!);
     }
 
     for (const { obj, expectedDeepest } of cases) {
