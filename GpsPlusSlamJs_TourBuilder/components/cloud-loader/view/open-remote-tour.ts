@@ -21,7 +21,7 @@ import {
 } from "@zip.js/zip.js";
 
 import type { AssetId, AssetProvider, Tour } from "../../../store/types.js";
-import { parseTourJson } from "../../packaging/core/parse-tour-json.js";
+import { parseTourJson } from "../../../store/parse-tour-json.js";
 import { RefCountedAssetProvider } from "../core/asset-provider.js";
 import { SwitchableByteSource } from "../core/byte-source.js";
 import { decideFallback } from "../core/fallback-decision.js";

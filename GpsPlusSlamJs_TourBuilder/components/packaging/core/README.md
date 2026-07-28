@@ -58,17 +58,6 @@ be percent-encoded (`URLSearchParams` does it). Skipping that truncates the ZIP
 link at its first separator, and the QR then encodes a broken URL that only fails
 once someone scans it outdoors.
 
-### `parse-tour-json.ts` — the author's-own-tour gate
-
-`parseTourJson(text) → Tour`, throwing `TourValidationError`. Turns raw
-`tour.json` text — typed, pasted, or read from an uploaded file — into a
-validated `Tour`, for the demo's "use your own tour" input. `JSON.parse`
-first; a syntax error there is caught and rethrown as `TourValidationError`
-(the same class `validateTour` throws for an invariant violation), so the
-caller has exactly one error type to display. Then `validateTour` runs
-unchanged — this module adds no validation of its own, only the JSON-parse
-step `validateTour` doesn't do.
-
 ### `generate-qr.ts` — the hand-off
 
 `generateQr(tourUrl) → Promise<string>` (SVG markup). Thin wrapper over
@@ -99,8 +88,8 @@ One colocated `*.test.ts` per module:
   are not writable, so `vi.spyOn` does not work), asserting the URL reaches the
   encoder byte-identical and that failures propagate rather than yielding blank
   markup.
-- `parse-tour-json.test.ts` — valid tour JSON round-trips to a `Tour`; malformed
-  JSON syntax and a syntactically-valid-but-invariant-violating tour both throw
-  `TourValidationError` (the latter forwarding `validateTour`'s own message).
+  The text→`Tour` gate the demo's "use your own tour" input goes through
+  (`parseTourJson`) lives in `store/parse-tour-json.ts` — it is contract-level
+  (also used by the cloud-loader), not packaging logic.
 
 Run: `pnpm test:unit` (or `pnpm test:watch`).

@@ -1,6 +1,9 @@
 /**
- * `parseTourJson` — turn raw tour.json text (typed, pasted, or uploaded) into a
- * validated `Tour` (Component 5, the demo's "use your own tour" input path).
+ * `parseTourJson` — turn raw tour.json text (fetched, typed, pasted, or
+ * uploaded) into a validated `Tour`. Contract-level companion to
+ * `validateTour`: every consumer that starts from *text* (the cloud-loader's
+ * zip entry, the packaging demo's "use your own tour" input) goes through this
+ * one gate.
  *
  * The only error the caller has to handle: a JSON syntax error is rethrown as a
  * `TourValidationError` so it reads the same as an invariant violation from
@@ -9,11 +12,8 @@
  * @see plans/2026-07-14-packaging-plan.md (decision 18)
  */
 
-import type { Tour } from "../../../store/types.js";
-import {
-  TourValidationError,
-  validateTour,
-} from "../../../store/validate-tour.js";
+import type { Tour } from "./types.js";
+import { TourValidationError, validateTour } from "./validate-tour.js";
 
 /**
  * @throws {TourValidationError} on invalid JSON syntax or a `validateTour`

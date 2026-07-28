@@ -65,7 +65,7 @@ Run from repo root unless noted. Each package's `test` runs format + lint + type
 ```bash
 pnpm install                  # install workspace (corepack enable first if needed)
 
-pnpm test                     # everything: repo-config + framework + recorder + starter + example + qr-demo
+pnpm test                     # everything: repo-config + framework + recorder + starter + example + qr-demo + landing + physics + wayfinding
 pnpm run test:framework       # framework only
 pnpm run test:recorder:unit   # recorder unit only (fast iteration)
 pnpm run test:recorder:e2e    # recorder Playwright e2e (builds framework first)
@@ -73,11 +73,11 @@ pnpm run test:starter
 pnpm run test:example
 pnpm run test:qr-demo         # qr-tracking-demo (unit + Playwright e2e)
 
-pnpm run build:site           # build deployable dist-site/ (landing + /recorder/ + /starter/ + /minimal/)
+pnpm run build:site           # build deployable dist-site/ (landing + /recorder/ + /starter/ + /minimal/ + /qr-demo/ + /physics/ + /wayfinding/)
 pnpm run check:deadcode       # knip across workspace
 ```
 
-Note: the root `test:billboard` script (and thus `pnpm test`) still filters `gps-plus-slam-billboard-demo`, a package that no longer exists — the billboard is now a component inside TourBuilder. For TourBuilder, run its gate from inside the package (`GpsPlusSlamJs_TourBuilder/`) with `pnpm test`; it is not yet wired into the root aggregate `test` or `build:site`.
+Root `pnpm test` is orchestrated by `scripts/test-timing/run-gate.mjs`; the stage list lives in `scripts/test-timing/projects.mjs` (adding a package to the gate means adding a stage there **and** a matching wrapped root script — `scripts/test-timing/projects.test.mjs` enforces the pairing). TourBuilder is deliberately **not** wired into the root gate or `build:site` yet — it is kept isolated for now; run its gate from inside `GpsPlusSlamJs_TourBuilder/` with `pnpm test`.
 
 Single test / focused iteration (run inside the package dir, e.g. `GpsPlusSlamJs_AppFramework/`):
 
