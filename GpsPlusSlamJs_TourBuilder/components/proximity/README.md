@@ -52,5 +52,8 @@ transition table, fractional hysteresis, one-step clamp, and horizontal distance
 at hand-picked distances. `view/proximity-replay.e2e.test.ts` replays a real
 Task 1 recording and asserts the zone transitions on genuinely noisy data
 (deepest zone matches the real closest-approach distance, no illegal skips,
-unimodal-per-fly-by no-flicker). `view/proximity-driver.test.ts` covers the
-driver's dispatch + movement-epsilon gate. Run `pnpm test:unit`.
+unimodal-per-fly-by no-flicker); it drives the samples through the real
+`createProximityDriver`, so the movement-epsilon gate is proven
+behaviour-preserving on real noise too. `view/proximity-driver.test.ts` covers
+the driver's `onTransition` reporting + movement-epsilon gate. Run
+`pnpm test:unit`.

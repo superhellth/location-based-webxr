@@ -26,11 +26,16 @@ export interface ProbeResult {
 export type FallbackDecision =
   | { readonly mode: "ranges"; readonly size: number }
   | { readonly mode: "eager-local"; readonly body: Uint8Array }
+  | { readonly mode: "full-download" }
   | { readonly mode: "reject"; readonly cause: TourLoadCause };
 
 export function decideFallback(probe: ProbeResult): FallbackDecision {
-  if (probe.status === 206 && probe.size !== null) {
-    return { mode: "ranges", size: probe.size };
+  if (probe.status === 206) {
+    if (probe.size !== null) return { mode: "ranges", size: probe.size };
+    // Ranges work but neither HEAD nor Content-Range yielded a total, and
+    // zip.js needs the size to anchor the central directory. A plain full
+    // download still works — degrade to it instead of rejecting the link.
+    return { mode: "full-download" };
   }
   if (probe.status === 200 && probe.body !== undefined) {
     return { mode: "eager-local", body: probe.body };

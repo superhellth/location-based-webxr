@@ -14,9 +14,21 @@
 
 import type { ByteSource } from "../core/byte-source.js";
 import { parseContentRangeTotal } from "../core/content-range.js";
+import { StructuralAssetError } from "../core/errors.js";
 import type { ProbeResult } from "../core/fallback-decision.js";
 
 export type FetchImpl = typeof fetch;
+
+/** A HEAD is headers-only — anything slower than this is a hung connection. */
+const HEAD_TIMEOUT_MS = 15_000;
+/** The probe GET may legitimately stream the whole archive (a 200 from a
+ *  range-refusing host becomes the eager-local body), so its budget must cover
+ *  a full download on a slow cellular link, not just headers. */
+const PROBE_GET_TIMEOUT_MS = 300_000;
+/** A range read returns a small slice; a stalled one must fail fast so the
+ *  asset-provider's transient retry (C15) gets a chance instead of hanging a
+ *  waypoint forever on a dead cellular connection. */
+const RANGE_READ_TIMEOUT_MS = 20_000;
 
 /** HEAD for size + `bytes=0-0` GET for range support. Throws if `fetch` rejects. */
 export async function probeRemote(
@@ -25,7 +37,10 @@ export async function probeRemote(
 ): Promise<ProbeResult> {
   let size: number | null = null;
   try {
-    const head = await fetchImpl(url, { method: "HEAD" });
+    const head = await fetchImpl(url, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(HEAD_TIMEOUT_MS),
+    });
     const len = head.headers.get("content-length");
     if (len !== null && len !== "") size = Number(len);
   } catch {
@@ -33,7 +48,10 @@ export async function probeRemote(
     // network/CORS failure will re-throw from the GET below.
   }
 
-  const probe = await fetchImpl(url, { headers: { Range: "bytes=0-0" } });
+  const probe = await fetchImpl(url, {
+    headers: { Range: "bytes=0-0" },
+    signal: AbortSignal.timeout(PROBE_GET_TIMEOUT_MS),
+  });
 
   if (probe.status === 200) {
     const body = new Uint8Array(await probe.arrayBuffer());
@@ -73,11 +91,21 @@ export class RemoteRangeByteSource implements ByteSource {
 
   async read(offset: number, length: number): Promise<Uint8Array> {
     const end = offset + length - 1;
+    // The timeout turns a *hanging* connection into a rejection, so the
+    // asset-provider's retry policy actually gets to run (a stall would
+    // otherwise never fail and strand the waypoint forever).
     const res = await this.#fetch(this.#url, {
       headers: { Range: `bytes=${offset}-${end}` },
+      signal: AbortSignal.timeout(RANGE_READ_TIMEOUT_MS),
     });
     if (!res.ok) {
-      throw new Error(`range read failed (${res.status}) at ${offset}-${end}`);
+      const message = `range read failed (${res.status}) at ${offset}-${end}`;
+      // 4xx is permanent for this URL (expired signed link, file gone, bad
+      // range) — retrying with backoff cannot fix it, so fail structurally.
+      if (res.status >= 400 && res.status < 500) {
+        throw new StructuralAssetError(message);
+      }
+      throw new Error(message);
     }
     return new Uint8Array(await res.arrayBuffer());
   }

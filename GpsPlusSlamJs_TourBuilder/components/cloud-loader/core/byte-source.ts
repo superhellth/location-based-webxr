@@ -42,11 +42,14 @@ export class SwitchableByteSource implements ByteSource {
 
   /**
    * Swap the backing source. Only reads started *after* this see `next`, and
-   * only the *first* call takes effect — a warm/fallback race that fires twice
-   * must not re-swap (C17).
+   * only the *first successful* call takes effect — a warm/fallback race that
+   * fires twice must not re-swap (C17). A source of a different size is refused
+   * (not counted as the one swap): every parsed zip offset is anchored to
+   * `this.size`, so mismatched bytes (redirect page, truncated body) would
+   * silently corrupt every later asset read.
    */
   switchTo(next: ByteSource): void {
-    if (this.#switched) return;
+    if (this.#switched || next.size !== this.size) return;
     this.#switched = true;
     this.#current = next;
   }

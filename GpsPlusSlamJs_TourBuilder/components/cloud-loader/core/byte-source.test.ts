@@ -63,6 +63,18 @@ describe("SwitchableByteSource", () => {
     expect(await s.read(0, 3)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
+  it("refuses a switch to a differently-sized source (offsets would corrupt)", async () => {
+    const s = new SwitchableByteSource(memSource(REMOTE));
+    const wrongSize = new Uint8Array([9, 9, 9]); // e.g. a login-page redirect body
+
+    s.switchTo(memSource(wrongSize));
+
+    // Still reading from remote — and a later, correct swap must still work.
+    expect(await s.read(0, 3)).toEqual(new Uint8Array([1, 2, 3]));
+    s.switchTo(memSource(LOCAL));
+    expect(await s.read(0, 3)).toEqual(new Uint8Array([9, 9, 9]));
+  });
+
   it("lets an in-flight read finish from the source it started on", async () => {
     const remote = deferredSource(REMOTE.length);
     const s = new SwitchableByteSource(remote.source);

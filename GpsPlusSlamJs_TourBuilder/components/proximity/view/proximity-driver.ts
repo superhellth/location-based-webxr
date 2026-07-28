@@ -7,12 +7,14 @@
  *      Redux, contract D11),
  *   2. runs the pure `step()` against the currently-anchored objects and the
  *      `zones` slice snapshot, and
- *   3. dispatches `setWaypointZone` for each transition.
+ *   3. reports each transition through the injected `onTransition` callback —
+ *      the composition wires that to `dispatch(setWaypointZone(...))`, keeping
+ *      this file (and the whole view layer) Redux-free.
  *
  * That is *all* it does. It never imports the asset-provider or THREE — acting
  * on a zone (fetch / show / dispose) belongs to the consumer that reads the
  * `zones` slice (component 8, contract D15/§2.5). Everything the driver needs is
- * injected, so the same driver runs unchanged from the replay demo and the
+ * injected, so the same driver runs unchanged from the replay e2e and the
  * composed app; only the injected sources differ.
  *
  * **Movement-epsilon gate (perf only).** Walking proximity changes slowly, so
@@ -28,12 +30,12 @@
 
 import type { Vector3 } from "three";
 
-import { setWaypointZone } from "../../../store/zones-slice.js";
 import {
   step,
   type ProximityObject,
   type StepConfig,
   type ZoneMap,
+  type ZoneTransition,
 } from "../core/proximity-machine.js";
 
 /** Default movement gate: skip re-evaluation below ~25 cm of horizontal motion. */
@@ -47,8 +49,11 @@ export interface ProximityDriverDeps {
   readonly getObjects: () => readonly ProximityObject[];
   /** Current zone snapshot (e.g. from a `zones` selector). */
   readonly getZones: () => ZoneMap;
-  /** Store dispatch. The driver only ever dispatches `setWaypointZone`. */
-  readonly dispatch: (action: ReturnType<typeof setWaypointZone>) => void;
+  /** Called once per emitted zone edge, in input order. The composition wires
+   *  this to `dispatch(setWaypointZone({ id, zone: to }))` — the callback must
+   *  make the change visible to the next `getZones()` read (RTK dispatch is
+   *  synchronous, so the real store satisfies this for free). */
+  readonly onTransition: (transition: ZoneTransition) => void;
   readonly config: StepConfig;
   /** Horizontal movement below this (metres) skips the tick. Default 0.25. */
   readonly movementEpsilonM?: number;
@@ -103,7 +108,7 @@ export function createProximityDriver(
         deps.config,
       );
       for (const t of transitions) {
-        deps.dispatch(setWaypointZone({ id: t.id, zone: t.to }));
+        deps.onTransition(t);
       }
 
       lastX = pos.x;

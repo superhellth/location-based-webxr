@@ -43,13 +43,23 @@ framework-free.
 `attachResize(camera, renderer)` keeps a perspective camera + renderer in sync
 with the window size. Shared by the component demos so the boilerplate lives once.
 
-### `pointer-tap-picker.ts` — tap-vs-drag raycast picking (view)
+### `tap-gate.ts` — tap-vs-drag predicate (pure)
+
+`isTap(down, up)` over `PointerSample` (`{ x, y, timeMs }`): true when the
+pointer moved ≤ 5 px and was released within 400 ms — the one decision that
+tells a select-tap apart from an OrbitControls camera-drag or a long-press.
+Pure so the thresholds are pinned by unit tests.
+
+### `pointer-tap-picker.ts` — tap-gated raycast picking (view)
 
 `createPointerTapPicker({ domElement, camera, getPickTargets, onTap })`: the
-drag-guard + NDC + `Raycaster.intersectObjects` mechanics shared by the
+DOM listeners + NDC + `Raycaster.intersectObjects` mechanics shared by the
 billboard (component 1) and in-world-text (component 2) click interactions.
-Each component's own `*-interaction.ts` wraps this and interprets the returned
-`Intersection`'s `userData` — this module never looks at `userData` itself.
+Tracks a single potential-tap pointer by `pointerId`; a second concurrent
+finger (pinch) or a `pointercancel` invalidates the gesture, so no phantom
+taps on touch. The tap decision itself is `tap-gate.ts`. Each component's own
+`*-interaction.ts` wraps this and interprets the returned `Intersection`'s
+`userData` — this module never looks at `userData` itself.
 
 ### `demo.css` — shared canvas-demo styles
 
@@ -67,6 +77,10 @@ sheet from `demo.css` because these demos aren't a canvas overlay; each demo's
 
 ## Tests
 
-`billboard-math.test.ts` and `panel-geometry.test.ts` cover the pure modules
-(`clamp.ts` is exercised transitively; the `canvas-panel.ts` helpers are
-view-layer and covered via each component's panel). Run `pnpm test:unit`.
+`billboard-math.test.ts`, `panel-geometry.test.ts`, and `tap-gate.test.ts`
+cover the pure modules (`clamp.ts` is exercised transitively; the
+`canvas-panel.ts` helpers are view-layer and covered via each component's
+panel). `pointer-tap-picker.test.ts` covers the stateful picking headlessly —
+synthetic pointer events against a fake element, real `Raycaster`/meshes —
+pinning the multi-touch/cancel invalidation, the tap-vs-drag/long-press gate
+wiring, the client→NDC mapping, and nearest-hit selection. Run `pnpm test:unit`.

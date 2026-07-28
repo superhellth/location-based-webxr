@@ -14,8 +14,9 @@ import {
  * is playing, where, and is the panel open" — it drives both the exclusive
  * one-clip-at-a-time policy and the progress bar. The subtle cases are (a) a
  * click always (re)starts from 0, (b) `seek` is fraction-of-duration and
- * clamped, and (c) a *stale* `ended` (from a clip the user already switched
- * away from) must be ignored, or it would wrongly stop the newly-started clip.
+ * clamped, and (c) a *stale* `ended` or `tick` (from a clip the user already
+ * switched away from — pausing an element emits a final `timeupdate`) must be
+ * ignored, or it would wrongly stop or scrub the newly-started clip.
  */
 
 const playing = (over: Partial<TransportState> = {}): TransportState => ({
@@ -46,13 +47,15 @@ describe("transportReducer", () => {
     });
   });
 
-  it("restarts the same clip from 0 when its sprite is clicked again", () => {
-    const s = playing({ status: "paused", positionSec: 7 });
+  it("restarts the same clip from 0, keeping its already-known duration", () => {
+    const s = playing({ status: "paused", positionSec: 7, durationSec: 10 });
+    // Same clip, same element — the duration is still valid, so the progress
+    // bar must not flash empty until the next tick.
     expect(transportReducer(s, { type: "click", id: "a" })).toEqual({
       activeId: "a",
       status: "playing",
       positionSec: 0,
-      durationSec: 0,
+      durationSec: 10,
     });
   });
 
@@ -92,7 +95,12 @@ describe("transportReducer", () => {
   it("tick updates position and duration from the active clip", () => {
     const s = playing();
     expect(
-      transportReducer(s, { type: "tick", positionSec: 3, durationSec: 12 }),
+      transportReducer(s, {
+        type: "tick",
+        id: "a",
+        positionSec: 3,
+        durationSec: 12,
+      }),
     ).toEqual({
       activeId: "a",
       status: "playing",
@@ -105,10 +113,25 @@ describe("transportReducer", () => {
     expect(
       transportReducer(INITIAL, {
         type: "tick",
+        id: "a",
         positionSec: 3,
         durationSec: 12,
       }),
     ).toEqual(INITIAL);
+  });
+
+  it("ignores a stale tick from a clip the user already switched away from", () => {
+    const s = playing({ activeId: "b", positionSec: 2, durationSec: 8 });
+    // Pausing "a" emits a final timeupdate after the switch — it must not
+    // scrub "b"'s playhead or overwrite its duration.
+    expect(
+      transportReducer(s, {
+        type: "tick",
+        id: "a",
+        positionSec: 5,
+        durationSec: 12,
+      }),
+    ).toBe(s);
   });
 
   it("ended on the active clip pauses it at the end", () => {

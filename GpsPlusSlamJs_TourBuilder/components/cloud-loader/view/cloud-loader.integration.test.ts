@@ -160,6 +160,22 @@ describe("openRemoteTour — size from Content-Range (proxy path)", () => {
   });
 });
 
+describe("openRemoteTour — no readable size anywhere (full-download degrade)", () => {
+  it("loads via one plain download when neither HEAD nor Content-Range give a size", async () => {
+    const { blobs, opts } = openOptions();
+
+    const { tour, assetProvider, cacheWarming } = await openRemoteTour(
+      `${server.origin}/no-size/tour.zip`,
+      opts,
+    );
+    await cacheWarming;
+
+    expect(tour.id).toBe(sampleTour.id);
+    const url = await assetProvider.getAssetUrl("asset-gate");
+    expect(await bytesOf(blobs, url)).toEqual(GATE_BYTES);
+  });
+});
+
 describe("openRemoteTour — unusable links fail cleanly", () => {
   const cases: Array<[string, TourLoadError["loadCause"]]> = [
     ["/missing/tour.zip", "missing"],

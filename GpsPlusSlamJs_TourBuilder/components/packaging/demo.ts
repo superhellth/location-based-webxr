@@ -20,7 +20,7 @@ import { assetFilename } from "./core/asset-filename.js";
 import { buildTourUrl } from "./core/build-tour-url.js";
 import { generateQr } from "./core/generate-qr.js";
 import { packTour } from "./core/pack-tour.js";
-import { parseTourJson } from "./core/parse-tour-json.js";
+import { parseTourJson } from "../../store/parse-tour-json.js";
 import { downloadBlob } from "./view/download-blob.js";
 import { renderQrSvg } from "./view/qr-view.js";
 

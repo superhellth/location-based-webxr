@@ -65,7 +65,7 @@ Run from repo root unless noted. Each package's `test` runs format + lint + type
 ```bash
 pnpm install                  # install workspace (corepack enable first if needed)
 
-pnpm test                     # everything: repo-config + framework + recorder + starter + example + qr-demo
+pnpm test                     # everything: repo-config + framework + recorder + starter + example + qr-demo + landing + physics + wayfinding
 pnpm run test:framework       # framework only
 pnpm run test:recorder:unit   # recorder unit only (fast iteration)
 pnpm run test:recorder:e2e    # recorder Playwright e2e (builds framework first)
@@ -73,11 +73,11 @@ pnpm run test:starter
 pnpm run test:example
 pnpm run test:qr-demo         # qr-tracking-demo (unit + Playwright e2e)
 
-pnpm run build:site           # build deployable dist-site/ (landing + /recorder/ + /starter/ + /minimal/)
+pnpm run build:site           # build deployable dist-site/ (landing + /recorder/ + /starter/ + /minimal/ + /qr-demo/ + /physics/ + /wayfinding/)
 pnpm run check:deadcode       # knip across workspace
 ```
 
-Note: the root `test:billboard` script (and thus `pnpm test`) still filters `gps-plus-slam-billboard-demo`, a package that no longer exists — the billboard is now a component inside TourBuilder. For TourBuilder, run its gate from inside the package (`GpsPlusSlamJs_TourBuilder/`) with `pnpm test`; it is not yet wired into the root aggregate `test` or `build:site`.
+Root `pnpm test` is orchestrated by `scripts/test-timing/run-gate.mjs`; the stage list lives in `scripts/test-timing/projects.mjs` (adding a package to the gate means adding a stage there **and** a matching wrapped root script — `scripts/test-timing/projects.test.mjs` enforces the pairing). TourBuilder is deliberately **not** wired into the root gate or `build:site` yet — it is kept isolated for now; run its gate from inside `GpsPlusSlamJs_TourBuilder/` with `pnpm test`.
 
 Single test / focused iteration (run inside the package dir, e.g. `GpsPlusSlamJs_AppFramework/`):
 
@@ -97,7 +97,7 @@ Dev servers (per app dir): `pnpm run dev` (builds framework, then Vite). The rec
 ## Conventions
 
 - **TDD by default** (red → green → refactor), enforced culturally and by CI.
-- **Sidecar docs are mandatory.** Every behavior-implementing file has a colocated `*.md` (Purpose / Public API / Invariants / Examples / Tests). Update it when you change behavior.
+- **Sidecar docs are mandatory.** Every behavior-implementing file has a colocated `*.md` (Purpose / Public API / Invariants / Examples / Tests). Update it when you change behavior. Exception: TourBuilder deliberately uses one README per directory instead of per-file sidecars — see `docs/adr/0001-per-directory-sidecar-docs-in-tourbuilder.md`; the update-on-behavior-change rule applies to those READMEs the same way.
 - **Quality guards block merge:** strict TypeScript (no unjustified `any`), Prettier, ESLint, no circular deps (`dpdm`/`check:cycles`), no dead code (`knip`), no duplication (`jscpd`), module boundaries (`dependency-cruiser`). Run the package's full `pnpm test` before pushing.
 - **Conventional Commits** (`feat`/`fix`/`refactor`/`test`/`docs` with a scope, e.g. `feat(framework): …`). Commit per finished logical step, not per work-session; keep refactors in separate commits from behavior changes.
 - **Upstream contribution etiquette** (see `CONTRIBUTING.md`): fork → feature branch from `main`, tests first, small focused PRs, sign the CLA on first PR, PRs are squash-merged. Follow the project's existing style even where it differs from your own.

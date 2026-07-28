@@ -36,6 +36,14 @@ most one of `model`/`sprite` per waypoint, (4) ids unique within `assets` /
 `filename`-in-zip (invariant 3) is packaging's job; there is no `schemaVersion`
 (D9).
 
+### `parse-tour-json.ts` — the text gate
+
+`parseTourJson(text: string): Tour` — `JSON.parse` + `validateTour` in one step.
+A JSON syntax error is rethrown as `TourValidationError`, so every consumer that
+starts from raw tour.json _text_ (the cloud-loader reading it out of the zip,
+the packaging demo's "use your own tour" input) handles exactly one error type.
+Adds no validation of its own beyond the parse step.
+
 ### `tour-slice.ts` — loaded tour (viewing)
 
 `{ tour: Tour | null }`. `loadTour(tour)` / `clearTour()`. The reducer does not
@@ -114,4 +122,6 @@ action, idempotency, cross-slice `clearTour` resets), each selector against a
 fixture state (`selectNextUnvisitedWaypoint` before/after visits,
 `selectWaypointVisual` model/sprite/empty, `selectExportedTour` round-trips to a
 valid `Tour`), and factory smoke tests (both construct and expose their slices).
-The interactive `components/store/` demo exercises the view layer manually.
+`parse-tour-json.test.ts` covers the text gate (valid round-trip, malformed
+JSON, invariant violation — all surfacing as `TourValidationError`). The
+interactive `components/store/` demo exercises the view layer manually.

@@ -20,17 +20,14 @@ import {
   type FileEntry,
 } from "@zip.js/zip.js";
 
-import type {
-  AssetId,
-  AssetProvider,
-  AssetType,
-  Tour,
-} from "../../../store/types.js";
-import { parseTourJson } from "../../packaging/core/parse-tour-json.js";
-import { RangeZipAssetProvider } from "../core/asset-provider.js";
+import type { AssetId, AssetProvider, Tour } from "../../../store/types.js";
+import { parseTourJson } from "../../../store/parse-tour-json.js";
+import { RefCountedAssetProvider } from "../core/asset-provider.js";
 import { SwitchableByteSource } from "../core/byte-source.js";
 import { decideFallback } from "../core/fallback-decision.js";
 import { StructuralAssetError, TourLoadError } from "../core/errors.js";
+import { mimeForAsset } from "../core/mime-for-asset.js";
+import { normalizeShareUrl } from "../core/share-link.js";
 import { ByteSourceReader } from "./byte-source-reader.js";
 import {
   CacheApiStore,
@@ -53,6 +50,9 @@ export interface OpenRemoteTourOptions {
   createObjectUrl?: (blob: Blob) => string;
   /** Defaults to `URL.revokeObjectURL`. */
   revokeObjectUrl?: (url: string) => void;
+  /** Google Drive API key — lets a pasted Drive share link resolve to the
+   *  Range+CORS-capable `drive/v3 … alt=media` URL (public files only). */
+  googleDriveApiKey?: string;
 }
 
 export interface OpenedTour {
@@ -65,17 +65,10 @@ export interface OpenedTour {
 
 const WARM_MAX_ATTEMPTS = 3;
 const WARM_BACKOFF_MS = [2000, 8000, 30000];
-
-function mimeForAssetType(type: AssetType): string {
-  switch (type) {
-    case "model":
-      return "model/gltf-binary";
-    case "audio":
-      return "audio/mpeg";
-    case "sprite":
-      return "image/png";
-  }
-}
+/** Budget for one whole-archive download (warm or size-less fallback): generous
+ *  enough for a media tour on cellular, bounded so a mid-stream stall fails and
+ *  the retry/stay-on-remote policy takes over instead of hanging forever. */
+const FULL_DOWNLOAD_TIMEOUT_MS = 300_000;
 
 export async function openRemoteTour(
   zipUrl: string,
@@ -88,22 +81,14 @@ export async function openRemoteTour(
       ? new CacheApiStore()
       : new InMemoryLocalCacheStore());
 
-  const { source, cacheWarming } = await openByteSource(
-    zipUrl,
-    store,
-    fetchImpl,
-  );
+  // The one provider-aware step: a pasted share page becomes the raw download
+  // URL here, so everything below (probe, byte sources, cache keying) sees a
+  // single canonical URL and stays provider-agnostic.
+  const url = normalizeShareUrl(zipUrl, {
+    googleDriveApiKey: opts.googleDriveApiKey,
+  });
 
-  // Parse the central directory + tour.json. The reader is intentionally NOT
-  // closed — entry.getData() is called lazily for the tour's whole lifetime,
-  // through whichever ByteSource is current at that moment.
-  const reader = new ZipReader(new ByteSourceReader(source));
-  let entries: Entry[];
-  try {
-    entries = await reader.getEntries();
-  } catch {
-    throw new TourLoadError("corrupt", `not a readable zip: ${zipUrl}`);
-  }
+  const { cacheWarming, entries } = await openByteSource(url, store, fetchImpl);
 
   const entryByName = new Map<string, FileEntry>();
   for (const e of entries) {
@@ -113,7 +98,7 @@ export async function openRemoteTour(
   const tour = await readTourJson(entryByName);
   const entryById = joinAssets(tour, entryByName);
 
-  const assetProvider = new RangeZipAssetProvider({
+  const assetProvider = new RefCountedAssetProvider({
     loadAssetBlob: (id) => loadAssetBlob(id, tour, entryById),
     createObjectUrl: opts.createObjectUrl,
     revokeObjectUrl: opts.revokeObjectUrl,
@@ -122,12 +107,19 @@ export async function openRemoteTour(
   return { tour, assetProvider, cacheWarming };
 }
 
-/** Resolve the initial ByteSource (cached / eager-local / remote) + warm promise. */
+interface OpenedByteSource {
+  readonly source: SwitchableByteSource;
+  readonly cacheWarming: Promise<void>;
+  /** The parsed central directory — parsed exactly once per open. */
+  readonly entries: Entry[];
+}
+
+/** Resolve the initial ByteSource (cached / local-copy / remote) + warm promise. */
 async function openByteSource(
   zipUrl: string,
   store: LocalCacheStore,
   fetchImpl: FetchImpl,
-): Promise<{ source: SwitchableByteSource; cacheWarming: Promise<void> }> {
+): Promise<OpenedByteSource> {
   // Reuse a complete copy from a previous session — skip the network entirely,
   // but only if it still parses. A truncated/corrupt warm (e.g. a broken proxy
   // run that stored garbage) would otherwise brick this tour URL forever, since
@@ -136,9 +128,8 @@ async function openByteSource(
   const cached = await store.get(zipUrl).catch(() => undefined);
   if (cached) {
     const source = new SwitchableByteSource(new LocalCacheByteSource(cached));
-    if (await isReadableZip(source)) {
-      return { source, cacheWarming: Promise.resolve() };
-    }
+    const entries = await readEntries(source);
+    if (entries) return { source, cacheWarming: Promise.resolve(), entries };
     await store.delete(zipUrl).catch(() => undefined);
   }
 
@@ -154,29 +145,80 @@ async function openByteSource(
     throw new TourLoadError(decision.cause, `cannot open ${zipUrl}`);
   }
 
+  let opened: Omit<OpenedByteSource, "entries">;
   if (decision.mode === "eager-local") {
     // A 200 already handed us the whole file: ingest + read locally at once.
-    const blob = new Blob([decision.body as BlobPart]);
-    await store.put(zipUrl, blob);
-    return {
-      source: new SwitchableByteSource(new LocalCacheByteSource(blob)),
-      cacheWarming: Promise.resolve(),
+    opened = await ingestFullCopy(zipUrl, decision.body, store);
+  } else if (decision.mode === "full-download") {
+    // Ranges work but the total size is unreadable, so zip.js cannot anchor
+    // the central directory — degrade to one plain download instead.
+    opened = await ingestFullCopy(
+      zipUrl,
+      await downloadWhole(zipUrl, fetchImpl),
+      store,
+    );
+  } else {
+    const source = new SwitchableByteSource(
+      new RemoteRangeByteSource(zipUrl, decision.size, fetchImpl),
+    );
+    opened = {
+      source,
+      cacheWarming: warmCache(zipUrl, source, store, fetchImpl),
     };
   }
 
-  const source = new SwitchableByteSource(
-    new RemoteRangeByteSource(zipUrl, decision.size, fetchImpl),
-  );
-  return { source, cacheWarming: warmCache(zipUrl, source, store, fetchImpl) };
+  const entries = await readEntries(opened.source);
+  if (!entries) {
+    throw new TourLoadError("corrupt", `not a readable zip: ${zipUrl}`);
+  }
+  return { ...opened, entries };
 }
 
-/** Does this source read as a zip? Used to reject a poisoned cached copy. */
-async function isReadableZip(source: SwitchableByteSource): Promise<boolean> {
+/**
+ * Parse the central directory, or null if the bytes are not a zip. The reader
+ * is intentionally NOT closed — entry.getData() is called lazily for the tour's
+ * whole lifetime, through whichever ByteSource is current at that moment.
+ */
+async function readEntries(
+  source: SwitchableByteSource,
+): Promise<Entry[] | null> {
   try {
-    await new ZipReader(new ByteSourceReader(source)).getEntries();
-    return true;
+    return await new ZipReader(new ByteSourceReader(source)).getEntries();
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/** Store a complete archive locally and read from that copy from the start. */
+async function ingestFullCopy(
+  zipUrl: string,
+  body: Uint8Array,
+  store: LocalCacheStore,
+): Promise<Omit<OpenedByteSource, "entries">> {
+  const blob = new Blob([body as BlobPart]);
+  await store.put(zipUrl, blob);
+  return {
+    source: new SwitchableByteSource(new LocalCacheByteSource(blob)),
+    cacheWarming: Promise.resolve(),
+  };
+}
+
+/** One bounded plain GET of the whole archive (the size-less-ranges fallback). */
+async function downloadWhole(
+  zipUrl: string,
+  fetchImpl: FetchImpl,
+): Promise<Uint8Array> {
+  try {
+    const res = await fetchImpl(zipUrl, {
+      signal: AbortSignal.timeout(FULL_DOWNLOAD_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`full download failed: ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    throw new TourLoadError(
+      "unusable-link",
+      `host ranges without a readable size and full download failed: ${zipUrl}`,
+    );
   }
 }
 
@@ -232,7 +274,9 @@ async function loadAssetBlob(
   if (!entry || !asset) {
     throw new StructuralAssetError(`unknown asset id: ${id}`);
   }
-  return entry.getData(new BlobWriter(mimeForAssetType(asset.type)));
+  return entry.getData(
+    new BlobWriter(mimeForAsset(asset.filename, asset.type)),
+  );
 }
 
 /**
@@ -247,9 +291,21 @@ async function warmCache(
 ): Promise<void> {
   for (let attempt = 0; attempt < WARM_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const res = await fetchImpl(zipUrl, { priority: "low" });
+      const res = await fetchImpl(zipUrl, {
+        priority: "low",
+        // Bounded so a mid-download stall counts as a failed attempt (retry /
+        // stay-on-remote) instead of parking the warm forever.
+        signal: AbortSignal.timeout(FULL_DOWNLOAD_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error(`warm download failed: ${res.status}`);
       const blob = await res.blob();
+      if (blob.size !== source.size) {
+        // Not the archive the zip was parsed against (redirect page, truncated
+        // body) — caching it would poison the reload path. Failed attempt.
+        throw new Error(
+          `warm download size mismatch: got ${blob.size}, expected ${source.size}`,
+        );
+      }
       await store.put(zipUrl, blob);
       source.switchTo(new LocalCacheByteSource(blob));
       return;

@@ -59,9 +59,11 @@ export class InMemoryLocalCacheStore implements LocalCacheStore {
 }
 
 /**
- * Cache API store (browser). Requests persistent storage so a warmed tour is not
- * evicted mid-walk, and writes under a temp key promoted on completion so an
- * interrupted session never leaves a half-written "complete" copy (C18).
+ * Cache API store (browser). Requests persistent storage so a warmed tour is
+ * not evicted mid-walk (C18). `cache.put` only exposes an entry once its body
+ * has been fully consumed, and the reload path additionally re-parses a cached
+ * copy before trusting it (evicting a poisoned one), so no extra
+ * write-then-promote dance is needed here.
  *
  * Not exercised by the Node suite (`caches` is browser-only) — proven in the
  * manual demo (Option B, C19).
@@ -83,17 +85,11 @@ export class CacheApiStore implements LocalCacheStore {
   async put(url: string, blob: Blob): Promise<void> {
     await navigator.storage?.persist?.();
     const cache = await caches.open(this.#cacheName);
-    const tempKey = `${url}#warming`;
-    // Write to a temp key first, then promote — a crash mid-write leaves only
-    // the temp entry, never a truncated copy under the real key.
-    await cache.put(tempKey, new Response(blob));
     await cache.put(url, new Response(blob));
-    await cache.delete(tempKey);
   }
 
   async delete(url: string): Promise<void> {
     const cache = await caches.open(this.#cacheName);
     await cache.delete(url);
-    await cache.delete(`${url}#warming`);
   }
 }
