@@ -46,10 +46,17 @@ describe("decideFallback", () => {
     });
   });
 
-  it("rejects when ranges work but the size is unreadable (no zip EOCD anchor)", () => {
-    // 206 with no readable Content-Length: we can range, but zip.js needs the
-    // total size to find the central directory. Unusable rather than crash.
+  it("degrades to a full download when ranges work but the size is unreadable", () => {
+    // 206 with no readable Content-Length or Content-Range total: we can
+    // range, but zip.js needs the total size to find the central directory.
+    // A plain download still yields a working (if slower-to-start) tour.
     expect(decideFallback({ status: 206, size: null })).toEqual({
+      mode: "full-download",
+    });
+  });
+
+  it("rejects any other status (e.g. a 500) as an unusable link", () => {
+    expect(decideFallback({ status: 500, size: null })).toEqual({
       mode: "reject",
       cause: "unusable-link",
     });

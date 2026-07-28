@@ -58,20 +58,23 @@
     <main class="demo">
       <h1>Component 6 — Cloud-storage tour source</h1>
       <p class="hint">
-        Paste a hosted <code>tour.zip</code> URL (direct download link, Range +
-        CORS capable — see RECIPE.md). Watch the tour + POIs appear before the
-        whole archive downloads, fetch an asset by range (a
+        Paste a hosted <code>tour.zip</code> URL — a direct download link
+        <em>or</em> the share link straight from Dropbox / Google Drive /
+        OneDrive / GitHub: share pages are auto-normalized to their raw download
+        form, and known no-CORS hosts (Dropbox) are auto-routed through the dev
+        proxy (see RECIPE.md). Watch the tour + POIs appear before the whole
+        archive downloads, fetch an asset by range (a
         <strong>206 Partial Content</strong> in the Network panel), then see the
         background warm switch the byte-source to a local copy.
       </p>
-      <p class="hint">
-        No-CORS host (e.g. Dropbox)? In dev, prefix it with the built-in proxy:
-        <code>/tour-proxy?u=&lt;encoded url&gt;</code> — see RECIPE.md.
-      </p>
 
       <label class="field">
-        Tour zip URL (<code>?tour=</code> value)
-        <input id="url" type="url" placeholder="https://…/tour.zip" />
+        Tour zip URL or share link (<code>?tour=</code> value)
+        <input
+          id="url"
+          type="url"
+          placeholder="https://www.dropbox.com/scl/fi/…/tour.zip?rlkey=…&amp;dl=0"
+        />
       </label>
       <button id="load" type="button">Load tour</button>
 

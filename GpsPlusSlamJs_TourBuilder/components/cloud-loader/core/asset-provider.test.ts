@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { RangeZipAssetProvider } from "./asset-provider.js";
+import { RefCountedAssetProvider } from "./asset-provider.js";
 import { StructuralAssetError } from "./errors.js";
 
 /**
@@ -24,7 +24,7 @@ function makeProvider(
 ) {
   let n = 0;
   const revoked: string[] = [];
-  const provider = new RangeZipAssetProvider({
+  const provider = new RefCountedAssetProvider({
     loadAssetBlob,
     createObjectUrl: () => `blob:fake/${++n}`,
     revokeObjectUrl: (url) => revoked.push(url),
@@ -36,7 +36,7 @@ function makeProvider(
 
 const blobFor = (id: string) => new Blob([id]);
 
-describe("RangeZipAssetProvider", () => {
+describe("RefCountedAssetProvider", () => {
   it("resolves an asset id to a minted Blob URL", async () => {
     const { provider } = makeProvider((id) => Promise.resolve(blobFor(id)));
 

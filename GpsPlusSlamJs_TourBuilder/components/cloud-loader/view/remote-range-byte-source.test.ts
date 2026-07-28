@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { StructuralAssetError } from "../core/errors.js";
 import { RemoteRangeByteSource } from "./remote-range-byte-source.js";
 
 /**
@@ -39,5 +40,41 @@ describe("RemoteRangeByteSource", () => {
     );
 
     await expect(source.read(0, 3)).resolves.toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("passes an abort signal so a hung connection times out instead of stalling", async () => {
+    let seenSignal: AbortSignal | null | undefined;
+    const fetchImpl: typeof fetch = (_input, init) => {
+      seenSignal = init?.signal;
+      return Promise.resolve(new Response(new Uint8Array(1), { status: 206 }));
+    };
+    const source = new RemoteRangeByteSource("https://x/t.zip", 10, fetchImpl);
+
+    await source.read(0, 1);
+
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("fails a 4xx read structurally — an expired/gone link must not be retried", async () => {
+    const fetchImpl: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 403 }));
+    const source = new RemoteRangeByteSource("https://x/t.zip", 10, fetchImpl);
+
+    await expect(source.read(0, 1)).rejects.toBeInstanceOf(
+      StructuralAssetError,
+    );
+  });
+
+  it("fails a 5xx read with a plain error — transient, eligible for retry", async () => {
+    const fetchImpl: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 503 }));
+    const source = new RemoteRangeByteSource("https://x/t.zip", 10, fetchImpl);
+
+    const err = await source.read(0, 1).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(StructuralAssetError);
   });
 });

@@ -1,15 +1,16 @@
 /**
- * `RangeZipAssetProvider` — the viewing-mode backing of the contract's
+ * `RefCountedAssetProvider` — the generic implementation of the contract's
  * `AssetProvider` (D14, §3).
  *
- * It is deliberately generic: given an async `loadAssetBlob(id)` backing and a
- * URL minter, it owns only tier-1 memory (the Blob/Blob URL) and the two hard
- * guarantees of the contract — ref-counting (balanced `getAssetUrl`/`release`,
- * one revoke at count 0) and reject-on-error with a retry policy that
- * distinguishes transient from structural failures (C13, C15). The zip
- * specifics — id→entry→bytes with the right MIME — live in the backing built by
- * `open-remote-tour`, so this module stays pure enough to unit-test without a
- * zip or a network.
+ * It knows nothing about zips or ranges: given an async `loadAssetBlob(id)`
+ * backing and a URL minter, it owns only tier-1 memory (the Blob/Blob URL) and
+ * the two hard guarantees of the contract — ref-counting (balanced
+ * `getAssetUrl`/`release`, one revoke at count 0) and reject-on-error with a
+ * retry policy that distinguishes transient from structural failures (C13,
+ * C15). The viewing-mode zip specifics — id→entry→bytes with the right MIME —
+ * live in the backing built by `open-remote-tour`; the same class can back the
+ * authoring `FilesAssetProvider` and test `StaticAssetProvider` (D14d) with a
+ * different `loadAssetBlob`.
  *
  * @see plans/2026-07-24-cloud-loader-plan.md (C12, C13, C15)
  */
@@ -17,7 +18,7 @@
 import type { AssetId, AssetProvider } from "../../../store/types.js";
 import { StructuralAssetError } from "./errors.js";
 
-export interface RangeZipAssetProviderDeps {
+export interface RefCountedAssetProviderDeps {
   /** Backing: resolve an asset id to its bytes as a typed Blob. Throw a
    *  {@link StructuralAssetError} for permanent failures (unknown id, decode);
    *  any other rejection is treated as transient and retried. */
@@ -43,7 +44,7 @@ interface Ref {
 /** Base backoff in ms; attempt n waits BASE·2ⁿ (2s / 4s / 8s …). */
 const BACKOFF_BASE_MS = 2000;
 
-export class RangeZipAssetProvider implements AssetProvider {
+export class RefCountedAssetProvider implements AssetProvider {
   readonly #load: (id: AssetId) => Promise<Blob>;
   readonly #createUrl: (blob: Blob) => string;
   readonly #revokeUrl: (url: string) => void;
@@ -52,7 +53,7 @@ export class RangeZipAssetProvider implements AssetProvider {
 
   readonly #refs = new Map<AssetId, Ref>();
 
-  constructor(deps: RangeZipAssetProviderDeps) {
+  constructor(deps: RefCountedAssetProviderDeps) {
     this.#load = (id) => deps.loadAssetBlob(id);
     this.#createUrl = deps.createObjectUrl ?? ((b) => URL.createObjectURL(b));
     this.#revokeUrl = deps.revokeObjectUrl ?? ((u) => URL.revokeObjectURL(u));

@@ -7,24 +7,30 @@ the integration test (real fixture server) and the demo, not the pure unit suite
 ## Purpose
 
 - **`open-remote-tour.ts`** — `openRemoteTour(zipUrl, opts)`, the viewing entry
-  point (C3). Probe → zip.js central-directory parse → `parseTourJson` (validate)
-  → build `RangeZipAssetProvider` → kick off the background warm. Owns no store
-  and no `?tour=` parsing; composition does the dispatch. `fetch`, the local
-  cache store, and the URL minter are injected so the whole flow runs in Node
-  (C20).
+  point (C3). `normalizeShareUrl` (a pasted Dropbox/Drive/OneDrive/GitHub share
+  page becomes the raw download URL; anything else passes through) → probe →
+  zip.js central-directory parse (exactly once per open) →
+  `parseTourJson` (validate) → build `RefCountedAssetProvider` → kick off the
+  background warm. When ranges work but no size is readable anywhere it degrades
+  to one bounded plain download instead of rejecting. Owns no store and no
+  `?tour=` parsing; composition does the dispatch. `fetch`, the local cache
+  store, and the URL minter are injected so the whole flow runs in Node (C20).
 - **`remote-range-byte-source.ts`** — `probeRemote` (HEAD for size via safelisted
   `Content-Length` + `bytes=0-0` GET for support, C5; falls back to the 206's
   `Content-Range` for size when HEAD gives none — the CORS-proxy path) and
-  `RemoteRangeByteSource` (per-read Range fetch).
+  `RemoteRangeByteSource` (per-read Range fetch). Every fetch carries an abort
+  timeout so a hung connection becomes a rejection the retry policy can act on;
+  a 4xx range read (expired signed link, file gone) fails as
+  `StructuralAssetError` — permanent, never retried.
 - **`local-cache-source.ts`** — `LocalCacheByteSource` (reads by slicing a held
   Blob — lazy, no heap blow-up) and `LocalCacheStore` (`get`/`put`/`delete`) with
   two backings: `InMemoryLocalCacheStore` (Node tests) and `CacheApiStore`
-  (browser; requests `storage.persist()`, writes under a temp key promoted on
-  completion, evicts via `delete`, C18).
+  (browser; requests `storage.persist()`, evicts via `delete`, C18).
 - **`byte-source-reader.ts`** — `ByteSourceReader`, the zip.js `Reader` adapter
   whose `readUint8Array` delegates to the current `ByteSource` (C1/C2).
 - **`fixture-server.ts`** — the toggleable local HTTP server (C9) that serves a
   real `packTour` zip under path-selected modes (`ranges-ok`, `no-ranges`,
+  `no-head-len`→size only via Content-Range, `no-size`→no size anywhere,
   `corrupt`, `empty`→416, `missing`→404, `no-cors`→drop, plus caller-crafted
   zips). Shared by the integration test.
 
@@ -64,8 +70,11 @@ function openRemoteTour(
 
 ## Tests
 
-`cloud-loader.integration.test.ts` — 10 scenarios against the fixture server:
+`cloud-loader.integration.test.ts` — 12 scenarios against the fixture server:
 happy-path range read (206), remote→local switch (no network after warm),
-range-refused fallback (200), the `missing`/`empty`/`corrupt`/`no-cors`/
-`asset-missing-in-zip` error quartet+one, cache reuse on reload, and eviction of
-a poisoned cached copy (falls back to the network and re-warms).
+range-refused fallback (200), size-less-ranges full-download degrade
+(`no-size`), the `missing`/`empty`/`corrupt`/`no-cors`/`asset-missing-in-zip`
+error quartet+one, cache reuse on reload, and eviction of a poisoned cached
+copy (falls back to the network and re-warms).
+`remote-range-byte-source.test.ts` — the browser-`fetch` receiver brand check,
+the abort-signal presence, and the 4xx-structural / 5xx-transient split.

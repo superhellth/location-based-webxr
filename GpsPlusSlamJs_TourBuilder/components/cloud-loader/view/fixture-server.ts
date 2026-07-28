@@ -39,22 +39,30 @@ const CORS = {
   "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges",
 };
 
-/** Serve a zip body honouring (or, for `no-ranges`, ignoring) the Range header.
- *  When `sendHeadContentLength` is false the HEAD omits Content-Length, forcing
- *  the loader to recover the size from the 206 Content-Range (the proxy path). */
+interface ServeZipOptions {
+  /** `false` → ignore Range and answer 200 with the whole body. */
+  honorRange: boolean;
+  /** `false` → the HEAD omits Content-Length, forcing the loader to recover
+   *  the size from the 206 Content-Range (the proxy path). */
+  sendHeadContentLength: boolean;
+  /** `false` → the 206 omits Content-Range too, so no size is recoverable at
+   *  all and the loader must degrade to a plain full download. */
+  sendContentRange: boolean;
+}
+
+/** Serve a zip body honouring (or, for `no-ranges`, ignoring) the Range header. */
 function serveZip(
   req: IncomingMessage,
   res: ServerResponse,
   body: Uint8Array,
-  honorRange: boolean,
-  sendHeadContentLength = true,
+  opts: ServeZipOptions,
 ): void {
   if (req.method === "HEAD") {
     res
       .writeHead(200, {
         ...CORS,
         "Accept-Ranges": "bytes",
-        ...(sendHeadContentLength
+        ...(opts.sendHeadContentLength
           ? { "Content-Length": String(body.length) }
           : {}),
       })
@@ -62,7 +70,9 @@ function serveZip(
     return;
   }
 
-  const range = honorRange ? parseRange(req.headers.range, body.length) : null;
+  const range = opts.honorRange
+    ? parseRange(req.headers.range, body.length)
+    : null;
   if (!range) {
     res
       .writeHead(200, { ...CORS, "Content-Length": String(body.length) })
@@ -75,7 +85,11 @@ function serveZip(
     .writeHead(206, {
       ...CORS,
       "Accept-Ranges": "bytes",
-      "Content-Range": `bytes ${range.start}-${range.end}/${body.length}`,
+      ...(opts.sendContentRange
+        ? {
+            "Content-Range": `bytes ${range.start}-${range.end}/${body.length}`,
+          }
+        : {}),
       "Content-Length": String(slice.length),
     })
     .end(Buffer.from(slice));
@@ -139,7 +153,13 @@ export async function startFixtureServer(
       extraZips.get(mode) ??
       (mode === "corrupt" ? new Uint8Array([1, 2, 3, 4, 5]) : zip);
     // `no-head-len`: HEAD omits Content-Length → size must come from Content-Range.
-    serveZip(req, res, body, mode !== "no-ranges", mode !== "no-head-len");
+    // `no-size`: no Content-Length *and* no Content-Range → no size anywhere,
+    // forcing the plain-full-download degrade.
+    serveZip(req, res, body, {
+      honorRange: mode !== "no-ranges",
+      sendHeadContentLength: mode !== "no-head-len" && mode !== "no-size",
+      sendContentRange: mode !== "no-size",
+    });
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

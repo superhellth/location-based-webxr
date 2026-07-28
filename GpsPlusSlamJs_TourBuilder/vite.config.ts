@@ -2,6 +2,8 @@ import { defineConfig, type Plugin } from "vite";
 import { resolve } from "node:path";
 import { Readable } from "node:stream";
 
+import { normalizeShareUrl } from "./components/cloud-loader/core/share-link.js";
+
 // Dev-only CORS proxy for Component 6, mirroring the production Cloudflare
 // Worker's `?u=` interface so a demo `?tour=` URL is identical in both. The
 // browser talks to same-origin localhost (no CORS), and this middleware fetches
@@ -9,9 +11,19 @@ import { Readable } from "node:stream";
 // forwarding the Range header so byte-range 206 reads pass straight through.
 // Host-allowlisted to the everyday cloud providers so it is not an open relay.
 // See components/cloud-loader/RECIPE.md.
+//
+// The `u=` target runs through the same share-link normalization as a direct
+// `?tour=` URL, so a pasted share *page* link works through the proxy too.
+// Share-page hosts (www.dropbox.com) are deliberately NOT allowlisted: anything
+// normalization couldn't turn into a raw download URL (e.g. a folder link)
+// 403s loudly here instead of quietly streaming an HTML preview page into
+// zip.js as "corrupt".
 const ALLOWED_PROXY_HOSTS = new Set([
   "dl.dropboxusercontent.com",
-  "www.dropbox.com",
+  // Key-less Google Drive: advertises CORS to plain clients but 403s any
+  // browser request (Sec-Fetch-Site: cross-site), so it must come through
+  // here, where Node's fetch carries no Sec-Fetch headers.
+  "drive.usercontent.google.com",
   "raw.githubusercontent.com",
   "cdn.jsdelivr.net",
 ]);
@@ -31,7 +43,7 @@ function tourProxyPlugin(): Plugin {
         }
         let url: URL;
         try {
-          url = new URL(target);
+          url = new URL(normalizeShareUrl(target));
         } catch {
           res.statusCode = 400;
           res.end("bad ?u= url");
@@ -50,6 +62,20 @@ function tourProxyPlugin(): Plugin {
           redirect: "follow",
         })
           .then((upstream) => {
+            // A tour.zip is never HTML. An HTML final response after the
+            // redirect chain is a login page (file not shared publicly) or a
+            // virus-scan interstitial — fail loudly instead of streaming it
+            // into zip.js as a mystery "corrupt".
+            const contentType = upstream.headers.get("content-type") ?? "";
+            if (contentType.startsWith("text/html")) {
+              res.statusCode = 502;
+              res.end(
+                "upstream answered with an HTML page (login or interstitial), " +
+                  "not the file — check the file's sharing settings " +
+                  '(Google Drive: "Anyone with the link")',
+              );
+              return;
+            }
             res.statusCode = upstream.status;
             // Never let the browser cache proxied responses: the same URL yields
             // 206 range reads and a 200 full warm download, and without this the

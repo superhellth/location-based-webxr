@@ -21,9 +21,10 @@ export type TourLoadCause =
 
 /**
  * A *permanent* per-asset failure (the second error tier, C15): an unknown id,
- * an entry missing from the central directory, or a decode error. The
- * asset-provider fails these immediately — retrying cannot fix them. Any other
- * rejection from the blob backing is treated as transient and retried.
+ * an entry missing from the central directory, a decode error, or a 4xx on a
+ * range read (expired signed link, file gone). The asset-provider fails these
+ * immediately — retrying cannot fix them. Any other rejection from the blob
+ * backing is treated as transient and retried.
  */
 export class StructuralAssetError extends Error {
   override readonly name = "StructuralAssetError";
