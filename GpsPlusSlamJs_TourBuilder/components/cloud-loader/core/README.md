@@ -70,8 +70,10 @@ class StructuralAssetError extends Error {}
 
 ## Invariants
 
-- `SwitchableByteSource` swaps **at most once** (`switchTo` after the first is a
-  no-op) and never redirects an already-issued read.
+- `SwitchableByteSource` swaps **at most once** (`switchTo` after the first
+  successful swap is a no-op), refuses a source whose `size` differs from the
+  original (zip offsets are anchored to it — mismatched bytes would corrupt
+  every later read), and never redirects an already-issued read.
 - `RefCountedAssetProvider`: `getAssetUrl`/`release` calls must balance; the URL is
   revoked exactly once, when the ref-count hits 0; one id is loaded once even
   under concurrent/repeat requests.

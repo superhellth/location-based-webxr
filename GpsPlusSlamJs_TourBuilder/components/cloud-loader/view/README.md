@@ -50,6 +50,9 @@ function openRemoteTour(
   (unusable/CORS link, corrupt zip, missing/invalid tour.json, an asset filename
   absent from the zip — the contract invariant-3 check, C11). It never resolves
   with a partial tour.
+- A warm download whose byte size differs from the archive the zip was parsed
+  against (redirect page, truncated body) counts as a failed attempt — it is
+  neither cached nor switched to.
 - `cacheWarming` **never rejects** — a failed warm (after bounded backoff) simply
   stays on remote; the tour keeps working via Range reads.
 - The zip.js reader is deliberately **not closed** — entries are read lazily for

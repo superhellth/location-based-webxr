@@ -299,6 +299,13 @@ async function warmCache(
       });
       if (!res.ok) throw new Error(`warm download failed: ${res.status}`);
       const blob = await res.blob();
+      if (blob.size !== source.size) {
+        // Not the archive the zip was parsed against (redirect page, truncated
+        // body) — caching it would poison the reload path. Failed attempt.
+        throw new Error(
+          `warm download size mismatch: got ${blob.size}, expected ${source.size}`,
+        );
+      }
       await store.put(zipUrl, blob);
       source.switchTo(new LocalCacheByteSource(blob));
       return;
