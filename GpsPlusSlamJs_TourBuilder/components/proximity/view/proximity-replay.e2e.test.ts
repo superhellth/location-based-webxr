@@ -8,7 +8,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type {
   ProximityObject,
   StepConfig,
-  ZoneMap,
   ZoneTransition,
 } from "../core/proximity-machine.js";
 import { createProximityDriver } from "./proximity-driver.js";
@@ -128,7 +127,7 @@ describe("proximity replay e2e — real Task 1 walk", () => {
     // (default movement-epsilon gate), mirroring the composition's store
     // round-trip — `onTransition` applies the edge, `getZones` reads it back.
     const zones: Record<string, ZoneState> = Object.fromEntries(
-      objects.map((o) => [o.id, "IDLE" as ZoneState]),
+      objects.map((o) => [o.id, "IDLE"]),
     );
     const zoneSeq = new Map<string, ZoneState[]>(
       objects.map((o) => [o.id, []]),
@@ -140,7 +139,7 @@ describe("proximity replay e2e — real Task 1 walk", () => {
     const driver = createProximityDriver({
       getUserWorldPos: () => userPos,
       getObjects: () => objects,
-      getZones: () => zones as ZoneMap,
+      getZones: () => zones,
       onTransition: (t) => {
         edges.get(t.id)!.push(t);
         zones[t.id] = t.to;

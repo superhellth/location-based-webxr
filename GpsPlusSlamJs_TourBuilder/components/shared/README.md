@@ -80,4 +80,7 @@ sheet from `demo.css` because these demos aren't a canvas overlay; each demo's
 `billboard-math.test.ts`, `panel-geometry.test.ts`, and `tap-gate.test.ts`
 cover the pure modules (`clamp.ts` is exercised transitively; the
 `canvas-panel.ts` helpers are view-layer and covered via each component's
-panel). Run `pnpm test:unit`.
+panel). `pointer-tap-picker.test.ts` covers the stateful picking headlessly —
+synthetic pointer events against a fake element, real `Raycaster`/meshes —
+pinning the multi-touch/cancel invalidation, the tap-vs-drag/long-press gate
+wiring, the client→NDC mapping, and nearest-hit selection. Run `pnpm test:unit`.
