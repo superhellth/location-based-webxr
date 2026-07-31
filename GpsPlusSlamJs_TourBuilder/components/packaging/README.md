@@ -4,7 +4,7 @@ The **authoring-side export step**: take a `Tour` (from `selectExportedTour`)
 plus the author's asset `File`s, bundle them into a single **uncompressed**
 `tour.zip`, and turn the hosted ZIP's URL into a scannable viewing-mode link.
 
-Run it alone: `pnpm dev` → <http://localhost:5182/components/packaging/>.
+Run it alone: `pnpm dev` → <http://localhost:8185/components/packaging/>.
 
 ## Why uncompressed
 

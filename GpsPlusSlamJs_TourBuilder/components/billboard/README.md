@@ -10,7 +10,7 @@ reuses these seams directly, swapping desktop pointer picking for the WebXR
 ## Run it
 
 ```bash
-pnpm dev            # then open http://localhost:5182/components/billboard/
+pnpm dev            # then open http://localhost:8185/components/billboard/
 ```
 
 Orbit the camera (drag): sprites and the open panel stay upright and face you.

@@ -115,11 +115,15 @@ function tourProxyPlugin(): Plugin {
 //
 // AppFramework resolves through the pnpm workspace symlink; three comes from
 // node_modules. A distinct port keeps it runnable alongside the minimal example
-// (5180), starter (5181) and recorder.
+// (5180), starter (5181) and recorder. 5182 collides with several other
+// standalone demos in this repo (Landing, PhysicsDemo, QrTrackingDemo) that
+// are never run alongside TourBuilder, and the whole 51xx range is unusable
+// on some dev machines/tooling (Windows-excluded-port checks) — 8185 avoids
+// both.
 export default defineConfig({
   plugins: [tourProxyPlugin()],
   server: {
-    port: 5182,
+    port: 8185,
     host: true,
   },
   build: {
@@ -138,6 +142,7 @@ export default defineConfig({
           __dirname,
           "components/cloud-loader/index.html",
         ),
+        map: resolve(__dirname, "components/map/index.html"),
       },
     },
   },
