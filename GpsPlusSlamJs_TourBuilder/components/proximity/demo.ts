@@ -19,6 +19,7 @@ import {
 } from "./core/proximity-machine.js";
 import type { ZoneState } from "../../store/types.js";
 import walk from "./demo-walk.json";
+import { createPlaybackLoop } from "../shared/playback-loop.js";
 
 const HYSTERESIS_FRACTION = 0.15; // contract D16 default (would live in config.ts)
 const PREFETCH_R = 25;
@@ -175,55 +176,32 @@ function draw(index: number, zones: ZoneMap): void {
   ctx.fill();
 }
 
-let current = 0;
-function render(): void {
-  const { zones, log } = computeUpTo(current);
-  draw(current, zones);
-  readout.textContent = `${current} / ${path.length - 1}`;
-  scrub.value = String(current);
+function render(index: number): void {
+  const { zones, log } = computeUpTo(index);
+  draw(index, zones);
+  readout.textContent = `${index} / ${path.length - 1}`;
+  scrub.value = String(index);
   logEl.textContent = log.length ? log.join("\n") : "(no transitions yet)";
   logEl.scrollTop = logEl.scrollHeight;
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
-let playing = false;
-let lastT = 0;
-const SAMPLES_PER_SEC = 25;
-function tick(t: number): void {
-  if (!playing) return;
-  if (t - lastT >= 1000 / SAMPLES_PER_SEC) {
-    lastT = t;
-    if (current < path.length - 1) {
-      current++;
-      render();
-    } else {
-      stop();
-      return;
-    }
-  }
-  requestAnimationFrame(tick);
-}
-function play(): void {
-  if (current >= path.length - 1) current = 0;
-  playing = true;
-  playBtn.textContent = "❚❚ Pause";
-  lastT = performance.now();
-  requestAnimationFrame(tick);
-}
-function stop(): void {
-  playing = false;
-  playBtn.textContent = "▶ Play";
-}
-playBtn.addEventListener("click", () => (playing ? stop() : play()));
+const loop = createPlaybackLoop({
+  length: path.length,
+  samplesPerSec: 25,
+  onSeek: render,
+  onPlayStateChange: (playing) => {
+    playBtn.textContent = playing ? "❚❚ Pause" : "▶ Play";
+  },
+});
+playBtn.addEventListener("click", () => loop.toggle());
 scrub.addEventListener("input", () => {
-  stop();
-  current = Number(scrub.value);
-  render();
+  loop.seekTo(Number(scrub.value));
 });
 window.addEventListener("resize", () => {
   fit();
-  render();
+  render(Number(scrub.value));
 });
 
 fit();
-render();
+render(0);
