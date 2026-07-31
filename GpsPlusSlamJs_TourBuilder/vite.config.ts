@@ -143,6 +143,7 @@ export default defineConfig({
           "components/cloud-loader/index.html",
         ),
         map: resolve(__dirname, "components/map/index.html"),
+        arScene: resolve(__dirname, "components/ar-scene/index.html"),
       },
     },
   },

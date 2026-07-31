@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gps-plus-slam — AR viewing scene (Component 8)</title>
+    <link rel="stylesheet" href="../shared/demo.css" />
+    <style>
+      #controls {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        background: rgb(0 0 0 / 60%);
+        border: 1px solid #2a3550;
+        border-radius: 10px;
+        font-size: 13px;
+      }
+
+      #controls input[type="range"] {
+        flex: 1;
+      }
+
+      #controls button {
+        font: inherit;
+        font-size: 13px;
+        color: #e9eef7;
+        background: rgb(79 140 255 / 18%);
+        border: 1px solid #3d5488;
+        border-radius: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+
+      #readout {
+        font-variant-numeric: tabular-nums;
+        color: #9ec1ff;
+        min-width: 92px;
+      }
+
+      #hud {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        margin: 0;
+        padding: 12px 14px;
+        max-width: 46ch;
+        background: rgb(0 0 0 / 62%);
+        border: 1px solid #2a3550;
+        border-radius: 10px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.55;
+        color: #cfe0ff;
+        white-space: pre;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-root"></div>
+
+    <div id="hud"></div>
+
+    <div id="controls">
+      <button id="play" type="button">▶ Play</button>
+      <input id="scrub" type="range" min="0" max="0" value="0" step="1" />
+      <span id="readout">0 / 0</span>
+    </div>
+
+    <p id="status"></p>
+
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>
