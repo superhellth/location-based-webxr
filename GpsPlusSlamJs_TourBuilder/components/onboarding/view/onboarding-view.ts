@@ -16,6 +16,7 @@ import {
   initialGateState,
   type GateAction,
   type GateState,
+  type PermissionState,
 } from "../core/permission-gate.js";
 import {
   checkExistingPermissions,
@@ -47,7 +48,7 @@ const PERMISSION_LABEL: Record<"camera" | "gps", string> = {
   gps: "Location",
 };
 
-function statusText(status: GateState["camera"]): string {
+function statusText(status: PermissionState): string {
   switch (status) {
     case "unknown":
       return "Not yet requested";
