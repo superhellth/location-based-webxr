@@ -551,6 +551,9 @@ importers:
       gps-plus-slam-app-framework:
         specifier: workspace:*
         version: link:../GpsPlusSlamJs_AppFramework
+      leaflet:
+        specifier: ^1.9.4
+        version: 1.9.4
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -567,6 +570,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0(jiti@2.7.0))
+      '@types/leaflet':
+        specifier: ^1.9.21
+        version: 1.9.21
       '@types/node':
         specifier: ^25.7.0
         version: 25.7.0
@@ -597,6 +603,9 @@ importers:
       jscpd:
         specifier: ^4.1.1
         version: 4.1.1
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1(@noble/hashes@2.2.0)
       postcss-html:
         specifier: ^1.8.1
         version: 1.8.1

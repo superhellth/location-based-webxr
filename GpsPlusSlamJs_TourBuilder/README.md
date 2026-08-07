@@ -91,7 +91,7 @@ per-file sidecars as convention drift.
 Run from this package directory.
 
 ```bash
-pnpm dev            # builds the framework, then Vite on http://localhost:5182
+pnpm dev            # builds the framework, then Vite on http://localhost:8185
 pnpm test           # the full gate (see below)
 pnpm run test:unit  # fast vitest loop
 pnpm run test:watch

@@ -5,7 +5,7 @@
       "name": "tourbuilder",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "gps-plus-slam-tour-builder", "dev"],
-      "port": 5182
+      "port": 8185
     }
   ]
 }
