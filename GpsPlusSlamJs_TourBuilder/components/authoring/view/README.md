@@ -54,14 +54,24 @@ arrives after teardown.
 mountAuthoringView(root: HTMLElement, deps: AuthoringViewDeps): { destroy(): void }
 ```
 
-DOM wiring only — no logic of its own. Renders tour name/description inputs
-(→ `setTourMeta`), one row per waypoint (radius inputs → `updateWaypoint`,
-one file input per asset slot → `session.attachAsset`, a remove button →
-`removeWaypoint`), a Drop Waypoint button (→ `session.dropWaypoint()`), and
-an Export button (→ `session.exportTour()`, forwarded to the injected
+DOM wiring only — no logic of its own. Renders three sections: **Tour
+Details** (labeled name/description inputs → `setTourMeta`), **Waypoints**
+(a Drop Waypoint button → `session.dropWaypoint()`, then either an
+empty-state message or a card per waypoint — a numbered heading with the
+real id as a secondary badge, labeled radius inputs → `updateWaypoint`, a
+remove button → `removeWaypoint`, and one labeled row per asset slot), and
+**Export** (→ `session.exportTour()`, forwarded to the injected
 `onExport`). Reacts to store changes via an injected `subscribe`/`getState`
 pair rather than owning state — the `authoring` slice (component 3) is the
 single source of truth. `destroy()` unsubscribes and clears the DOM.
+
+**Attached-asset filenames are read from `waypoint.content` / `authoring.
+assets`, never from a native `<input type="file">`'s own "chosen file"
+label.** Every store change rebuilds every file input from scratch, which
+would otherwise silently reset that native label to empty even though the
+asset is still attached underneath — a real bug fixed by treating state as
+the only source of truth for what's displayed (plan
+`2026-08-07-authoring-demo-ux-plan.md`, decision U5).
 
 ## Tests
 
@@ -69,5 +79,6 @@ single source of truth. `destroy()` unsubscribes and clears the DOM.
 framework calls / fake `createObjectUrl`. `authoring-session.test.ts` —
 mocked `PositionSource`/`dispatch`. `authoring-view.test.ts`
 (`@vitest-environment jsdom`) — a hand-rolled fake store, no Redux
-dependency. `authoring-session-replay.e2e.test.ts` — the replay e2e (see the
-root README).
+dependency; includes the empty-state and attached-filename-survives-
+re-render (U5) cases. `authoring-session-replay.e2e.test.ts` — the replay
+e2e (see the root README).
