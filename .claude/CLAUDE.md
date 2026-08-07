@@ -33,13 +33,13 @@ The framework subpath exports map to `src/<module>/`: `ar`, `state`, `sensors`, 
 
 ### TourBuilder layout (where lab components live)
 
-Not a `src/` tree — organized as one directory per component under `components/`, plus a shared `store/`:
+A `src/` tree organized as one directory per component under `src/components/`, plus the shared `src/store/`:
 
-- `components/<name>/core/` — **pure, framework-free logic + unit tests** (billboard math, proximity state machine, packaging zip logic, tour validation). This is the `core`-vs-`view` purity split the "components first" rule demands: `core` never imports Three.js/DOM.
-- `components/<name>/view/` — the Three.js/DOM view layer (raycasting, `CanvasTexture`, audio) + replay e2e tests (e.g. `components/proximity/view/proximity-replay.e2e.test.ts`).
-- `components/<name>/demo.ts` + `index.html` — the standalone demo page for that one component.
-- `components/shared/` — cross-component pure helpers (`billboard-math.ts`, `canvas-panel.ts`, `panel-geometry.ts`).
-- `store/` — the pinned §2.2 contract implemented: `types.ts`, `validate-tour.ts`, the slices (`tour-slice`, `tour-progress-slice`, `zones-slice`, `authoring-slice`), `selectors.ts`, the two store factories (`viewing-store.ts` / `authoring-store.ts` — mode is chosen at bootstrap from the `?tour=` URL param, D13), and `fixtures/sample-tour.ts`.
+- `src/components/<name>/core/` — **pure, framework-free logic + unit tests** (billboard math, proximity state machine, packaging zip logic, tour validation). This is the `core`-vs-`view` purity split the "components first" rule demands: `core` never imports Three.js/DOM.
+- `src/components/<name>/view/` — the Three.js/DOM view layer (raycasting, `CanvasTexture`, audio) + replay e2e tests (e.g. `src/components/proximity/view/proximity-replay.e2e.test.ts`).
+- `src/components/<name>/demo.ts` + `index.html` — the standalone demo page for that one component.
+- `src/components/shared/` — cross-component pure helpers (`billboard-math.ts`, `canvas-panel.ts`, `panel-geometry.ts`).
+- `src/store/` — the pinned §2.2 contract implemented: `types.ts`, `validate-tour.ts`, the slices (`tour-slice`, `tour-progress-slice`, `zones-slice`, `authoring-slice`), `selectors.ts`, the two store factories (`viewing-store.ts` / `authoring-store.ts` — mode is chosen at bootstrap from the `?tour=` URL param, D13), and `fixtures/sample-tour.ts`.
 
 ## Architecture
 
@@ -90,7 +90,7 @@ pnpm run typecheck && pnpm run lint                   # individual gates
 ```
 
 TourBuilder's vitest config is at the package root, so drop the `--config config/…` there:
-`pnpm exec vitest run components/proximity/core/proximity-machine.test.ts` (from `GpsPlusSlamJs_TourBuilder/`). Its full gate (`pnpm test`) also runs jscpd/dpdm/dependency-cruiser via `check:all`.
+`pnpm exec vitest run src/components/proximity/core/proximity-machine.test.ts` (from `GpsPlusSlamJs_TourBuilder/`). Its full gate (`pnpm test`) also runs jscpd/dpdm/dependency-cruiser via `check:all`.
 
 Dev servers (per app dir): `pnpm run dev` (builds framework, then Vite). The recorder/starter need a WebXR-capable phone or Chrome DevTools WebXR emulation for full function.
 

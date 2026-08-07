@@ -16,7 +16,7 @@ is the three things nobody else owns: **geo→world anchoring of the tour**,
 
 ```bash
 node scripts/make-ar-scene-fixtures.mjs   # once — generates public/ar-scene/*
-pnpm dev                                  # then open http://localhost:8185/components/ar-scene/
+pnpm dev                                  # then open http://localhost:8185/src/components/ar-scene/
 ```
 
 A real Task 1 walk replays on the desktop: press Play and the visitor marker
@@ -57,7 +57,7 @@ allowed, exactly as component 4's pure core does for `Vector3`.
 ## Contract
 
 Reads the `tour`, `tourProgress` and `zones` slices through
-`store/selectors.ts`; dispatches `initZones`, `setWaypointZone` (via the
+`src/store/selectors.ts`; dispatches `initZones`, `setWaypointZone` (via the
 proximity driver) and `markWaypointVisited`. Assets flow through the injected
 `AssetProvider` (contract D14) — never the store. Distance is horizontal X/Z
 (D17), hysteresis is component 4's (D16), and geo coordinates appear only in

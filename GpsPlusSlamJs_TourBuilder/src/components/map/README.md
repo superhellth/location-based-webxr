@@ -8,7 +8,7 @@ Three.js, no CSS3D** — matching the spec's own wording ("a toggleable
 ## Run it
 
 ```bash
-pnpm dev            # then open http://localhost:8185/components/map/
+pnpm dev            # then open http://localhost:8185/src/components/map/
 ```
 
 A real Task 1 walk replays: the position dot moves along the recorded track

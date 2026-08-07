@@ -18,7 +18,7 @@ for the full reuse table and decisions (AU1–AU10).
 ## Run it
 
 ```bash
-pnpm dev            # then open http://localhost:8185/components/authoring/
+pnpm dev            # then open http://localhost:8185/src/components/authoring/
 ```
 
 Pick **Live GPS** (real device) or **Replay a Task 1 walk** (the real

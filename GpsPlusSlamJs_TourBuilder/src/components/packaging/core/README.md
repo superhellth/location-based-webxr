@@ -89,7 +89,7 @@ One colocated `*.test.ts` per module:
   encoder byte-identical and that failures propagate rather than yielding blank
   markup.
   The text→`Tour` gate the demo's "use your own tour" input goes through
-  (`parseTourJson`) lives in `store/parse-tour-json.ts` — it is contract-level
+  (`parseTourJson`) lives in `src/store/parse-tour-json.ts` — it is contract-level
   (also used by the cloud-loader), not packaging logic.
 
 Run: `pnpm test:unit` (or `pnpm test:watch`).

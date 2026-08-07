@@ -15,7 +15,7 @@ the framework's job, upstream of this component.
 ## Run it
 
 ```bash
-pnpm dev            # then open http://localhost:8185/components/proximity/
+pnpm dev            # then open http://localhost:8185/src/components/proximity/
 ```
 
 A real Task 1 walk plays back top-down. Each waypoint shows an outer PREFETCH

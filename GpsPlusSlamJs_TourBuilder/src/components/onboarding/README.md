@@ -10,7 +10,7 @@ actually entering AR.
 ## Run it
 
 ```bash
-pnpm dev            # then open http://localhost:8185/components/onboarding/
+pnpm dev            # then open http://localhost:8185/src/components/onboarding/
 ```
 
 Click **Grant Access** — this triggers the real browser camera and GPS

@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import { resolve } from "node:path";
 import { Readable } from "node:stream";
 
-import { normalizeShareUrl } from "./components/cloud-loader/core/share-link.js";
+import { normalizeShareUrl } from "./src/components/cloud-loader/core/share-link.js";
 
 // Dev-only CORS proxy for Component 6, mirroring the production Cloudflare
 // Worker's `?u=` interface so a demo `?tour=` URL is identical in both. The
@@ -10,7 +10,7 @@ import { normalizeShareUrl } from "./components/cloud-loader/core/share-link.js"
 // the target server-side (Node fetch ignores CORS), following redirects and
 // forwarding the Range header so byte-range 206 reads pass straight through.
 // Host-allowlisted to the everyday cloud providers so it is not an open relay.
-// See components/cloud-loader/RECIPE.md.
+// See src/components/cloud-loader/RECIPE.md.
 //
 // The `u=` target runs through the same share-link normalization as a direct
 // `?tour=` URL, so a pasted share *page* link works through the proxy too.
@@ -108,9 +108,9 @@ function tourProxyPlugin(): Plugin {
 }
 
 // TourBuilder is a multi-page app: one runnable demo page per component under
-// components/<name>/index.html, plus a root gallery that links to them. Vite's
+// src/components/<name>/index.html, plus a root gallery that links to them. Vite's
 // dev server auto-serves every nested index.html by path (e.g.
-// /components/billboard/ runs the billboard demo alone); the build emits each
+// /src/components/billboard/ runs the billboard demo alone); the build emits each
 // as its own HTML entry. Add one line to `input` per new component.
 //
 // AppFramework resolves through the pnpm workspace symlink; three comes from
@@ -130,22 +130,22 @@ export default defineConfig({
     rollupOptions: {
       input: {
         gallery: resolve(__dirname, "index.html"),
-        billboard: resolve(__dirname, "components/billboard/index.html"),
+        billboard: resolve(__dirname, "src/components/billboard/index.html"),
         inWorldText: resolve(
           __dirname,
-          "components/in-world-text/index.html",
+          "src/components/in-world-text/index.html",
         ),
-        store: resolve(__dirname, "components/store/index.html"),
-        proximity: resolve(__dirname, "components/proximity/index.html"),
-        packaging: resolve(__dirname, "components/packaging/index.html"),
+        store: resolve(__dirname, "src/components/store/index.html"),
+        proximity: resolve(__dirname, "src/components/proximity/index.html"),
+        packaging: resolve(__dirname, "src/components/packaging/index.html"),
         cloudLoader: resolve(
           __dirname,
-          "components/cloud-loader/index.html",
+          "src/components/cloud-loader/index.html",
         ),
-        map: resolve(__dirname, "components/map/index.html"),
-        arScene: resolve(__dirname, "components/ar-scene/index.html"),
-        onboarding: resolve(__dirname, "components/onboarding/index.html"),
-        authoring: resolve(__dirname, "components/authoring/index.html"),
+        map: resolve(__dirname, "src/components/map/index.html"),
+        arScene: resolve(__dirname, "src/components/ar-scene/index.html"),
+        onboarding: resolve(__dirname, "src/components/onboarding/index.html"),
+        authoring: resolve(__dirname, "src/components/authoring/index.html"),
       },
     },
   },

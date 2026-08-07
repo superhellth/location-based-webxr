@@ -1,8 +1,8 @@
-# components/shared — cross-component building blocks
+# src/components/shared — cross-component building blocks
 
 Small, framework-free modules reused by more than one component demo. This is
 **not a runnable component** — it has no `demo.ts` / `index.html`; it is only
-imported by the components under `components/*/`.
+imported by the components under `src/components/*/`.
 
 It exists so shared logic is defined **once** (the gate's jscpd duplication check
 forbids copy-pasting ≥50 tokens across components) while keeping each component

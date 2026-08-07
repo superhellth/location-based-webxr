@@ -1,11 +1,11 @@
-# store — the shared contract (Component 3)
+# src/store — the shared contract (Component 3)
 
 The single contract every subsequent component (4–10) codes against: the
 `tour.json` schema types, the load-time validator, the Redux slices, selectors,
 and the two store factories. **No Three.js, no DOM** — pure data + reducers, so
 it runs on a desktop with no phone and is reused by both app modes.
 
-This directory lives at the package root (not under `components/`). Dependencies
+This directory lives at the `src/` root (not under `src/components/`). Dependencies
 flow **components → store** only; the store never imports a feature component
 (enforced by `config/.dependency-cruiser.cjs`).
 
@@ -124,4 +124,4 @@ fixture state (`selectNextUnvisitedWaypoint` before/after visits,
 valid `Tour`), and factory smoke tests (both construct and expose their slices).
 `parse-tour-json.test.ts` covers the text gate (valid round-trip, malformed
 JSON, invariant violation — all surfacing as `TourValidationError`). The
-interactive `components/store/` demo exercises the view layer manually.
+interactive `src/components/store/` demo exercises the view layer manually.

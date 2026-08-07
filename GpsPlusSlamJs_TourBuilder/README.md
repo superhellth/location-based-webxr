@@ -2,11 +2,11 @@
 
 The lab package: the AR audio tour-guide prototype (`TASK.md`), built **one
 isolated component at a time**. Every component is a folder under
-`components/` with its own runnable demo page, its own pure unit-tested core,
+`src/components/` with its own runnable demo page, its own pure unit-tested core,
 and no dependency on any sibling component. Composition into the two app modes
 (Authoring / Viewing) is the last step, not the first.
 
-The single contract all components code against is `store/` — the `tour.json`
+The single contract all components code against is `src/store/` — the `tour.json`
 schema types plus the Redux slices, pinned in `plans/Shared-Contract.md`
 (decisions D1–D17). Read that before touching tour/store code.
 
@@ -36,7 +36,7 @@ dependency-cruiser (module boundaries) and knip (dead code).
 Run a single file or test name:
 
 ```bash
-pnpm exec vitest run components/proximity/core/proximity-machine.test.ts
+pnpm exec vitest run src/components/proximity/core/proximity-machine.test.ts
 pnpm exec vitest run -t "hysteresis"
 ```
 
@@ -57,27 +57,27 @@ Each row is independently runnable: `pnpm dev`, then the listed path.
 Components 1–6 are the Goal-1 building blocks; 7–10 are the viewing/authoring
 surfaces that compose them.
 
-| #   | Component                                                      | Demo path                    | What it is                                                                                                                                                                           |
-| --- | -------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | [Clickable billboard](components/billboard/README.md)          | `/components/billboard/`     | Yaw-to-face sprite + spatialized audio + in-world transport panel (play/stop, seekable bar). Seed of the AR knight markers.                                                          |
-| 2   | [In-world text](components/in-world-text/README.md)            | `/components/in-world-text/` | Billboarded paginated text panel; HTML-in-3D backend with automatic `CanvasTexture` fallback (XR-safe).                                                                              |
-| 3   | [Tour data model + store](store/README.md)                     | `/components/store/`         | The §2.2 contract: schema types, `validateTour`, slices, selectors, the two store factories.                                                                                         |
-| 4   | [Proximity & zone machine](components/proximity/README.md)     | `/components/proximity/`     | `IDLE → PREFETCHING → ACTIVE` per waypoint with hysteresis, pure world-space (X/Z), no GPS/geo math. Replay-tested.                                                                  |
-| 5   | [Packaging & QR](components/packaging/README.md)               | `/components/packaging/`     | Bundles a `Tour` + asset files into an **uncompressed** `tour.zip`; turns the hosted URL into a scannable viewing link.                                                              |
-| 6   | [Cloud-storage tour source](components/cloud-loader/README.md) | `/components/cloud-loader/`  | `?tour=<zipUrl>` → running tour: byte-range reads of the hosted ZIP, `AssetProvider` by id, local warm copy, no-range fallback.                                                      |
-| 7   | [2D map overview](components/map/README.md)                    | `/components/map/`           | Toggleable real-time Leaflet map (plain DOM, no Three.js): visitor dot + waypoint markers recoloured by the real proximity driver.                                                   |
-| 8   | [AR viewing scene](components/ar-scene/README.md)              | `/components/ar-scene/`      | The Three.js side of viewing mode: geo→world anchoring, knights that prefetch at 25 m and appear at 10 m, tap-to-play stories with a floating transcript, recycled breadcrumb trail. |
-| 9   | [Onboarding gate](components/onboarding/README.md)             | `/components/onboarding/`    | Camera/GPS permission checklist gating a Start button; the Start click doubles as the gesture that unlocks the Web Audio API.                                                        |
-| 10  | [Authoring tools](components/authoring/README.md)              | `/components/authoring/`     | Drop waypoints at the live (or replayed) GPS position, attach model/sprite/audio files, record the breadcrumb trail, export a real `tour.zip` via component 5.                       |
+| #   | Component                                                          | Demo path                        | What it is                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | [Clickable billboard](src/components/billboard/README.md)          | `/src/components/billboard/`     | Yaw-to-face sprite + spatialized audio + in-world transport panel (play/stop, seekable bar). Seed of the AR knight markers.                                                          |
+| 2   | [In-world text](src/components/in-world-text/README.md)            | `/src/components/in-world-text/` | Billboarded paginated text panel; HTML-in-3D backend with automatic `CanvasTexture` fallback (XR-safe).                                                                              |
+| 3   | [Tour data model + store](src/store/README.md)                     | `/src/components/store/`         | The §2.2 contract: schema types, `validateTour`, slices, selectors, the two store factories.                                                                                         |
+| 4   | [Proximity & zone machine](src/components/proximity/README.md)     | `/src/components/proximity/`     | `IDLE → PREFETCHING → ACTIVE` per waypoint with hysteresis, pure world-space (X/Z), no GPS/geo math. Replay-tested.                                                                  |
+| 5   | [Packaging & QR](src/components/packaging/README.md)               | `/src/components/packaging/`     | Bundles a `Tour` + asset files into an **uncompressed** `tour.zip`; turns the hosted URL into a scannable viewing link.                                                              |
+| 6   | [Cloud-storage tour source](src/components/cloud-loader/README.md) | `/src/components/cloud-loader/`  | `?tour=<zipUrl>` → running tour: byte-range reads of the hosted ZIP, `AssetProvider` by id, local warm copy, no-range fallback.                                                      |
+| 7   | [2D map overview](src/components/map/README.md)                    | `/src/components/map/`           | Toggleable real-time Leaflet map (plain DOM, no Three.js): visitor dot + waypoint markers recoloured by the real proximity driver.                                                   |
+| 8   | [AR viewing scene](src/components/ar-scene/README.md)              | `/src/components/ar-scene/`      | The Three.js side of viewing mode: geo→world anchoring, knights that prefetch at 25 m and appear at 10 m, tap-to-play stories with a floating transcript, recycled breadcrumb trail. |
+| 9   | [Onboarding gate](src/components/onboarding/README.md)             | `/src/components/onboarding/`    | Camera/GPS permission checklist gating a Start button; the Start click doubles as the gesture that unlocks the Web Audio API.                                                        |
+| 10  | [Authoring tools](src/components/authoring/README.md)              | `/src/components/authoring/`     | Drop waypoints at the live (or replayed) GPS position, attach model/sprite/audio files, record the breadcrumb trail, export a real `tour.zip` via component 5.                       |
 
 Supporting directories (not runnable components):
 
-- `components/shared/` — cross-component pure helpers (`billboard-math`,
+- `src/components/shared/` — cross-component pure helpers (`billboard-math`,
   `canvas-panel`, `panel-geometry`, `tap-gate`, `pointer-tap-picker`,
   `playback-loop`, `resize`, `clamp`, demo CSS). Defined once so the
   duplication gate stays green; a component may import these, never another
   component's internals.
-- `store/` — lives at the package root, not under `components/`. Dependencies
+- `src/store/` — lives at the `src/` root, not under `src/components/`. Dependencies
   flow **components → store** only (enforced by
   `config/.dependency-cruiser.cjs`).
 - `scripts/` — fixture generators (`make-fixtures.mjs`,
@@ -86,10 +86,25 @@ Supporting directories (not runnable components):
   authoring demos.
 - `public/` — generated throwaway fixtures. A real tour ships GLB/MP3/OGG.
 
+## Package layout
+
+All source lives under `src/` (matching every other package in the repo); only
+config, `scripts/`, `public/` and the gallery `index.html` sit at the package
+root.
+
+```
+src/
+  components/<name>/   one folder per component (see below)
+  store/               the shared §2.2 contract — the `src/` root, not a component
+```
+
+Because each component's demo page lives next to its code, the dev URLs carry
+the `src/` prefix too: `http://localhost:8185/src/components/billboard/`.
+
 ## Structure of a component
 
 ```
-components/<name>/
+src/components/<name>/
   core/        pure, framework-free logic + unit tests — never imports Three.js or DOM
   view/        Three.js / DOM layer (raycasting, CanvasTexture, audio, fetch) + replay e2e
   demo.ts      the standalone demo for this one component
@@ -107,27 +122,27 @@ still **THREE-free and DOM-free** — dependency-cruiser enforces that boundary.
 
 ## Two test levels
 
-1. **Unit tests** for all pure logic, colocated in `core/` (and `store/`).
+1. **Unit tests** for all pure logic, colocated in `core/` (and `src/store/`).
 2. **Replay e2e** on top, for anything with a movement dependency: real outdoor
    recordings from `recordings/` are fed through `replayRecording` so the
    component runs deterministically on a desktop with no phone. Today:
-   - `components/proximity/view/proximity-replay.e2e.test.ts`
-   - `components/map/view/tour-map-replay.e2e.test.ts`
-   - `components/ar-scene/runtime/tour-scene-replay.e2e.test.ts`
-   - `components/authoring/view/authoring-session-replay.e2e.test.ts`
+   - `src/components/proximity/view/proximity-replay.e2e.test.ts`
+   - `src/components/map/view/tour-map-replay.e2e.test.ts`
+   - `src/components/ar-scene/runtime/tour-scene-replay.e2e.test.ts`
+   - `src/components/authoring/view/authoring-session-replay.e2e.test.ts`
 
    Component 6 additionally has a network integration test against a local
    fixture server.
 
 Both levels run under plain `vitest` (`vitest.config.ts` collects
-`components/**/*.test.ts` + `store/**/*.test.ts`) — there is no Playwright in
+`src/**/*.test.ts`) — there is no Playwright in
 this package.
 
 ## Adding a component
 
 1. Write a dated plan in `plans/` (`YYYY-MM-DD-<name>-plan.md`) and iterate it
    before coding.
-2. Create `components/<name>/{core,view}/`, `demo.ts`, `index.html`, `README.md`.
+2. Create `src/components/<name>/{core,view}/`, `demo.ts`, `index.html`, `README.md`.
 3. Register the page in `vite.config.ts` (`build.rollupOptions.input`) and link
    it from the root `index.html` gallery.
 4. Tests first; keep `core` free of Three.js and DOM.

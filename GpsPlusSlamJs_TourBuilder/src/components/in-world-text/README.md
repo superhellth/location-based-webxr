@@ -20,7 +20,7 @@ pure and backend-agnostic, so the fallback is transparent.
 ## Run it
 
 ```bash
-pnpm dev   # then open http://localhost:8185/components/in-world-text/
+pnpm dev   # then open http://localhost:8185/src/components/in-world-text/
 ```
 
 Drag to orbit — labels stay upright and face you. Click a label's **Prev / Next**

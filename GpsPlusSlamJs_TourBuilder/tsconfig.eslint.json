@@ -5,8 +5,7 @@
     "types": ["vite/client", "node", "vitest/globals"]
   },
   "include": [
-    "components/**/*.ts",
-    "store/**/*.ts",
+    "src/**/*.ts",
     "config/**/*",
     "vite.config.ts"
   ],

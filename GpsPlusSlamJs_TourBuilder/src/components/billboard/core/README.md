@@ -6,7 +6,7 @@ output, so it runs on a desktop with no phone and is reused verbatim by the AR
 scene (component 8). The `view/` layer applies these results as side effects.
 
 > The face-the-user yaw (`computeBillboardYaw`) and `clamp01` now live in
-> [`components/shared/`](../../shared/README.md) because component 2 reuses them
+> [`src/components/shared/`](../../shared/README.md) because component 2 reuses them
 > too; this folder imports them from there.
 
 ## Modules
@@ -58,12 +58,12 @@ executes on one billboard's panel + audio element: `panelVisible`,
   seeking it is pointless (a later click restarts from 0).
 
 `panel-layout` builds on the shared `Rect` + `contains` UV-geometry primitive and
-the shared `clamp01`, both from [`components/shared/`](../../shared/README.md).
+the shared `clamp01`, both from [`src/components/shared/`](../../shared/README.md).
 
 ## Tests
 
 Every module here has a colocated `*.test.ts` (the shared `billboard-math` and
-`panel-geometry` are tested under `components/shared/`):
+`panel-geometry` are tested under `src/components/shared/`):
 
 - `playback-transport.test.ts` — click start/switch/restart (duration kept),
   toggle, seek (incl. clamp), tick, ended-at-end, the ignored stale `ended`

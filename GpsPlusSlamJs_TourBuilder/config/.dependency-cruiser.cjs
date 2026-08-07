@@ -4,9 +4,9 @@ module.exports = {
     doNotFollow: { path: "node_modules" },
     // `three` itself is included (but never followed, see doNotFollow) so the
     // ar-scene runtime boundary rule below has an edge to match on — with a
-    // components/store-only graph, external imports simply vanish and the rule
+    // src/components/store-only graph, external imports simply vanish and the rule
     // could never fire.
-    includeOnly: ["^components", "^store", "node_modules/three/"],
+    includeOnly: ["^src/components", "^src/store", "node_modules/three/"],
     reporterOptions: { dot: { collapsePattern: "node_modules/[^/]*" } },
     enhancedResolveOptions: {
       exportsFields: ["exports"],
@@ -19,10 +19,10 @@ module.exports = {
     {
       name: "store-not-to-components",
       comment:
-        "store/ is the shared contract (Component 3). It must not import from feature components — dependencies flow components → store only.",
+        "src/store/ is the shared contract (Component 3). It must not import from feature components — dependencies flow components → store only.",
       severity: "error",
-      from: { path: "^store/" },
-      to: { path: "^components/" },
+      from: { path: "^src/store/" },
+      to: { path: "^src/components/" },
     },
 
     // Component 8's three-layer split (plan A20): `runtime/` orchestrates the
@@ -34,10 +34,10 @@ module.exports = {
     {
       name: "ar-scene-runtime-not-to-three",
       comment:
-        "components/ar-scene/runtime must not depend on three at runtime — render through the SceneAdapter port instead (plan A20).",
+        "src/components/ar-scene/runtime must not depend on three at runtime — render through the SceneAdapter port instead (plan A20).",
       severity: "error",
       from: {
-        path: "^components/ar-scene/runtime/",
+        path: "^src/components/ar-scene/runtime/",
         // Tests and the fake adapter STAND IN for the view layer, so they are
         // allowed to build real THREE objects (positions, matrices).
         pathNot: "\\.test\\.ts$|fake-scene-adapter\\.ts$",
