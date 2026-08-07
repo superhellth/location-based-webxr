@@ -248,6 +248,90 @@ describe("mountAuthoringView", () => {
     });
   });
 
+  it("shows an empty-state message when there are no waypoints, and hides it once one exists", () => {
+    const { root, store } = harness();
+    expect(byTestId(root, "waypoints-empty")).toBeTruthy();
+
+    store.setState(
+      draft({
+        waypoints: [
+          {
+            id: "wp-1",
+            position: { lat: 1, lon: 2 },
+            prefetchRadius: 25,
+            activeRadius: 10,
+            content: {},
+          },
+        ],
+      }),
+    );
+
+    expect(root.querySelector('[data-testid="waypoints-empty"]')).toBeNull();
+  });
+
+  it("shows the attached asset's filename from state, and it survives an unrelated re-render (U5)", () => {
+    const withAttachment = draft({
+      assets: [
+        { id: "asset-1", type: "model", filename: "assets/asset-1.glb" },
+      ],
+      waypoints: [
+        {
+          id: "wp-1",
+          position: { lat: 1, lon: 2 },
+          prefetchRadius: 25,
+          activeRadius: 10,
+          content: { model: "asset-1" },
+        },
+      ],
+    });
+    const { root, store } = harness(withAttachment);
+
+    expect(byTestId(root, "asset-status-model-wp-1").textContent).toContain(
+      "assets/asset-1.glb",
+    );
+
+    // An unrelated state change (e.g. dropping a second waypoint) rebuilds
+    // the DOM from scratch — the attached filename must still read from
+    // `waypoint.content`, not a native <input> label that would reset.
+    store.setState({
+      ...withAttachment,
+      waypoints: [
+        ...withAttachment.waypoints,
+        {
+          id: "wp-2",
+          position: { lat: 5, lon: 6 },
+          prefetchRadius: 25,
+          activeRadius: 10,
+          content: {},
+        },
+      ],
+    });
+
+    expect(byTestId(root, "asset-status-model-wp-1").textContent).toContain(
+      "assets/asset-1.glb",
+    );
+  });
+
+  it("shows '(none)' for an asset slot with nothing attached", () => {
+    const { root } = harness(
+      draft({
+        waypoints: [
+          {
+            id: "wp-1",
+            position: { lat: 1, lon: 2 },
+            prefetchRadius: 25,
+            activeRadius: 10,
+            content: {},
+          },
+        ],
+      }),
+    );
+
+    expect(byTestId(root, "asset-status-model-wp-1").textContent).toContain(
+      "(none)",
+    );
+  });
+
   it("destroy() unsubscribes from the store and clears the DOM", () => {
     const { root, store, view } = harness();
     view.destroy();

@@ -6,10 +6,15 @@
  * `tour.zip` via component 5's already-approved `packTour`.
  *
  * No Three.js, no canvas (plan AU1) — a plain DOM page, same spirit as
- * packaging's demo. `mountAuthoringView` renders the waypoint list, radius
- * inputs, asset file inputs, and its own Drop Waypoint / Export buttons; this
- * file only wires the position source, the store, and what "Export" does.
+ * packaging's demo. `mountAuthoringView` renders the tour-details/waypoints/
+ * export sections; this file wires the position source, the store, a
+ * read-only map (component 7, visualization only — plan
+ * 2026-08-07-authoring-demo-ux-plan.md U2/U3), and what "Export" does.
  */
+
+import "leaflet/dist/leaflet.css";
+
+import { buildMapData } from "gps-plus-slam-app-framework/visualization/map-data";
 
 import { authoringReducer } from "../../store/authoring-slice.js";
 import type { AuthoringSliceState } from "../../store/authoring-slice.js";
@@ -17,11 +22,14 @@ import { PackagingError } from "../packaging/core/pack-tour.js";
 import { packTour } from "../packaging/core/pack-tour.js";
 import { downloadBlob } from "../packaging/view/download-blob.js";
 import { createPlaybackLoop } from "../shared/playback-loop.js";
+import { computeMarkerViewModels } from "../map/core/map-marker-state.js";
+import { createTourMap } from "../map/view/tour-map.js";
 import { createAuthoringSession } from "./view/authoring-session.js";
 import { createFilesAssetProvider } from "./view/files-asset-provider.js";
 import { createLiveGpsPositionSource } from "./view/gps-position-source.js";
 import { mountAuthoringView } from "./view/authoring-view.js";
 import type { PositionSource } from "./view/gps-position-source.js";
+import type { TourCoord } from "../../store/types.js";
 import track from "./demo-track.json";
 
 const el = <T extends HTMLElement>(id: string): T =>
@@ -56,10 +64,30 @@ const store = {
   dispatch,
 };
 
-// ── Position source: swappable between live GPS and the replayed track. ───
-let positionListener:
-  | ((pos: { lat: number; lon: number; altitude?: number }) => void)
-  | null = null;
+// ── Map (component 7) — read-only visualization, not part of component 10's
+// own scope (plan U2). Composed here purely for the demo. ─────────────────
+const mapHost = el<HTMLDivElement>("map-host");
+const tourMap = createTourMap(mapHost)!;
+tourMap.show();
+
+function refreshMapWaypoints(): void {
+  tourMap.setWaypoints(
+    computeMarkerViewModels(authoringState.waypoints, [], null),
+  );
+}
+function updateMapPosition(pos: TourCoord): void {
+  tourMap.setGpsPosition(pos.lat, pos.lon);
+  tourMap.render(
+    buildMapData({ userPosition: { lat: pos.lat, lng: pos.lon } }),
+  );
+}
+listeners.add(refreshMapWaypoints);
+refreshMapWaypoints();
+
+// ── Position source: swappable between live GPS and the replayed track.
+// Wrapped so every fix (live or replayed) also updates the map, without
+// authoring-session.ts knowing the map exists. ────────────────────────────
+let positionListener: ((pos: TourCoord) => void) | null = null;
 const replaySource: PositionSource = {
   subscribe(onPosition) {
     positionListener = onPosition;
@@ -70,9 +98,20 @@ const replaySource: PositionSource = {
 };
 const liveSource = createLiveGpsPositionSource();
 
+function withMapSync(source: PositionSource): PositionSource {
+  return {
+    subscribe(onPosition) {
+      return source.subscribe((pos) => {
+        updateMapPosition(pos);
+        onPosition(pos);
+      });
+    },
+  };
+}
+
 const filesAssetProvider = createFilesAssetProvider();
 let session = createAuthoringSession({
-  positionSource: replaySource,
+  positionSource: withMapSync(replaySource),
   dispatch,
   getState: store.getState,
   filesAssetProvider,
@@ -81,7 +120,7 @@ let session = createAuthoringSession({
 function switchMode(mode: "live" | "replay"): void {
   session.destroy();
   session = createAuthoringSession({
-    positionSource: mode === "live" ? liveSource : replaySource,
+    positionSource: withMapSync(mode === "live" ? liveSource : replaySource),
     dispatch,
     getState: store.getState,
     filesAssetProvider,
