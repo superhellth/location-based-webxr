@@ -144,6 +144,7 @@ export default defineConfig({
         ),
         map: resolve(__dirname, "components/map/index.html"),
         arScene: resolve(__dirname, "components/ar-scene/index.html"),
+        onboarding: resolve(__dirname, "components/onboarding/index.html"),
       },
     },
   },
