@@ -59,11 +59,19 @@ Details** (labeled name/description inputs → `setTourMeta`), **Waypoints**
 (a Drop Waypoint button → `session.dropWaypoint()`, then either an
 empty-state message or a card per waypoint — a numbered heading with the
 real id as a secondary badge, labeled radius inputs → `updateWaypoint`, a
-remove button → `removeWaypoint`, and one labeled row per asset slot), and
-**Export** (→ `session.exportTour()`, forwarded to the injected
-`onExport`). Reacts to store changes via an injected `subscribe`/`getState`
-pair rather than owning state — the `authoring` slice (component 3) is the
-single source of truth. `destroy()` unsubscribes and clears the DOM.
+remove button → `removeWaypoint`, one labeled row per asset slot, and a
+transcript textarea → `updateWaypoint({changes: {content: {transcript}}})`
+— the reducer merges `content` rather than replacing it, so editing the
+transcript never clobbers an attached model/sprite/audio), and **Export**
+(→ `session.exportTour()`, forwarded to the injected `onExport`). Reacts to
+store changes via an injected `subscribe`/`getState` pair rather than
+owning state — the `authoring` slice (component 3) is the single source of
+truth. `destroy()` unsubscribes and clears the DOM.
+
+The transcript field is the one piece of `WaypointContent` that isn't asset-
+backed (contract D4 — it's inline text, not a file) and was missing from
+the original implementation; the store side (`updateWaypoint`) already
+supported it from component 3 onward.
 
 **Attached-asset filenames are read from `waypoint.content` / `authoring.
 assets`, never from a native `<input type="file">`'s own "chosen file"

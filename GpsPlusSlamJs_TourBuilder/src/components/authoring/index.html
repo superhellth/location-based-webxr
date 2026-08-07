@@ -75,13 +75,19 @@
         font-size: 13px;
         color: #9aa7bd;
       }
-      .field input {
+      .field input,
+      .field textarea {
         padding: 6px 8px;
         background: #10131a;
         border: 1px solid #2a3550;
         border-radius: 6px;
         color: #e9eef7;
         font-size: 14px;
+        font-family: inherit;
+      }
+      .field textarea {
+        min-height: 60px;
+        resize: vertical;
       }
 
       /* ── Waypoints ─────────────────────────────────────────────────── */
