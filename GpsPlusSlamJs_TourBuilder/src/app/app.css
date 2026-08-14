@@ -243,16 +243,15 @@ p[data-testid="qr-status"] {
 }
 
 .map-card {
+  /* `.map-card` is the Leaflet container element itself (see tour-map.ts) —
+     no wrapper div — so its own box must carry the explicit height Leaflet
+     needs to size tiles against, not a `> div` child selector. */
+  height: 260px;
   padding: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-}
-
-.map-card > div {
-  height: 260px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  background-clip: padding-box;
 }
 
 /* ── Authoring view (component 10 — styled via its own classNames) ──────── */
@@ -399,7 +398,7 @@ p[data-testid="qr-status"] {
 /* ── Small screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 400px) {
-  .map-card > div {
+  .map-card {
     height: 200px;
   }
 

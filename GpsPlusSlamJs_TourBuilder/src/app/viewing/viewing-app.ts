@@ -339,11 +339,6 @@ export function mountViewingApp(
     if (tour === null) return;
     clearScreen();
     void acquireWakeLock();
-    arHost.appendChild(mapHost);
-    ensureMap();
-    map?.show();
-    map?.resize();
-    mapVisible = true;
 
     const visitedCount = selectVisitedWaypointIds(store.getState()).length;
     const entry = mountTourEntryScreen(arHost, {
@@ -357,6 +352,13 @@ export function mountViewingApp(
     });
     entryScreen = entry;
     screen = entry;
+
+    // mapHost is now parented at its final layout position (inside `entry`'s
+    // element) — only now does Leaflet's size measurement give a real box.
+    ensureMap();
+    map?.show();
+    map?.resize();
+    mapVisible = true;
 
     // Reflect what the controller already knows about this device.
     void controller.refreshSupport().then(() => {

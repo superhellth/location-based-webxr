@@ -90,6 +90,8 @@ export function createTourMap(
   let leafletMap: L.Map | null = L.map(container, {
     zoomControl: true,
     attributionControl: false,
+    center: [0, 0],
+    zoom: DEFAULT_ZOOM,
   });
   const tileLayer = L.tileLayer(tileServerUrl, { maxZoom: MAX_ZOOM });
   tileLayer.on("tileerror", (e: L.TileErrorEvent) => {
@@ -133,6 +135,17 @@ export function createTourMap(
 
     setWaypoints(markers: readonly WaypointMarkerViewModel[]): void {
       if (!leafletMap) return;
+      // Before any GPS fix exists (e.g. the entry screen, ahead of AR), the
+      // map would otherwise sit on the [0, 0] fallback center — null island,
+      // not the tour. Center on the waypoints themselves the first time any
+      // arrive; a later real GPS fix still just pans (untouched zoom).
+      if (!hasCenteredOnce && markers.length > 0) {
+        const bounds = L.latLngBounds(
+          markers.map((m) => [m.position.lat, m.position.lon]),
+        );
+        leafletMap.fitBounds(bounds, { maxZoom: DEFAULT_ZOOM, padding: [40, 40] });
+        hasCenteredOnce = true;
+      }
       for (const marker of waypointMarkers) marker.remove();
       waypointMarkers = markers.map((m) => {
         const size = m.status === "next" ? NEXT_MARKER_SIZE_PX : MARKER_SIZE_PX;
