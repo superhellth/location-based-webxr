@@ -1,0 +1,383 @@
+/**
+ * Goal-2 composition stylesheet (src/app/). Operate-mode UI (task
+ * completion, not persuasion) — scanability and consistency over
+ * expression. Tokens match the palette every component demo already
+ * established (shared/demo.css + each demo's own <style> block); this file
+ * is the piece that was missing — the composed app rendered those
+ * components' real classes/testids with no stylesheet supplying them.
+ *
+ * Also supplies the CSS for component 9's onboarding gate (no classNames of
+ * its own — targeted here via its stable [data-testid] attributes, so
+ * component 9's source stays untouched) and component 10's authoring view
+ * (targeted via its existing classNames, same reasoning).
+ */
+
+:root {
+  --bg: #10131a;
+  --surface: rgb(255 255 255 / 3%);
+  --surface-hover: rgb(255 255 255 / 6%);
+  --border: #2a3550;
+  --border-strong: #3d5488;
+  --text: #e9eef7;
+  --text-muted: #9aa7bd;
+  --accent: #9ec1ff;
+  --primary: #3d5488;
+  --primary-hover: #4d6bb0;
+  --success: #6ee7a8;
+  --success-bg: rgb(110 231 168 / 12%);
+  --error: #f87171;
+  --error-bg: rgb(248 113 113 / 12%);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-full: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --duration-fast: 140ms;
+  --duration-base: 200ms;
+}
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
+#app-root {
+  min-height: 100dvh;
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+#app-root > * {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* ── Generic controls (shared by every screen this file styles) ─────────── */
+
+button {
+  font: inherit;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-4);
+  background: #1b2338;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    opacity var(--duration-base) var(--ease-out);
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary,
+.gate-card [data-testid="start"] {
+  background: var(--primary);
+  border-color: var(--primary-hover);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled),
+.gate-card [data-testid="start"]:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+label,
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+input,
+textarea {
+  font: inherit;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  transition: border-color var(--duration-base) var(--ease-out);
+}
+
+textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Status text driven by dataset.state = "ok" | "error" (AC13). */
+p[data-testid$="-status"],
+p[data-testid="pack-status"],
+p[data-testid="qr-status"] {
+  min-height: 1.2em;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+[data-state="ok"] {
+  color: var(--success);
+}
+
+[data-state="error"] {
+  color: var(--error);
+}
+
+/* ── Onboarding gate (component 9 — no classNames, styled via testid) ──── */
+
+.gate-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.gate-card [data-testid^="row-"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.gate-card [data-testid^="explanation-"] {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  /* overrides the inline style="color: red" component 9 sets directly, so
+     the warning matches this theme's error tone instead of a raw browser
+     red (component 9's own source is untouched — this is a CSS override) */
+  color: var(--error) !important;
+}
+
+.gate-card > div[data-testid^="row-"] {
+  flex-wrap: wrap;
+}
+
+.gate-card button {
+  width: 100%;
+}
+
+/* ── Resume-draft prompt ──────────────────────────────────────────────── */
+
+.resume-prompt {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.resume-prompt p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.resume-prompt-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* ── Authoring tools shell ────────────────────────────────────────────── */
+
+.tools-shell {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.status-banner {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 13px;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.status-banner:empty {
+  display: none;
+}
+
+.map-card {
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.map-card > div {
+  height: 260px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* ── Authoring view (component 10 — styled via its own classNames) ──────── */
+
+.authoring-section {
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.authoring-section h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.empty-state {
+  margin: var(--space-3) 0 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.waypoint-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.waypoint-card {
+  padding: var(--space-3);
+  background: rgb(255 255 255 / 3%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.waypoint-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.waypoint-card-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.waypoint-card-header button {
+  margin-left: auto;
+  width: auto;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+}
+
+.id-badge {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.asset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.asset-row label {
+  margin-bottom: 0;
+}
+
+.asset-status {
+  color: var(--success);
+}
+
+/* ── Pack & share panel ───────────────────────────────────────────────── */
+
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+/* ── Viewing placeholder ──────────────────────────────────────────────── */
+
+.viewing-placeholder {
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Small screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 400px) {
+  .map-card > div {
+    height: 200px;
+  }
+
+  .resume-prompt-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.001ms !important;
+  }
+}

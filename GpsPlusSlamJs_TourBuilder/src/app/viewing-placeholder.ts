@@ -8,6 +8,7 @@ export function mountViewingPlaceholder(root: HTMLElement): {
   destroy(): void;
 } {
   const message = document.createElement("p");
+  message.className = "viewing-placeholder";
   message.textContent =
     "Viewing mode composition lands next — this build only composes Authoring mode.";
   root.appendChild(message);

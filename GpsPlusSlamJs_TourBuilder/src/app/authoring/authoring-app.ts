@@ -44,6 +44,7 @@ import {
 /** Mounts the composed Authoring-mode flow into `root`. */
 export function mountAuthoringApp(root: HTMLElement): { destroy(): void } {
   const gateHost = document.createElement("div");
+  gateHost.className = "gate-card";
   root.appendChild(gateHost);
 
   const gate = mountOnboardingGate(gateHost, {
@@ -76,19 +77,20 @@ async function startAuthoringFlow(root: HTMLElement): Promise<void> {
   }
 
   const promptHost = document.createElement("div");
-  promptHost.style.maxWidth = "480px";
-  promptHost.style.margin = "32px auto";
-  promptHost.style.display = "grid";
-  promptHost.style.gap = "10px";
+  promptHost.className = "resume-prompt";
 
   const message = document.createElement("p");
   message.textContent =
     "An interrupted authoring session was found. Resume it, or discard and start fresh?";
+  const actions = document.createElement("div");
+  actions.className = "resume-prompt-actions";
   const resumeButton = document.createElement("button");
+  resumeButton.className = "primary";
   resumeButton.textContent = "Resume previous draft";
   const discardButton = document.createElement("button");
   discardButton.textContent = "Discard and start fresh";
-  promptHost.append(message, resumeButton, discardButton);
+  actions.append(resumeButton, discardButton);
+  promptHost.append(message, actions);
   root.appendChild(promptHost);
 
   resumeButton.addEventListener("click", () => {
@@ -108,11 +110,7 @@ async function mountAuthoringTools(
   resumeSessionName?: string,
 ): Promise<void> {
   const toolsHost = document.createElement("div");
-  toolsHost.style.maxWidth = "640px";
-  toolsHost.style.margin = "24px auto 48px";
-  toolsHost.style.padding = "0 16px";
-  toolsHost.style.display = "grid";
-  toolsHost.style.gap = "16px";
+  toolsHost.className = "tools-shell";
   root.appendChild(toolsHost);
 
   const store = createAuthoringStore();
@@ -153,14 +151,13 @@ async function mountAuthoringTools(
   // AC13: explicit waiting state until the first live GPS fix arrives —
   // Drop Waypoint has nothing to drop at until then.
   const gpsStatus = document.createElement("p");
+  gpsStatus.className = "status-banner";
   gpsStatus.textContent = "Waiting for a live GPS fix…";
   toolsHost.appendChild(gpsStatus);
 
   const mapSection = document.createElement("section");
+  mapSection.className = "map-card";
   const mapHost = document.createElement("div");
-  mapHost.style.height = "260px";
-  mapHost.style.borderRadius = "8px";
-  mapHost.style.overflow = "hidden";
   mapSection.appendChild(mapHost);
   toolsHost.appendChild(mapSection);
   const tourMap = createTourMap(mapHost);

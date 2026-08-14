@@ -31,12 +31,14 @@ export function mountPackAndSharePanel(
   deps: PackAndSharePanelDeps,
 ): { destroy(): void } {
   const section = document.createElement("section");
+  section.className = "panel";
 
   const heading = document.createElement("h2");
   heading.textContent = "Pack & share";
   section.appendChild(heading);
 
   const packButton = document.createElement("button");
+  packButton.className = "primary";
   packButton.dataset.testid = "pack-tour";
   packButton.textContent = "Pack tour";
   section.appendChild(packButton);
@@ -61,6 +63,7 @@ export function mountPackAndSharePanel(
   section.appendChild(zipUrlLabel);
 
   const generateButton = document.createElement("button");
+  generateButton.className = "primary";
   generateButton.dataset.testid = "generate-qr";
   generateButton.textContent = "Generate QR";
   section.appendChild(generateButton);
