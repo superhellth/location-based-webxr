@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import { resolve } from "node:path";
 import { Readable } from "node:stream";
 
-import { normalizeShareUrl } from "./src/components/cloud-loader/core/share-link.js";
+import { normalizeShareUrl } from "gps-plus-slam-app-framework/storage";
 
 // Dev-only CORS proxy for Component 6, mirroring the production Cloudflare
 // Worker's `?u=` interface so a demo `?tour=` URL is identical in both. The
@@ -147,6 +147,10 @@ export default defineConfig({
         arScene: resolve(__dirname, "src/components/ar-scene/index.html"),
         onboarding: resolve(__dirname, "src/components/onboarding/index.html"),
         authoring: resolve(__dirname, "src/components/authoring/index.html"),
+        desktopPreview: resolve(
+          __dirname,
+          "src/components/desktop-preview/index.html",
+        ),
       },
     },
   },

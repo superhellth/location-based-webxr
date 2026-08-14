@@ -2,7 +2,7 @@
  * TourBuilder app entry (Goal-2 composition). Mode is decided once, at
  * bootstrap, by `?tour=` presence (contract D13) — see `mode.ts`.
  */
-import { resolveAppMode } from "./mode.js";
+import { isPreviewRequested, resolveAppMode } from "./mode.js";
 import { mountAuthoringApp } from "./authoring/authoring-app.js";
 import { mountViewingApp } from "./viewing/viewing-app.js";
 
@@ -19,5 +19,7 @@ if (mode === "authoring") {
 } else {
   // `?tour=` is read once, here: component 6 owns the zip reading and the
   // share-link normalisation, but not the URL parsing (its decision C3).
-  mountViewingApp(root, url.searchParams.get("tour") ?? "");
+  mountViewingApp(root, url.searchParams.get("tour") ?? "", {
+    forcePreview: isPreviewRequested(url),
+  });
 }

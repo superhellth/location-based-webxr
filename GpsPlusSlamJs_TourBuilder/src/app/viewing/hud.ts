@@ -13,6 +13,8 @@
 export interface HudOptions {
   readonly onToggleMap: () => void;
   readonly onEndTour: () => void;
+  /** Preview mode only: walk the breadcrumb automatically (VC25). */
+  readonly onToggleAutopilot?: () => void;
 }
 
 export interface Hud {
@@ -21,6 +23,8 @@ export interface Hud {
   /** One-shot notice: audio blocked, tiles offline, a failed asset. */
   showNotice(message: string): void;
   setMapToggleLabel(label: string): void;
+  /** No-op unless the HUD was mounted with an autopilot toggle. */
+  setAutopilotLabel(label: string): void;
   destroy(): void;
 }
 
@@ -52,6 +56,14 @@ export function mountHud(container: HTMLElement, options: HudOptions): Hud {
   endTour.dataset.testid = "viewing-end-tour";
   endTour.addEventListener("click", () => options.onEndTour());
 
+  const autopilot = document.createElement("button");
+  autopilot.textContent = "Auto-walk";
+  autopilot.dataset.testid = "viewing-autopilot";
+  if (options.onToggleAutopilot) {
+    autopilot.addEventListener("click", () => options.onToggleAutopilot?.());
+    controls.appendChild(autopilot);
+  }
+
   controls.append(mapToggle, endTour);
   element.append(status, notice, controls);
   container.appendChild(element);
@@ -67,6 +79,9 @@ export function mountHud(container: HTMLElement, options: HudOptions): Hud {
     },
     setMapToggleLabel(label) {
       mapToggle.textContent = label;
+    },
+    setAutopilotLabel(label) {
+      autopilot.textContent = label;
     },
     destroy() {
       element.remove();

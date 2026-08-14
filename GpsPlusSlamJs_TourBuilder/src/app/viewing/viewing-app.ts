@@ -62,6 +62,9 @@ import { TourLoadError } from "../../components/cloud-loader/core/errors.js";
 import { createTourMap } from "../../components/map/view/tour-map.js";
 import type { TourMapInstance } from "../../components/map/view/tour-map.js";
 import { computeMarkerViewModels } from "../../components/map/core/map-marker-state.js";
+import { createPreviewSession } from "../../components/desktop-preview/view/preview-session.js";
+import type { PreviewSession } from "../../components/desktop-preview/view/preview-session.js";
+import { computePreviewStart } from "../../components/desktop-preview/core/preview-start.js";
 import { requestWakeLock, type WakeLockHandle } from "../wake-lock.js";
 import {
   startArScene,
@@ -95,8 +98,14 @@ export interface ViewingAppDeps {
   readonly requestCameraPermission: typeof requestCameraPermission;
   readonly requestGeolocationPermission: typeof requestGeolocationPermission;
   readonly startArScene: typeof startArScene;
+  readonly createPreviewSession: typeof createPreviewSession;
   readonly arRuntime: ArRuntime;
   readonly progressStorage: ProgressStorage | null | undefined;
+  /**
+   * Offer the desktop preview even where AR works (`&preview=1`), so the
+   * preview can be checked on the same phone the tour is authored on.
+   */
+  readonly forcePreview: boolean;
 }
 
 const defaultArRuntime: ArRuntime = {
@@ -121,8 +130,10 @@ function defaultDeps(): ViewingAppDeps {
     requestCameraPermission,
     requestGeolocationPermission,
     startArScene,
+    createPreviewSession,
     arRuntime: defaultArRuntime,
     progressStorage: undefined,
+    forcePreview: false,
   };
 }
 
@@ -202,6 +213,7 @@ export function mountViewingApp(
   let hud: Hud | null = null;
   let map: TourMapInstance | null = null;
   let scene: ArSceneHandle | null = null;
+  let preview: PreviewSession | null = null;
   let wakeLock: WakeLockHandle | null = null;
   let audioContext: AudioContext | null = null;
   let tour: Tour | null = null;
@@ -348,6 +360,7 @@ export function mountViewingApp(
       visitedCount,
       mapHost,
       onEnterAr: () => void enterAr(),
+      onEnterPreview: () => enterPreview(),
       onRestartTour: () => restartTour(),
     });
     entryScreen = entry;
@@ -370,11 +383,14 @@ export function mountViewingApp(
 
   function applyControllerState(entry: TourEntryScreen): void {
     const { status, error } = controller.getState();
+    // VC25: without AR the tour is not over — the same scene runs in the
+    // desktop preview, so offer it rather than leaving a dead end.
+    entry.setPreviewOffered(deps.forcePreview || status === "unsupported");
     switch (status) {
       case "unsupported":
         entry.setEnterArEnabled(false);
         entry.setArStatus(
-          "AR is not available in this browser. You can still follow the tour on the map.",
+          "AR is not available in this browser. You can walk the tour on this screen instead, or follow it on the map.",
           "error",
         );
         break;
@@ -474,11 +490,12 @@ export function mountViewingApp(
     startInSession();
   }
 
-  function startInSession(): void {
-    if (tour === null || audioContext === null) return;
-    releaseWakeLock();
+  /** The HUD + map furniture every in-session mode shares. */
+  function mountSessionShell(options: {
+    onEndTour: () => void;
+    onToggleAutopilot?: () => void;
+  }): void {
     clearScreen();
-
     hud = mountHud(arHost, {
       onToggleMap: () => {
         mapVisible = !mapVisible;
@@ -489,11 +506,32 @@ export function mountViewingApp(
           map?.hide();
         }
       },
-      onEndTour: () => leaveAr("user"),
+      onEndTour: options.onEndTour,
+      ...(options.onToggleAutopilot
+        ? { onToggleAutopilot: options.onToggleAutopilot }
+        : {}),
     });
     arHost.appendChild(mapHost);
     map?.hide();
     mapVisible = false;
+  }
+
+  /** VC14: persist as the walk progresses, not only at the end. */
+  function subscribeProgress(): void {
+    let lastVisited = selectVisitedWaypointIds(store.getState());
+    unsubscribeProgress = store.subscribe(() => {
+      const visited = selectVisitedWaypointIds(store.getState());
+      if (visited === lastVisited || tour === null) return;
+      lastVisited = visited;
+      persistProgress(tour.id, [...visited], deps.progressStorage);
+      refreshMapMarkers();
+    });
+  }
+
+  function startInSession(): void {
+    if (tour === null || audioContext === null) return;
+    releaseWakeLock();
+    mountSessionShell({ onEndTour: () => leaveAr("user") });
 
     scene = deps.startArScene({
       store,
@@ -522,15 +560,77 @@ export function mountViewingApp(
     unsubscribeTracking = store.subscribe(applyGuidance);
     applyGuidance();
 
-    // VC14: persist as the walk progresses, not only at the end.
-    let lastVisited = selectVisitedWaypointIds(store.getState());
-    unsubscribeProgress = store.subscribe(() => {
-      const visited = selectVisitedWaypointIds(store.getState());
-      if (visited === lastVisited || tour === null) return;
-      lastVisited = visited;
-      persistProgress(tour.id, [...visited], deps.progressStorage);
-      refreshMapMarkers();
+    subscribeProgress();
+  }
+
+  // ── The desktop preview (VC25) ────────────────────────────────────────────
+
+  /**
+   * The same component-8 scene the phone runs, on a walkable desktop stand-in
+   * for the AR session: a pinned frame instead of GPS alignment, a keyboard
+   * instead of legs. Nothing below the runtime/seams boundary changes, which
+   * is the point — what a visitor previews is the real tour, not a mock-up.
+   */
+  function enterPreview(): void {
+    if (tour === null || audioContext === null || preview !== null) return;
+
+    const { origin, start, route } = computePreviewStart(tour);
+    mountSessionShell({
+      onEndTour: () => leavePreview(),
+      onToggleAutopilot: () => {
+        if (preview === null) return;
+        const next = !preview.isAutopilot();
+        preview.setAutopilot(next);
+        hud?.setAutopilotLabel(next ? "Stop auto-walk" : "Auto-walk");
+      },
     });
+
+    const session = deps.createPreviewSession({
+      container: arHost,
+      origin,
+      start,
+      route,
+      onPositionChange: (position) => {
+        map?.setGpsPosition(position.lat, position.lon);
+        map?.render(
+          buildMapData({
+            userPosition: { lat: position.lat, lng: position.lon },
+          }),
+        );
+      },
+    });
+    preview = session;
+    // The canvas must sit UNDER the HUD and the map, which were mounted first.
+    arHost.insertBefore(session.domElement, arHost.firstChild);
+
+    scene = deps.startArScene({
+      store,
+      assetProvider: assetProvider as never,
+      audioContext,
+      runtime: session.runtime,
+      seams: session.seams,
+      domElement: session.domElement,
+      onAudioBlocked: () => {
+        hud?.showNotice("Click the scene once to allow this story to play.");
+      },
+    });
+
+    hud?.setStatus(
+      "Preview — walk with W A S D, drag to look around, click a stop to hear it.",
+    );
+    subscribeProgress();
+  }
+
+  function leavePreview(): void {
+    unsubscribeProgress?.();
+    unsubscribeProgress = null;
+    scene?.dispose();
+    scene = null;
+    preview?.dispose();
+    preview = null;
+    hud?.destroy();
+    hud = null;
+    if (!destroyed) mountEntry();
   }
 
   /**
@@ -562,6 +662,7 @@ export function mountViewingApp(
       unsubscribeProgress?.();
       unsubscribeTracking?.();
       scene?.dispose();
+      preview?.dispose();
       hud?.destroy();
       clearScreen();
       map?.destroy();

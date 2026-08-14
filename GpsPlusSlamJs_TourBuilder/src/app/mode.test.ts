@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAppMode } from "./mode.js";
+import { resolveAppMode, isPreviewRequested } from "./mode.js";
 
 describe("resolveAppMode", () => {
   it("resolves to viewing when ?tour= is present", () => {
@@ -23,5 +23,25 @@ describe("resolveAppMode", () => {
     expect(resolveAppMode(new URL("https://app.example/?debug=1"))).toBe(
       "authoring",
     );
+  });
+});
+
+describe("isPreviewRequested", () => {
+  it("is asked for by ?preview=1", () => {
+    expect(
+      isPreviewRequested(new URL("https://app.example/?tour=x&preview=1")),
+    ).toBe(true);
+  });
+
+  it("is not asked for by default", () => {
+    expect(isPreviewRequested(new URL("https://app.example/?tour=x"))).toBe(
+      false,
+    );
+  });
+
+  it("is not asked for by ?preview=0", () => {
+    expect(
+      isPreviewRequested(new URL("https://app.example/?tour=x&preview=0")),
+    ).toBe(false);
   });
 });
