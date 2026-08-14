@@ -388,6 +388,24 @@ p[data-testid="qr-status"] {
   justify-content: flex-end;
 }
 
+/* Desktop preview: the rendered world stands in for the camera feed, so it
+   fills the viewport and sits BELOW the HUD and the map in the stack, exactly
+   where the camera feed sits in a real session. */
+.preview-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.preview-canvas:active {
+  cursor: grabbing;
+}
+
 /* The map card is re-parented between the entry screen and the in-session
    overlay, so it must look right in both. */
 .ar-container .map-card {

@@ -147,6 +147,10 @@ export default defineConfig({
         arScene: resolve(__dirname, "src/components/ar-scene/index.html"),
         onboarding: resolve(__dirname, "src/components/onboarding/index.html"),
         authoring: resolve(__dirname, "src/components/authoring/index.html"),
+        desktopPreview: resolve(
+          __dirname,
+          "src/components/desktop-preview/index.html",
+        ),
       },
     },
   },
