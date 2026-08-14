@@ -2,10 +2,15 @@ import { defineConfig } from "vitest/config";
 
 // Vitest scoping for TourBuilder: collect the colocated tests under
 // src/components/ (each component's pure `core/` plus node-runnable view-layer
-// tests, e.g. the proximity replay e2e) and the shared contract in src/store/.
-// Browser-only view layers are exercised manually via the demos (`pnpm dev`).
+// tests, e.g. the proximity replay e2e), the shared contract in src/store/,
+// and the Goal-2 composition layer in src/app/. Browser-only view layers are
+// exercised manually via the demos (`pnpm dev`).
 export default defineConfig({
   test: {
-    include: ["src/components/**/*.test.ts", "src/store/**/*.test.ts"],
+    include: [
+      "src/components/**/*.test.ts",
+      "src/store/**/*.test.ts",
+      "src/app/**/*.test.ts",
+    ],
   },
 });

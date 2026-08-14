@@ -6,7 +6,12 @@ module.exports = {
     // ar-scene runtime boundary rule below has an edge to match on — with a
     // src/components/store-only graph, external imports simply vanish and the rule
     // could never fire.
-    includeOnly: ["^src/components", "^src/store", "node_modules/three/"],
+    includeOnly: [
+      "^src/components",
+      "^src/store",
+      "^src/app",
+      "node_modules/three/",
+    ],
     reporterOptions: { dot: { collapsePattern: "node_modules/[^/]*" } },
     enhancedResolveOptions: {
       exportsFields: ["exports"],
@@ -23,6 +28,19 @@ module.exports = {
       severity: "error",
       from: { path: "^src/store/" },
       to: { path: "^src/components/" },
+    },
+
+    // Goal-2 composition boundary: src/app/ composes components/store, never
+    // the other way around — a component or the store reaching UP into the
+    // composition layer would break "components first, composition last"
+    // and the individual-demo-ability every component is built to keep.
+    {
+      name: "components-and-store-not-to-app",
+      comment:
+        "src/components/ and src/store/ must not import from src/app/ — dependencies flow app → components/store only (mirrors store-not-to-components).",
+      severity: "error",
+      from: { path: "^src/(components|store)/" },
+      to: { path: "^src/app/" },
     },
 
     // Component 8's three-layer split (plan A20): `runtime/` orchestrates the
