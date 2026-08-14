@@ -54,7 +54,7 @@ This plan adds the first real composition layer, `src/app/`.
 | AC7 | A **composed-flow test** proves the wiring: mock the framework's four permission functions to auto-grant, mount the real onboarding gate → drive the real authoring session against the real Task 1 raw-GPS replay track (`components/authoring/demo-track.json`, already a fixture) → drop ≥1 waypoint, attach one fixture asset → export → real `packTour` → unzip the result and assert `validateTour` passes on the recovered `tour.json` and every entry is store-mode (no DEFLATE). | TASK.md §2.4 explicitly mandates this proof for viewing mode ("prove the whole composed flow the same deterministic way... this is the test that proves all the pieces are plugged together correctly, not just individually correct"); applying the same bar to authoring mode is a direct extension of that spirit, and it is the first real exercise of the components wired together rather than against fakes. |
 | AC8 | No root-gate or `build:site` changes in this plan. | Reserved for a later, separate pass — see "What this plan does NOT do". |
 | AC9 | No throwaway prototype round. | Established project convention — this is deployment-target work, not a prototype. |
-| AC10 | **Durable draft persistence via `OpfsStorageBackend`** (swap for `createAuthoringStore()`'s default `NullStorageBackend`) plus a new `restoreAuthoringDraft` step at mount that replays a found interrupted session's `authoring/*` actions back through `authoringReducer` and prompts the author to resume or discard. | A real author walks a route for 10–30+ min; RAM-only state (the store README: "no rehydration path") means a crash/reload loses the whole walk. Repo has **zero** IndexedDB precedent; `OpfsStorageBackend` is the established, tested mechanism for exactly this (RecorderApp), matches the Chrome/Android target (TASK.md), and D12 already frames `authoring` as "persisted/recordable... mirrors recorder's `refPoints` persistence." The write side is close to free (backend swap); the **read-back/rehydrate side is new code** — no existing function reads live OPFS actions back into a store, only `writeAction`/`listSessions`/zip-export-time reads. |
+| AC10 | **Durable draft persistence via direct `opfs-storage.ts` calls — NOT `OpfsStorageBackend`.** Redesigned mid-implementation (see note below): a small module (`restore-authoring-draft.ts`) calls the framework's low-level OPFS primitives itself (`initOpfsStorage`, `createSession`, `writeAction`, `listSessions`, `getSessionsRootHandle`, `setSessionHandles`) to write only `authoring/*` actions and replay them back, entirely bypassing `OpfsStorageBackend`/`createAuthoringStore`'s `storageBackend` option and the framework's `recording` slice + persistence middleware. | A real author walks a route for 10–30+ min; RAM-only state (the store README: "no rehydration path") means a crash/reload loses the whole walk. Repo has **zero** IndexedDB precedent, so OPFS is still the right storage tech (established, tested via RecorderApp, matches the Chrome/Android target). **But** `OpfsStorageBackend` only writes while `state.recording.isRecording` is true — turning that on would require dispatching the framework's `startSession`/`endSession` (recording-slice), which would ALSO start persisting unrelated whitelisted framework actions (e.g. raw `gpsData` GPS-fix events) for the whole session, a telemetry side effect with no relation to "keep my waypoint draft safe" that was not part of the original ask. Calling the same low-level primitives `OpfsStorageBackend` itself calls, but scoped to only `authoring/*` actions, gets the identical on-disk durability with zero side effects on unrelated data. Discussed and confirmed in review before implementing. |
 | AC11 | **Screen Wake Lock** during an active authoring session (`navigator.wakeLock.request('screen')` on session start, released on export/teardown; re-requested on `visibilitychange` back to visible, since the OS releases the lock when the tab is hidden). Feature-detected, non-fatal no-op when unsupported. | The phone screen sleeping mid-walk stalls the live GPS position source silently — a real field-failure mode, not polish. No repo precedent to reuse; new, small module. |
 | AC12 | **`beforeunload` guard** while the draft has ≥1 waypoint or breadcrumb point and hasn't been exported yet. | Cheap, immediate mitigation for the same data-loss risk AC10 solves more fully — belongs even before AC10 lands. Mirrors the *idiom* already used in `GpsPlusSlamJs_RecorderApp/src/ui/navigation.ts` (`enable`/`disableBeforeUnloadWarning`) — reimplemented as a small TourBuilder-local module rather than imported, since apps don't depend on each other's app-level code (only on the shared framework). |
 | AC13 | **Explicit error/status states** carried into the composed screens, not left implicit: the GPS-waiting status text (same pattern as `components/authoring/demo.ts`'s `statusEl`) while `createLiveGpsPositionSource()` hasn't produced a fix yet; pasted-URL validation before `buildTourUrl`/`generateQr` (catch a malformed `new URL()`, show inline, don't crash the panel); pack failure surfaced inline via the same `PackagingError` handling the component demo already does. | Production-grade composition needs these states designed, not discovered live during a real author's outdoor session. |
@@ -136,26 +136,56 @@ this screen touches; the screen-sequencing itself is local view state in
 `authoring-app.ts`, same as how `components/onboarding/demo.ts` already hands
 off to whatever comes next via a plain callback.
 
-### `src/app/authoring/restore-authoring-draft.ts` (AC10)
+### `src/app/authoring/restore-authoring-draft.ts` (AC10 — redesigned, see decision note above)
+
+No `OpfsStorageBackend`, no `recording` slice, no persistence middleware.
+Calls the framework's plain `opfs-storage.ts` functions directly (the same
+ones `OpfsStorageBackend` itself delegates to), scoped to `authoring/*`:
 
 ```ts
-/** Finds an interrupted prior OPFS session for this scenario, if any. */
-export async function findResumableDraft(): Promise<string | null>; // session name, or null
+export interface ActionLike { readonly type: string; readonly [key: string]: unknown; }
+
+export interface DurableAuthoringSession {
+  readonly sessionName: string; // "" when OPFS is unsupported (no-op session)
+  wrapDispatch<A extends ActionLike>(dispatch: (action: A) => unknown): (action: A) => unknown;
+  flush(): Promise<void>;   // await every write enqueued so far
+  discard(): Promise<void>; // delete this session's OPFS directory
+}
+
+/** Most recently created leftover session, if any. Never throws. */
+export async function findResumableDraft(): Promise<string | null>;
 
 /**
- * Reads the found session's actions/*.json (already-recorded, 1-based,
- * zero-padded), filters to the `authoring/` prefix, and dispatches them in
- * order through the live store — reconstructing the draft exactly as
- * `ReplayEngine` reconstructs a recorder session, but reading straight from
- * OPFS instead of a zip.
+ * Reads a session's actions/*.json (1-based, zero-padded) in order and
+ * dispatches only the `authoring/*` ones — reconstructing the draft exactly
+ * as `ReplayEngine` reconstructs a recorder session, but reading straight
+ * from OPFS instead of a zip, and through the PLAIN dispatch (not
+ * `wrapDispatch`) so restored actions are never re-written under new indices.
  */
-export async function restoreAuthoringDraft(store: AuthoringStore, sessionName: string): Promise<void>;
+export async function restoreAuthoringDraft(
+  dispatch: (action: ActionLike) => unknown,
+  sessionName: string,
+): Promise<void>;
+
+/** Starts (or, given a prior session name, resumes/continues) durable
+ *  writing. Resuming re-opens the existing session's handles via the
+ *  framework's `setSessionHandles` and counts existing action files to
+ *  continue the index — so a SECOND interruption after a resume can still
+ *  replay the full history, not just what happened since resuming. */
+export async function beginDurableAuthoringSession(
+  existingSessionName?: string,
+): Promise<DurableAuthoringSession>;
+
+export async function discardDraft(sessionName: string): Promise<void>;
 ```
 
 `opfs-storage.ts` exports `writeAction`/`listSessions` but no "read actions
-back" function — this module is genuinely new code reading the same
+back" function — reading is genuinely new code, reusing the same
 `actions/000001.json`, … directory convention the write side already
-produces, not a config flip.
+produces. Writes are fire-and-forget per dispatch (mirrors the framework's
+own async `WriteQueue`); `flush()` is the escape hatch for a caller (tests,
+or a critical transition like export) that needs every write to have landed
+first.
 
 ### `src/app/authoring/wake-lock.ts` (AC11) / `src/app/authoring/unload-guard.ts` (AC12)
 
