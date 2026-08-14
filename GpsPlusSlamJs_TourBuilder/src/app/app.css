@@ -353,15 +353,47 @@ p[data-testid="qr-status"] {
   color: var(--accent);
 }
 
-/* ── Viewing placeholder ──────────────────────────────────────────────── */
+/* ── Viewing mode ─────────────────────────────────────────────────────── */
 
-.viewing-placeholder {
-  padding: var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  text-align: center;
+/* The element handed to `initAR`, i.e. the WebXR DOM-Overlay root. Every
+   viewing screen, the HUD and the map are its DESCENDANTS: under DOM Overlay
+   only this subtree composites over the camera feed, so a sibling would
+   silently disappear the moment the session starts. */
+.ar-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* In-session HUD: pinned over the camera feed, above the renderer canvas. */
+.ar-hud {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4)
+    calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgb(16 19 26 / 92%), rgb(16 19 26 / 0%));
+  pointer-events: none;
+}
+
+.ar-hud > * {
+  pointer-events: auto;
+}
+
+.ar-hud-controls {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* The map card is re-parented between the entry screen and the in-session
+   overlay, so it must look right in both. */
+.ar-container .map-card {
+  position: relative;
+  z-index: 5;
 }
 
 /* ── Small screens ────────────────────────────────────────────────────── */

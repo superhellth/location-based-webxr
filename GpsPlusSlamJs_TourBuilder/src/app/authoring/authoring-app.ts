@@ -33,7 +33,7 @@ import {
   disableBeforeUnloadWarning,
   enableBeforeUnloadWarning,
 } from "./unload-guard.js";
-import { requestWakeLock, type WakeLockHandle } from "./wake-lock.js";
+import { requestWakeLock, type WakeLockHandle } from "../wake-lock.js";
 import {
   beginDurableAuthoringSession,
   discardDraft,

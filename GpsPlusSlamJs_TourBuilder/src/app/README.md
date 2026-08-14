@@ -16,9 +16,8 @@ dependencies flow `app → components`/`app → store` only.
 pnpm dev            # then open http://localhost:8185/src/app/
 ```
 
-No `?tour=` → Authoring mode (real, complete). `?tour=<anything>` → a
-placeholder screen; Viewing mode's real composition is a separate,
-later plan.
+No `?tour=` → Authoring mode. `?tour=<zipUrl>` → Viewing mode. Both are real
+and complete; the mode decision is the contract's D13 and lives in `mode.ts`.
 
 ## Layout
 
@@ -26,8 +25,9 @@ later plan.
 | ------------------------ | -------------------------------------------------------------------------- |
 | `main.ts` / `index.html` | The entry. Reads `?tour=` once via `mode.ts` and mounts the matching flow. |
 | `mode.ts`                | Pure `resolveAppMode(url)` — the only mode-decision logic (contract D13).  |
-| `viewing-placeholder.ts` | Temporary stand-in for Viewing mode.                                       |
+| `wake-lock.ts`           | Screen Wake Lock, used by both modes (authoring's whole session; viewing's non-immersive screens — an immersive session keeps the display awake itself). |
 | `authoring/`             | The real, composed Authoring flow — see below.                             |
+| `viewing/`               | The real, composed Viewing flow — see [`viewing/README.md`](./viewing/README.md). |
 
 ### `authoring/`
 
@@ -36,7 +36,6 @@ later plan.
 | `authoring-app.ts`           | Sequences the screens: onboarding gate (9) → resume-draft prompt (AC10) → authoring tools (10, live GPS only) → pack-and-share.                                                      |
 | `pack-and-share-panel.ts`    | New, small, own-UI panel built from packaging's (5) `core/`/`view/` functions — not a reuse of that component's own demo UI.                                                         |
 | `restore-authoring-draft.ts` | Durable draft persistence: writes `authoring/*` actions to OPFS directly (bypassing `OpfsStorageBackend`/the `recording` slice — see below), replays them back after a crash/reload. |
-| `wake-lock.ts`               | Screen Wake Lock during an active session. Feature-detected, non-fatal no-op when unsupported.                                                                                       |
 | `unload-guard.ts`            | `beforeunload` warning while the draft is non-empty and unexported.                                                                                                                  |
 
 ## Data flow (Authoring mode)
@@ -78,8 +77,8 @@ decision record.
 
 ## Tests
 
-`mode.test.ts`, `viewing-placeholder.test.ts`, `authoring/unload-guard.test.ts`,
-`authoring/wake-lock.test.ts`, `authoring/restore-authoring-draft.test.ts` —
+`mode.test.ts`, `wake-lock.test.ts`, `authoring/unload-guard.test.ts`,
+`authoring/restore-authoring-draft.test.ts` —
 unit tests for each pure/isolable piece. `authoring/authoring-app.test.ts` is
 the **composed-flow test** (TASK.md §2.4): real onboarding gate, real
 `createAuthoringStore`, real authoring session/view, real `packTour` — only
@@ -88,7 +87,15 @@ same module) and `AudioContext` are mocked. It proves the pieces are
 actually wired together (not just individually correct), asserts the packed
 `tour.zip` is store-mode (never DEFLATE) and passes `validateTour`, and
 covers the negative path (a denied permission never reaches the authoring
-tools screen). Run `pnpm test:unit`.
+tools screen).
+
+Viewing mode's own suites live in [`viewing/`](./viewing/README.md) —
+including `viewing/viewing-replay.e2e.test.ts`, the §2.4 composed-flow test
+that packs a real zip, serves it over real HTTP ranges, opens it with the real
+cloud-loader and plays a real Task 1 walk through the real store, proximity
+machine and scene orchestrator.
+
+Run `pnpm test:unit`.
 
 ## Plan
 

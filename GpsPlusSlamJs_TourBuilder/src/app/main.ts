@@ -4,17 +4,20 @@
  */
 import { resolveAppMode } from "./mode.js";
 import { mountAuthoringApp } from "./authoring/authoring-app.js";
-import { mountViewingPlaceholder } from "./viewing-placeholder.js";
+import { mountViewingApp } from "./viewing/viewing-app.js";
 
 const root = document.getElementById("app-root");
 if (root === null) {
   throw new Error("app root element not found");
 }
 
-const mode = resolveAppMode(new URL(location.href));
+const url = new URL(location.href);
+const mode = resolveAppMode(url);
 
 if (mode === "authoring") {
   mountAuthoringApp(root);
 } else {
-  mountViewingPlaceholder(root);
+  // `?tour=` is read once, here: component 6 owns the zip reading and the
+  // share-link normalisation, but not the URL parsing (its decision C3).
+  mountViewingApp(root, url.searchParams.get("tour") ?? "");
 }

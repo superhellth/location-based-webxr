@@ -148,6 +148,57 @@ this package.
 4. Tests first; keep `core` free of Three.js and DOM.
 5. Green `pnpm test` before pushing.
 
+## The one framework change this package needs
+
+Composition is otherwise purely additive on top of
+`GpsPlusSlamJs_AppFramework/`. The single exception is tap-to-select on AR
+waypoints (plan `plans/2026-08-14-viewing-composition-plan.md`, VC22/R3), which
+added two read-only accessors to
+`GpsPlusSlamJs_AppFramework/src/ar/webxr-session.ts` (re-exported from
+`src/ar/index.ts`), beside the existing `getScene` / `getArWorldGroup` /
+`getCamera`:
+
+```ts
+export function getXrSession(): XRSession | null;
+export function getXrReferenceSpace(): XRReferenceSpace | null; // renderer.xr.getReferenceSpace()
+```
+
+No behaviour change — both return state the framework already owns. Component
+8's `createXrSelectRaySource` (`src/components/ar-scene/view/ray-sources.ts`)
+needs the session to listen for `select` and the reference space to resolve
+`frame.getPose(inputSource.targetRaySpace, referenceSpace)`; the wiring lives in
+`src/app/viewing/ar-scene-runtime.ts`. The reference space **must** be the
+framework's own: three.js may install an offset reference space, and a
+second, independently requested `'local-floor'` is not guaranteed to agree with
+it — a subtly mis-aimed ray is worse than none. This is an upstream-PR
+candidate (TASK.md §2.6).
+
+### The no-edit alternative, if fork drift ever outweighs headsets
+
+Drop `createXrSelectRaySource` in composition and use the existing
+`createPointerRaySource` / `src/components/shared/pointer-tap-picker.ts` in
+immersive AR too. The framework requests the `dom-overlay` feature with the
+app's root element, so screen taps during a session fire ordinary
+`pointerdown`/`pointerup` on that root, and a camera-NDC
+`Raycaster.setFromCamera` works in-session. Accuracy is fine for this device
+class: handheld AR input has `targetRayMode === "screen"`, whose target ray is
+*defined* by the tap point on screen. It also collapses desktop and AR onto one
+code path and removes the `getTargetRayMatrix` block from
+`ar-scene-runtime.ts`.
+
+Not chosen because it degrades silently on a headset (a controller/hand ray has
+no meaningful screen point), dom-overlay pointer events can be swallowed by an
+overlay child that stops propagation, and running both ray sources at once
+double-fires taps unless guarded with `beforexrselect`.
+
+Two further options were rejected outright: wrapping
+`navigator.xr.requestSession` to capture the session and requesting a reference
+space app-side reproduces the offset-space mismatch by construction; and the
+renderer cannot be reached from the existing exports at all —
+`activeSession.sceneGraph.renderer` is module-private and a
+`THREE.WebGLRenderer` is not recoverable from `getScene()`, `getCamera()`, or
+its `domElement`.
+
 ## Docs convention
 
 TourBuilder deliberately **does not** use the repo's per-file `*.md` sidecars.

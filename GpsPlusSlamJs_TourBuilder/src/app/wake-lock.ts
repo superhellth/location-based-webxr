@@ -1,9 +1,13 @@
 /**
- * Screen Wake Lock for the composed Authoring flow (plan
- * `plans/2026-08-14-authoring-composition-plan.md`, AC11). The phone screen
+ * Screen Wake Lock, shared by both composed app modes (authoring plan AC11,
+ * viewing plan VC16 — it lives at `src/app/` because both use it). The phone
+ * screen
  * sleeping mid-walk stalls the live GPS position source silently — a real
  * field-failure mode. Feature-detected and non-fatal: an unsupported browser
  * or a rejected request degrades to "no wake lock," never a crash.
+ *
+ * Viewing mode uses it on the non-immersive screens only (loader, tour-entry
+ * overview); an immersive WebXR session keeps the display awake by itself.
  */
 
 export interface WakeLockHandle {

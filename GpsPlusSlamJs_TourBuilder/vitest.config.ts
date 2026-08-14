@@ -12,5 +12,9 @@ export default defineConfig({
       "src/store/**/*.test.ts",
       "src/app/**/*.test.ts",
     ],
+    // Activates the gps-plus-slam-js community licence once per process, so
+    // tests may call the library's licensed math directly (the app gets the
+    // same activation for free via its store factory). See src/test-setup.ts.
+    setupFiles: ["src/test-setup.ts"],
   },
 });

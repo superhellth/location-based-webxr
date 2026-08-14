@@ -350,6 +350,22 @@ draft, two of which would have shipped a broken tour with a green test suite:
 | R5 | Medium | Offline map tiles fail exactly when the cache-warm "offline-ready" promise makes the tour usable offline — a grey void reads as a crash. | VC24 |
 | R6 | Low | Test mechanics unstated (`createObjectUrl` injection in Node; the identity coordinate convention depending on the validator having no lat/lon bounds). | VC18 |
 
+### Found during implementation (folded in)
+
+| ID | Severity | Finding | Where |
+| -- | -------- | ------- | ----- |
+| R7 | Blocker | **`startSession()` (the recording slice) must be dispatched before the GPS watch starts.** `createGpsPositionHandler` returns early while `state.recording.isRecording` is false, so without it no GPS event is ever recorded, the closed core never solves alignment, `toWorld` returns `null` forever, VC21's gate never opens and the tour shows **nothing** — with no error. With the default `NullStorageBackend` the dispatch persists nothing; AnchorStarter carries the same call, commented "recording must be active for the GPS coordinator to feed alignment". | `viewing-app.ts` `enterAr()` |
+| R8 | Medium | **`updateDeviceOrientation` is a sensor-cache setter, not an action creator** — `store.dispatch(updateDeviceOrientation(o))` does not typecheck. It is passed straight to the watch, as the recorder does. | `viewing-app.ts` |
+| R9 | Low | Importing the framework's `visualization` **barrel** pulls in the Leaflet map overlay, which touches `window` at import time and breaks Node tests. Subpath imports (`visualization/gps-anchor`, `visualization/frame-conversions`) avoid it. | `ar-seams.ts` |
+| R10 | Low | TourBuilder had **no vitest setup file**, so tests calling the library's licensed math (`calcRelativeCoordsInMeters`) failed with "license not activated". Added `src/test-setup.ts` mirroring the framework's, importing the key through the framework's own re-export (no direct dependency on the closed core). | `vitest.config.ts` |
+
+One deliberate deviation from the plan's testing section: `viewing-app.test.ts`
+substitutes `openRemoteTour` instead of driving the real loader against the
+fixture server. The real loader is covered end-to-end by
+`viewing-replay.e2e.test.ts` (VC18) and by the loader's own integration suite;
+duplicating it in the jsdom screen test would have re-tested component 6 rather
+than the sequencing this file owns.
+
 Two draft-1 claims **survived** review by verification rather than assumption:
 `validate-tour.ts` really does bound-check nothing but finiteness (so VC19's
 identity convention is legal), and `tour-scene.ts` really does re-dispatch
