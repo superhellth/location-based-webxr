@@ -30,7 +30,8 @@
 
 import type { Vector3 } from "three";
 
-import type { ZoneState } from "../../../store/types.js";
+/** A waypoint's proximity zone (mirrors the `zones` slice's `ZoneState`). */
+export type ZoneState = "IDLE" | "PREFETCHING" | "ACTIVE";
 
 /** A tracked object: a waypoint's resolved world-space anchor + its radii. */
 export interface ProximityObject {

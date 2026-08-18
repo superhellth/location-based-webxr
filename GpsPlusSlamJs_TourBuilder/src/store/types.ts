@@ -58,7 +58,9 @@ export interface Tour {
 }
 
 // ── Zone state (proximity state machine output, component 4) ──────────────────
-export type ZoneState = "IDLE" | "PREFETCHING" | "ACTIVE";
+// Canonical definition lives in the proximity component (upstream-PR candidate,
+// TASK.md §2.6) so it carries no dependency on this store.
+export type { ZoneState } from "../components/proximity/core/proximity-machine.js";
 
 // ── Asset provider (contract §3) ─────────────────────────────────────────────
 /**

@@ -1,10 +1,10 @@
 import { Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ZoneState } from "../../../store/types.js";
 import type {
   ProximityObject,
   ZoneMap,
+  ZoneState,
   ZoneTransition,
 } from "../core/proximity-machine.js";
 import { createProximityDriver } from "./proximity-driver.js";
