@@ -194,6 +194,7 @@
     "GpsPlusSlamJs_TourBuilder": {
       "entry": [
         "src/components/*/demo.ts",
+        "src/app/main.ts",
         "config/stylelint.config.mjs",
         "scripts/**/*.mjs",
         "src/store/selectors.ts",

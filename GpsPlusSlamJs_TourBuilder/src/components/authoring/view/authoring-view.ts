@@ -170,6 +170,21 @@ export function mountAuthoringView(
       card.append(row);
     }
 
+    const transcriptInput = document.createElement("textarea");
+    transcriptInput.dataset.testid = `transcript-${wp.id}`;
+    transcriptInput.value = wp.content.transcript ?? "";
+    transcriptInput.addEventListener("change", () => {
+      deps.dispatch(
+        updateWaypoint({
+          id: wp.id,
+          changes: { content: { transcript: transcriptInput.value } },
+        }),
+      );
+    });
+    card.append(
+      labeledField("Transcript", transcriptInput, `transcript-${wp.id}`),
+    );
+
     return card;
   }
 

@@ -47,6 +47,7 @@ function createMockMap() {
   return {
     setView: vi.fn().mockReturnThis(),
     panTo: vi.fn().mockReturnThis(),
+    fitBounds: vi.fn().mockReturnThis(),
     remove: vi.fn(),
     invalidateSize: vi.fn(),
   };
@@ -186,6 +187,26 @@ describe("createTourMap", () => {
     expect(htmls[2]).toContain("✓");
     expect(htmls[0]).not.toContain("✓");
     expect(htmls[1]).not.toContain("✓");
+  });
+
+  it("setWaypoints centers the map on the waypoints before any GPS fix arrives", () => {
+    const map = createTourMap(container)!;
+    map.setWaypoints([
+      { id: "wp-1", position: { lat: 1, lon: 1 }, status: "unvisited" },
+      { id: "wp-2", position: { lat: 2, lon: 2 }, status: "unvisited" },
+    ]);
+
+    expect(lastMapInstance.fitBounds).toHaveBeenCalledOnce();
+  });
+
+  it("does not re-center on waypoints once a GPS fix already centered the map", () => {
+    const map = createTourMap(container)!;
+    map.setGpsPosition(52.5163, 13.3777);
+    map.setWaypoints([
+      { id: "wp-1", position: { lat: 1, lon: 1 }, status: "unvisited" },
+    ]);
+
+    expect(lastMapInstance.fitBounds).not.toHaveBeenCalled();
   });
 
   it("setWaypoints replaces the previous marker layer wholesale", () => {

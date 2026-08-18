@@ -54,10 +54,25 @@ calls those rather than touching `getUserMedia`/`geolocation` directly — see
 
 `mountOnboardingGate` is reusable, not demo-only: both Authoring and Viewing
 bootstrap mount it before anything else. `onComplete(audioContext)` is the
-hook — the composed app tears the gate down and wraps the plain
-`AudioContext` in a `THREE.AudioListener` (`listener.context = audioContext`)
-before handing it to component 8, which never unlocks audio itself (plan
-`2026-07-31-ar-scene-plan.md`, decision A16).
+hook — the composed app tears the gate down and hands the unlocked context to
+a `THREE.AudioListener` before giving that to component 8, which never unlocks
+audio itself (plan `2026-07-31-ar-scene-plan.md`, decision A16).
+
+**How to hand it over (this line used to be wrong):**
+
+```ts
+import { AudioContext as ThreeAudioContext, AudioListener } from "three";
+
+ThreeAudioContext.setContext(audioContext); // BEFORE constructing the listener
+const listener = new AudioListener();
+```
+
+Not `listener.context = audioContext`. `AudioListener`'s constructor builds
+`this.gain` on whatever context is global at that moment and connects it to
+that context's destination, so assigning `.context` afterwards leaves every
+`PositionalAudio` rendering into a graph the visitor cannot hear — with no
+error anywhere. See `src/app/viewing/audio-listener.ts` (and its test, which
+asserts `listener.gain.context`).
 
 ## Tests
 

@@ -193,6 +193,8 @@ export {
   getScene,
   getArWorldGroup,
   getCamera,
+  getXrSession,
+  getXrReferenceSpace,
   getCurrentArPose,
   getDepthInfoFromFrame,
   type SessionFeatureOptions,

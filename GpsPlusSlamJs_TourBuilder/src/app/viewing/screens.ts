@@ -1,0 +1,174 @@
+/**
+ * The non-immersive screens of viewing mode (plan VC2, VC3, VC15).
+ *
+ * Plain DOM builders, no store and no framework imports — the sequencing
+ * lives in `viewing-app.ts`. Each returns a handle with `destroy()`, the same
+ * mount/destroy discipline every component view already uses.
+ *
+ * Every screen is a child of the AR container (the element handed to
+ * `initAR`), because under WebXR DOM Overlay only that element's subtree is
+ * composited over the camera feed — a sibling would vanish the moment the
+ * session starts (framework `webxr-session.ts.md`, "DOM-Overlay / HUD
+ * stacking invariant").
+ */
+
+export interface Screen {
+  destroy(): void;
+}
+
+function panel(testId: string): HTMLElement {
+  const element = document.createElement("section");
+  element.className = "panel";
+  element.dataset.testid = testId;
+  return element;
+}
+
+function heading(text: string): HTMLElement {
+  const node = document.createElement("h2");
+  node.textContent = text;
+  return node;
+}
+
+function paragraph(text: string, className?: string): HTMLElement {
+  const node = document.createElement("p");
+  node.textContent = text;
+  if (className !== undefined) node.className = className;
+  return node;
+}
+
+export function mountLoadingScreen(root: HTMLElement, message: string): Screen {
+  const element = panel("viewing-loading");
+  element.append(heading("Opening tour…"), paragraph(message, "status-banner"));
+  root.appendChild(element);
+  return {
+    destroy() {
+      element.remove();
+    },
+  };
+}
+
+export interface ErrorScreenOptions {
+  readonly title: string;
+  readonly detail: string;
+  /** Omitted for failures no retry can fix (e.g. a damaged tour file). */
+  readonly onRetry?: () => void;
+  readonly retryLabel?: string;
+}
+
+export function mountErrorScreen(
+  root: HTMLElement,
+  options: ErrorScreenOptions,
+): Screen {
+  const element = panel("viewing-error");
+  element.append(
+    heading(options.title),
+    paragraph(options.detail, "error-banner"),
+  );
+  if (options.onRetry) {
+    const retry = document.createElement("button");
+    retry.textContent = options.retryLabel ?? "Try again";
+    retry.dataset.testid = "viewing-retry";
+    retry.addEventListener("click", () => options.onRetry?.());
+    element.appendChild(retry);
+  }
+  root.appendChild(element);
+  return {
+    destroy() {
+      element.remove();
+    },
+  };
+}
+
+export interface TourEntryScreenOptions {
+  readonly tourName: string;
+  readonly tourDescription: string;
+  readonly waypointCount: number;
+  readonly visitedCount: number;
+  readonly onEnterAr: () => void;
+  readonly onRestartTour: () => void;
+  /** Where the 2D map (component 7) is mounted — kept across screens. */
+  readonly mapHost: HTMLElement;
+}
+
+export interface TourEntryScreen extends Screen {
+  /** AR availability / permission feedback, in place, without remounting. */
+  setArStatus(message: string, tone: "info" | "error"): void;
+  setEnterArEnabled(enabled: boolean): void;
+  setEnterArLabel(label: string): void;
+  /** Shown once the background cache warm has finished (plan VC11). */
+  markOfflineReady(): void;
+}
+
+export function mountTourEntryScreen(
+  root: HTMLElement,
+  options: TourEntryScreenOptions,
+): TourEntryScreen {
+  const element = panel("viewing-entry");
+
+  const title = heading(options.tourName);
+  const description = paragraph(options.tourDescription);
+  const summary = paragraph(
+    options.visitedCount > 0
+      ? `${options.waypointCount} stops · ${options.visitedCount} already visited`
+      : `${options.waypointCount} stops`,
+    "muted",
+  );
+  summary.dataset.testid = "viewing-tour-summary";
+
+  const offline = paragraph("", "success-banner");
+  offline.dataset.testid = "viewing-offline-ready";
+  offline.hidden = true;
+
+  const enterAr = document.createElement("button");
+  enterAr.className = "primary";
+  enterAr.textContent = "Enter AR";
+  enterAr.dataset.testid = "viewing-enter-ar";
+  enterAr.addEventListener("click", () => options.onEnterAr());
+
+  const status = paragraph("", "status-banner");
+  status.dataset.testid = "viewing-ar-status";
+  status.hidden = true;
+
+  const restart = document.createElement("button");
+  restart.textContent = "Restart tour";
+  restart.dataset.testid = "viewing-restart";
+  restart.hidden = options.visitedCount === 0;
+  restart.addEventListener("click", () => options.onRestartTour());
+
+  element.append(
+    title,
+    description,
+    summary,
+    options.mapHost,
+    enterAr,
+    status,
+    offline,
+    restart,
+  );
+  root.appendChild(element);
+
+  return {
+    setArStatus(message, tone) {
+      status.hidden = message === "";
+      status.textContent = message;
+      status.className = tone === "error" ? "error-banner" : "status-banner";
+    },
+    setEnterArEnabled(enabled) {
+      enterAr.disabled = !enabled;
+    },
+    setEnterArLabel(label) {
+      enterAr.textContent = label;
+    },
+    markOfflineReady() {
+      offline.hidden = false;
+      offline.textContent = "Offline-ready — the whole tour is on this device.";
+    },
+    destroy() {
+      // The map host is owned by the caller and outlives this screen.
+      if (options.mapHost.parentElement === element) {
+        options.mapHost.remove();
+      }
+      element.remove();
+    },
+  };
+}

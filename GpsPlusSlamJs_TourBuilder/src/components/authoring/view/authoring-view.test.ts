@@ -225,6 +225,52 @@ describe("mountAuthoringView", () => {
     expect(session.attachAsset).toHaveBeenCalledWith("wp-1", slot, file);
   });
 
+  it("editing a waypoint's transcript dispatches updateWaypoint with a merged content patch", () => {
+    const { root, store } = harness(
+      draft({
+        waypoints: [
+          {
+            id: "wp-1",
+            position: { lat: 1, lon: 2 },
+            prefetchRadius: 25,
+            activeRadius: 10,
+            content: { model: "asset-1" },
+          },
+        ],
+      }),
+    );
+    const textarea = byTestId(root, "transcript-wp-1") as HTMLTextAreaElement;
+    textarea.value = "A knight once stood here.";
+    textarea.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(store.actions).toContainEqual({
+      type: "authoring/updateWaypoint",
+      payload: {
+        id: "wp-1",
+        changes: { content: { transcript: "A knight once stood here." } },
+      },
+    });
+  });
+
+  it("pre-fills the transcript textarea from existing waypoint content", () => {
+    const { root } = harness(
+      draft({
+        waypoints: [
+          {
+            id: "wp-1",
+            position: { lat: 1, lon: 2 },
+            prefetchRadius: 25,
+            activeRadius: 10,
+            content: { transcript: "Already written." },
+          },
+        ],
+      }),
+    );
+    const textarea = byTestId(root, "transcript-wp-1") as HTMLTextAreaElement;
+
+    expect(textarea.value).toBe("Already written.");
+  });
+
   it("name/description inputs dispatch setTourMeta", () => {
     const { root, store } = harness();
     const nameInput = byTestId(root, "tour-name") as HTMLInputElement;

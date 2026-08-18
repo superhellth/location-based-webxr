@@ -130,6 +130,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         gallery: resolve(__dirname, "index.html"),
+        app: resolve(__dirname, "src/app/index.html"),
         billboard: resolve(__dirname, "src/components/billboard/index.html"),
         inWorldText: resolve(
           __dirname,

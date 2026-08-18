@@ -28,11 +28,11 @@ genuine device jitter). The page is organized into four sections —
 **Position** (mode toggle, live status, and a read-only map showing the
 position dot and dropped waypoints), **Tour Details**, **Waypoints**, and
 **Export**. Click **Drop Waypoint** as the position moves; each dropped
-waypoint gets its own card with labeled radius fields and one labeled
-file input per model/sprite/audio slot, showing the attached filename once
-picked; click **Export & Pack** to produce a real `tour.zip` via component
-5's `packTour` — load it in the cloud-loader or ar-scene demo to see it
-play back.
+waypoint gets its own card with labeled radius fields, one labeled file
+input per model/sprite/audio slot (showing the attached filename once
+picked), and a transcript textarea for the floating story text; click
+**Export & Pack** to produce a real `tour.zip` via component 5's `packTour`
+— load it in the cloud-loader or ar-scene demo to see it play back.
 
 **The map is component 7's, composed in read-only for visualization only**
 (labeled as such on the page) — it is not part of component 10's own

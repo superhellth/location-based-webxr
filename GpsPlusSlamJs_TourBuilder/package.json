@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "typecheck:tests": "tsc -p tsconfig.vitest.json --noEmit",
     "check:dup": "jscpd --config config/.jscpd.json src",
-    "check:cycles": "dpdm -T --exit-code circular:1 --no-warning --no-tree ./src/components/*/demo.ts",
+    "check:cycles": "dpdm -T --exit-code circular:1 --no-warning --no-tree ./src/components/*/demo.ts ./src/app/main.ts",
     "check:boundaries": "depcruise -c config/.dependency-cruiser.cjs src",
     "check:deadcode": "pnpm --workspace-root run check:deadcode",
     "check:all": "pnpm run check:dup && pnpm run check:cycles && pnpm run check:boundaries && pnpm run check:deadcode"
