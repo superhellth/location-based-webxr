@@ -14,6 +14,8 @@
  * so the `?tour=` encoding can be checked without a phone.
  */
 
+import { downloadZip } from "gps-plus-slam-app-framework/storage";
+
 import { sampleTour } from "../../store/fixtures/sample-tour.js";
 import type { AssetId, Tour } from "../../store/types.js";
 import { assetFilename } from "./core/asset-filename.js";
@@ -21,7 +23,6 @@ import { buildTourUrl } from "./core/build-tour-url.js";
 import { generateQr } from "./core/generate-qr.js";
 import { packTour } from "./core/pack-tour.js";
 import { parseTourJson } from "../../store/parse-tour-json.js";
-import { downloadBlob } from "./view/download-blob.js";
 import { renderQrSvg } from "./view/qr-view.js";
 
 const picked = new Map<AssetId, File>();
@@ -144,7 +145,7 @@ async function packAndDownload(): Promise<void> {
   const tour = currentTour();
   try {
     const blob = await packTour(tour, filesForPack(tour));
-    downloadBlob(blob, "tour.zip");
+    await downloadZip(blob, "tour.zip");
     packStatus.textContent = `Packed tour.zip — ${blob.size.toLocaleString()} bytes, ${tour.assets.length} asset(s) + tour.json, all stored.`;
     packStatus.dataset["state"] = "ok";
   } catch (error) {

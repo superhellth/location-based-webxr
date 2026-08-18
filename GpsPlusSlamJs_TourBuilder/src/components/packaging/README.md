@@ -23,7 +23,8 @@ ZIP bytes**, in both the local headers and the central directory.
 
 ```
 core/    pure logic, no DOM: packTour · assetFilename · buildTourUrl · generateQr · parseTourJson
-view/    browser side effects: downloadBlob · renderQrSvg
+view/    browser side effects: renderQrSvg (download is downloadZip from
+         gps-plus-slam-app-framework/storage)
 demo.ts  the control panel wiring both together
 ```
 

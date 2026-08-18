@@ -104,6 +104,9 @@ importers:
       gps-plus-slam-js:
         specifier: ^1.17.0
         version: 1.17.0
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
       redux:
         specifier: ^5.0.1
         version: 5.0.1
@@ -162,9 +165,6 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
-      qrcode:
-        specifier: ^1.5.4
-        version: 1.5.4
       three:
         specifier: ^0.184.0
         version: 0.184.0
@@ -687,9 +687,6 @@ importers:
       '@zip.js/zip.js':
         specifier: 2.8.26
         version: 2.8.26
-      fflate:
-        specifier: ^0.8.3
-        version: 0.8.3
       gps-plus-slam-app-framework:
         specifier: workspace:*
         version: link:../GpsPlusSlamJs_AppFramework
@@ -739,6 +736,9 @@ importers:
       eslint-config-prettier:
         specifier: ^10.1.8
         version: 10.1.8(eslint@10.3.0(jiti@2.7.0))
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       globals:
         specifier: ^17.6.0
         version: 17.6.0

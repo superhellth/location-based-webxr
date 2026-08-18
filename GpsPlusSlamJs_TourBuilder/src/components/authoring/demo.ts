@@ -15,12 +15,12 @@
 import "leaflet/dist/leaflet.css";
 
 import { buildMapData } from "gps-plus-slam-app-framework/visualization/map-data";
+import { downloadZip } from "gps-plus-slam-app-framework/storage";
 
 import { authoringReducer } from "../../store/authoring-slice.js";
 import type { AuthoringSliceState } from "../../store/authoring-slice.js";
 import { PackagingError } from "../packaging/core/pack-tour.js";
 import { packTour } from "../packaging/core/pack-tour.js";
-import { downloadBlob } from "../packaging/view/download-blob.js";
 import { createPlaybackLoop } from "../shared/playback-loop.js";
 import { computeMarkerViewModels } from "../map/core/map-marker-state.js";
 import { createTourMap } from "../map/view/tour-map.js";
@@ -142,7 +142,7 @@ function viewDeps() {
     ) => {
       try {
         const blob = await packTour(result.tour, new Map(result.assetFiles));
-        downloadBlob(blob, "tour.zip");
+        await downloadZip(blob, "tour.zip");
         exportStatusEl.textContent = `Packed tour.zip — ${blob.size.toLocaleString()} bytes, ${result.tour.waypoints.length} waypoint(s).`;
         exportStatusEl.dataset["state"] = "ok";
       } catch (error) {
