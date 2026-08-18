@@ -1,15 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { SwitchableByteSource, type ByteSource } from "./byte-source.js";
+import { SwitchableByteSource, type ByteSource } from './byte-source.js';
 
 /**
- * Why these tests matter: this is the seam §2.5.4 is built on. The whole
- * remote→local switch reduces to one guarantee — a read that started before the
- * switch must finish from the source it started on, and only new reads see the
- * new source. zip.js holds a single Reader for the tour's whole lifetime and
- * never learns the bytes moved from a Range fetch to the local cache; that
- * illusion is this class. The in-flight test below is the one that actually
- * protects a visitor mid-fetch when the background download lands.
+ * Why these tests matter: the whole remote→local switch reduces to one
+ * guarantee — a read that started before the switch must finish from the
+ * source it started on, and only new reads see the new source. A consumer
+ * (e.g. a zip.js Reader) holds a single instance for an archive's whole
+ * lifetime and never learns the bytes moved from a Range fetch to a local
+ * cache; that illusion is this class. The in-flight test below is the one
+ * that actually protects a caller mid-fetch when a background download lands.
  */
 
 /** A ByteSource backed by an in-memory buffer — the fake the policy is tested against. */
@@ -37,15 +37,15 @@ function deferredSource(size: number): {
 const REMOTE = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 const LOCAL = new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]);
 
-describe("SwitchableByteSource", () => {
-  it("delegates read to its current source", async () => {
+describe('SwitchableByteSource', () => {
+  it('delegates read to its current source', async () => {
     const s = new SwitchableByteSource(memSource(REMOTE));
 
     expect(await s.read(2, 3)).toEqual(new Uint8Array([3, 4, 5]));
     expect(s.size).toBe(REMOTE.length);
   });
 
-  it("routes new reads to the source it was switched to", async () => {
+  it('routes new reads to the source it was switched to', async () => {
     const s = new SwitchableByteSource(memSource(REMOTE));
 
     s.switchTo(memSource(LOCAL));
@@ -53,7 +53,7 @@ describe("SwitchableByteSource", () => {
     expect(await s.read(0, 3)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("ignores a second switch (idempotent — at most one swap)", async () => {
+  it('ignores a second switch (idempotent — at most one swap)', async () => {
     const s = new SwitchableByteSource(memSource(REMOTE));
     const other = new Uint8Array([7, 7, 7, 7, 7, 7, 7, 7]);
 
@@ -63,7 +63,7 @@ describe("SwitchableByteSource", () => {
     expect(await s.read(0, 3)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("refuses a switch to a differently-sized source (offsets would corrupt)", async () => {
+  it('refuses a switch to a differently-sized source (offsets would corrupt)', async () => {
     const s = new SwitchableByteSource(memSource(REMOTE));
     const wrongSize = new Uint8Array([9, 9, 9]); // e.g. a login-page redirect body
 
@@ -75,7 +75,7 @@ describe("SwitchableByteSource", () => {
     expect(await s.read(0, 3)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("lets an in-flight read finish from the source it started on", async () => {
+  it('lets an in-flight read finish from the source it started on', async () => {
     const remote = deferredSource(REMOTE.length);
     const s = new SwitchableByteSource(remote.source);
 

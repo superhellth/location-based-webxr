@@ -15,14 +15,14 @@ Plan: [`plans/2026-08-14-viewing-composition-plan.md`](../../../plans/2026-08-14
 
 ## Modules
 
-| Path                       | What lives here                                                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `viewing-app.ts`           | The sequencer: screens, error states, the AR entry gesture, session lifecycle, progress persistence. The only stateful file here.     |
-| `ar-seams.ts`              | The three seams component 8 injects — `createAnchor`, `toWorld`, `getUserWorldPos`. The single geo→world step §2.5.1 permits.        |
-| `ar-scene-runtime.ts`      | Builds/tears down the live scene inside a session: alignment binding, audio listener, adapter (incl. the XR select ray), frame tick. |
-| `audio-listener.ts`        | Hands the gate's unlocked `AudioContext` to three the one way that actually works (see below).                                        |
-| `progress-store.ts`        | Visited waypoints in `localStorage`, so a reload or an evicted tab does not lose the visitor's place.                                 |
-| `screens.ts` / `hud.ts`    | The non-immersive screens and the in-session HUD. Plain DOM, no store, no framework.                                                  |
+| Path                    | What lives here                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `viewing-app.ts`        | The sequencer: screens, error states, the AR entry gesture, session lifecycle, progress persistence. The only stateful file here.    |
+| `ar-seams.ts`           | The three seams component 8 injects — `createAnchor`, `toWorld`, `getUserWorldPos`. The single geo→world step §2.5.1 permits.        |
+| `ar-scene-runtime.ts`   | Builds/tears down the live scene inside a session: alignment binding, audio listener, adapter (incl. the XR select ray), frame tick. |
+| `audio-listener.ts`     | Hands the gate's unlocked `AudioContext` to three the one way that actually works (see below).                                       |
+| `progress-store.ts`     | Visited waypoints in `localStorage`, so a reload or an evicted tab does not lose the visitor's place.                                |
+| `screens.ts` / `hud.ts` | The non-immersive screens and the in-session HUD. Plain DOM, no store, no framework.                                                 |
 
 ## Three things that are easy to get wrong here
 
@@ -31,8 +31,8 @@ All three were found while planning/building this directory, and all three fail
 test named after it.
 
 1. **Waypoint anchors must pass `skipBootstrap: true`.** `GpsAnchorOptions
-   .getCurrentGpsPoint` is optional, and when omitted the framework anchor
-   bootstraps from *the object's own pose* and commits that median as its
+.getCurrentGpsPoint` is optional, and when omitted the framework anchor
+   bootstraps from _the object's own pose_ and commits that median as its
    `gpsPoint`. AnchorStarter wants that (it is placing a new anchor); a tour
    already knows the coordinate, so bootstrapping would silently relocate the
    waypoint. → `ar-seams.ts`, `ar-seams.test.ts`.
@@ -50,10 +50,10 @@ test named after it.
    Three's constructor builds `gain` on — and connects it to — whatever context
    was global at that moment, so a later re-assignment leaves every
    `PositionalAudio` rendering into a graph nobody hears. Use
-   `AudioContext.setContext(unlocked)` *before* `new AudioListener()`.
+   `AudioContext.setContext(unlocked)` _before_ `new AudioListener()`.
    → `audio-listener.ts`, `audio-listener.test.ts`.
 
-And one that is easy to *omit*: **`startSession()` (the recording slice) must be
+And one that is easy to _omit_: **`startSession()` (the recording slice) must be
 dispatched before the GPS watch starts**, or the GPS coordinator never feeds
 alignment, no waypoint ever anchors, and the tour shows nothing forever. With
 the default `NullStorageBackend` nothing is written anywhere — the dispatch is
@@ -62,17 +62,17 @@ call for the same reason.
 
 ## Failure states, by design
 
-| Situation                                    | What the visitor sees                                                |
-| -------------------------------------------- | ---------------------------------------------------------------------- |
-| No `?tour=`                                  | "No tour link" — scan the QR / open the shared link. No retry.        |
-| CORS-blocked, 404, or a share *page* URL      | Named cause + what to fix, with a retry that re-opens the tour.       |
-| Corrupt zip / invalid `tour.json`             | "This tour file is damaged" — **no** retry; retrying cannot fix it.   |
-| No WebXR on this device                      | Enter AR disabled, honest message, **map still usable**.              |
-| Permission denied / `initAR` failure          | Inline reason on the entry screen, still retryable.                    |
-| Alignment not converged yet                  | The framework's own coaching ("walk a few metres"), no empty camera.  |
-| Session ended by the system back gesture      | Back to the entry screen with tour, progress and warm cache intact.   |
-| Story audio blocked                           | HUD notice asking for one tap.                                        |
-| Map tiles unreachable (offline)               | One-shot notice; stops, position and statuses keep working.           |
+| Situation                                | What the visitor sees                                                |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| No `?tour=`                              | "No tour link" — scan the QR / open the shared link. No retry.       |
+| CORS-blocked, 404, or a share _page_ URL | Named cause + what to fix, with a retry that re-opens the tour.      |
+| Corrupt zip / invalid `tour.json`        | "This tour file is damaged" — **no** retry; retrying cannot fix it.  |
+| No WebXR on this device                  | Enter AR disabled, honest message, **map still usable**.             |
+| Permission denied / `initAR` failure     | Inline reason on the entry screen, still retryable.                  |
+| Alignment not converged yet              | The framework's own coaching ("walk a few metres"), no empty camera. |
+| Session ended by the system back gesture | Back to the entry screen with tour, progress and warm cache intact.  |
+| Story audio blocked                      | HUD notice asking for one tap.                                       |
+| Map tiles unreachable (offline)          | One-shot notice; stops, position and statuses keep working.          |
 
 ## Tests
 

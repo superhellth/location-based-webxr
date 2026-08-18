@@ -1,6 +1,6 @@
+import { StructuralReadError } from "gps-plus-slam-app-framework/storage";
 import { describe, expect, it } from "vitest";
 
-import { StructuralAssetError } from "../../cloud-loader/core/errors.js";
 import { createFilesAssetProvider } from "./files-asset-provider.js";
 
 /**
@@ -29,11 +29,11 @@ describe("createFilesAssetProvider", () => {
     expect(url).toBe("blob:fake/1");
   });
 
-  it("rejects with StructuralAssetError for an unregistered id", async () => {
+  it("rejects with StructuralReadError for an unregistered id", async () => {
     const handle = createFilesAssetProvider(fakeObjectUrl());
 
     await expect(handle.provider.getAssetUrl("missing")).rejects.toBeInstanceOf(
-      StructuralAssetError,
+      StructuralReadError,
     );
   });
 

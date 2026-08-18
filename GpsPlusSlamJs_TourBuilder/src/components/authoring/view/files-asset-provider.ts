@@ -7,11 +7,12 @@
  * @see plans/2026-08-07-authoring-plan.md
  */
 
+import { StructuralReadError } from "gps-plus-slam-app-framework/storage";
+
 import {
   RefCountedAssetProvider,
   type RefCountedAssetProviderDeps,
 } from "../../cloud-loader/core/asset-provider.js";
-import { StructuralAssetError } from "../../cloud-loader/core/errors.js";
 import type { AssetId, AssetProvider } from "../../../store/types.js";
 
 export interface FilesAssetProviderHandle {
@@ -34,7 +35,7 @@ export function createFilesAssetProvider(
       const file = files.get(id);
       if (!file) {
         return Promise.reject(
-          new StructuralAssetError(`unknown asset id: ${id}`),
+          new StructuralReadError(`unknown asset id: ${id}`),
         );
       }
       return Promise.resolve(file);

@@ -5,30 +5,22 @@
  * `openRemoteTour` and is surfaced to the onboarding gate as "this tour link
  * isn't usable / this file is broken". The second tier — a soft per-asset
  * `getAssetUrl` rejection that only degrades a single waypoint — is a plain
- * rejection, not this type.
+ * rejection, not this type (see the framework's `StructuralReadError` for its
+ * permanent-vs-transient split).
  *
  * @see plans/2026-07-24-cloud-loader-plan.md (C6, C11, C14)
+ * @see plans/2026-08-18-cloud-loader-framework-extraction-plan.md (E1)
  */
 
-/** Why a tour failed to open. The onboarding gate branches on this. */
+import type { RangeProbeRejectCause } from "gps-plus-slam-app-framework/storage";
+
+/** Why a tour failed to open. The onboarding gate branches on this. The first
+ *  four causes are produced by the framework's opening probe; the last two are
+ *  specific to what "a tour" means (tour.json parsing, the asset-manifest join). */
 export type TourLoadCause =
-  | "unusable-link" // no size / opaque response — cannot range or read a body
-  | "cors" // cross-origin read blocked by the browser
-  | "corrupt" // truncated / garbage bytes / 416 on a non-empty archive
-  | "missing" // 404
+  | RangeProbeRejectCause
   | "invalid-tour-json" // tour.json absent or fails validateTour
   | "asset-missing-in-zip"; // a referenced AssetEntry.filename is not in the zip
-
-/**
- * A *permanent* per-asset failure (the second error tier, C15): an unknown id,
- * an entry missing from the central directory, a decode error, or a 4xx on a
- * range read (expired signed link, file gone). The asset-provider fails these
- * immediately — retrying cannot fix them. Any other rejection from the blob
- * backing is treated as transient and retried.
- */
-export class StructuralAssetError extends Error {
-  override readonly name = "StructuralAssetError";
-}
 
 /** A fatal failure while opening a hosted tour.zip. */
 export class TourLoadError extends Error {

@@ -1,8 +1,9 @@
 # Publishing a tour so the viewer can range-read it
 
 Component 6 fetches whatever URL is in `?tour=` and follows redirects. All
-provider knowledge lives in **one pure layer** (`core/share-link.ts`, C7): a
-pasted share _page_ link from Dropbox / Google Drive / OneDrive / GitHub is
+provider knowledge lives in **one pure layer**
+(the framework's `gps-plus-slam-app-framework/storage#normalizeShareUrl`, C7):
+a pasted share _page_ link from Dropbox / Google Drive / OneDrive / GitHub is
 rewritten to that provider's raw download URL before any network I/O; anything
 unrecognized (direct URLs, proxy URLs) passes through untouched, and the
 transport below is provider-agnostic. What normalization **cannot** fix is
@@ -133,11 +134,11 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 // Copy the dependency-free `normalizeShareUrl` from
-// components/cloud-loader/core/share-link.ts next to this file: a pasted
-// share *page* link then works through the Worker too. Share-page hosts
-// (www.dropbox.com) are deliberately NOT allowlisted — anything normalization
-// couldn't rewrite (e.g. a folder link) 403s loudly instead of streaming an
-// HTML preview page into zip.js as "corrupt".
+// GpsPlusSlamJs_AppFramework/src/storage/share-link.ts next to this file: a
+// pasted share *page* link then works through the Worker too. Share-page
+// hosts (www.dropbox.com) are deliberately NOT allowlisted — anything
+// normalization couldn't rewrite (e.g. a folder link) 403s loudly instead of
+// streaming an HTML preview page into zip.js as "corrupt".
 import { normalizeShareUrl } from "./share-link";
 
 const ALLOWED_HOSTS = new Set([

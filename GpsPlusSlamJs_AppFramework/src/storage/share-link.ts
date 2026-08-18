@@ -1,10 +1,8 @@
 /**
- * Share-link normalization — the one provider-aware layer of the cloud loader.
- *
- * Authors copy *share page* links out of their cloud storage (§2.5.6:
- * "the URL that supports ranges is the service's download/content URL, not the
- * human share page"). This module turns those human links into the provider's
- * raw-bytes URL so `?tour=` can hold whatever the author naturally copied:
+ * Share-link normalization: turns a *share page* link copied out of a cloud
+ * storage UI into the provider's raw-bytes download URL — the one that
+ * actually supports HTTP Range reads and CORS, as opposed to an HTML preview
+ * page.
  *
  * - Dropbox `www.dropbox.com/scl/fi/…` (and legacy `/s/…`) → the
  *   `dl.dropboxusercontent.com` content host (drops `dl=`).
@@ -12,24 +10,24 @@
  * - Google Drive `file/d/<id>`, `open?id=`, `uc?id=` → the
  *   `drive.usercontent.google.com/download?…&confirm=t` form: serves 206 +
  *   `Accept-Ranges`, and `confirm=t` skips the "can't scan for viruses" HTML
- *   interstitial on larger files. Caveat (probed 2026-07): it advertises
+ *   interstitial on larger files. Caveat: it advertises
  *   `Access-Control-Allow-Origin: *` to plain clients but 403s any request
  *   carrying `Sec-Fetch-Site: cross-site` — i.e. every real browser fetch —
- *   so key-less Drive still needs the CORS proxy. With an API key the official
+ *   so key-less Drive still needs a CORS proxy. With an API key the official
  *   `drive/v3/files/<id>?alt=media` endpoint is used instead.
  * - OneDrive: new-style `1drv.ms/<t>/c/<cid>/<shareId>` links (accounts on the
  *   SharePoint backend, where the legacy shares API answers 401) → the
  *   `my.microsoftpersonalcontent.com/personal/<cid>/_layouts/15/download.aspx
- *   ?share=<shareId>` form — probed (2026-07) to serve 206 + `Accept-Ranges` +
+ *   ?share=<shareId>` form — serves 206 + `Accept-Ranges` +
  *   `Access-Control-Allow-Origin: *` anonymously, even to browser-shaped
  *   requests: Range + CORS with no proxy. Legacy links → the shares API
  *   (`/v1.0/shares/u!<base64url>/root/content`), which 302s to a temporary
  *   download URL; `fetch` follows the redirect.
  *
  * Anything else — already-direct URLs, CORS-proxy URLs (relative or absolute),
- * unknown hosts — passes through byte-identical, so the layer is invisible
- * unless a known share page is recognized. Everything below this (probe, byte
- * sources, fallback) stays provider-agnostic (C7).
+ * unknown hosts — passes through byte-identical, so this layer is invisible
+ * unless a known share page is recognized. Everything downstream (probe, byte
+ * sources, fallback) stays provider-agnostic.
  */
 
 export interface NormalizeShareUrlOptions {
@@ -41,7 +39,7 @@ export interface NormalizeShareUrlOptions {
 /** Rewrite a known share-page link to its raw download form; else return as-is. */
 export function normalizeShareUrl(
   rawUrl: string,
-  opts: NormalizeShareUrlOptions = {},
+  opts: NormalizeShareUrlOptions = {}
 ): string {
   let url: URL;
   try {
@@ -56,18 +54,18 @@ export function normalizeShareUrl(
 function resolveKnownProvider(
   url: URL,
   rawUrl: string,
-  opts: NormalizeShareUrlOptions,
+  opts: NormalizeShareUrlOptions
 ): string | null {
   switch (url.hostname) {
-    case "dropbox.com":
-    case "www.dropbox.com":
+    case 'dropbox.com':
+    case 'www.dropbox.com':
       return normalizeDropbox(url);
-    case "github.com":
+    case 'github.com':
       return normalizeGithub(url);
-    case "drive.google.com":
+    case 'drive.google.com':
       return normalizeGoogleDrive(url, opts.googleDriveApiKey);
-    case "1drv.ms":
-    case "onedrive.live.com":
+    case '1drv.ms':
+    case 'onedrive.live.com':
       return normalizeOneDrive(url, rawUrl);
     default:
       return null;
@@ -75,12 +73,12 @@ function resolveKnownProvider(
 }
 
 function normalizeDropbox(url: URL): string | null {
-  if (!url.pathname.startsWith("/scl/fi/") && !url.pathname.startsWith("/s/")) {
+  if (!url.pathname.startsWith('/scl/fi/') && !url.pathname.startsWith('/s/')) {
     return null; // folder links etc. have no single-file raw form
   }
   const direct = new URL(url);
-  direct.hostname = "dl.dropboxusercontent.com";
-  direct.searchParams.delete("dl"); // dl=0 forces the HTML preview page
+  direct.hostname = 'dl.dropboxusercontent.com';
+  direct.searchParams.delete('dl'); // dl=0 forces the HTML preview page
   return direct.toString();
 }
 
@@ -93,9 +91,9 @@ function normalizeGithub(url: URL): string | null {
 
 function normalizeGoogleDrive(url: URL, apiKey?: string): string | null {
   const id =
-    /^\/file\/d\/([^/]+)/.exec(url.pathname)?.[1] ?? url.searchParams.get("id");
-  if (id === null || id === undefined || id === "") return null;
-  if (apiKey !== undefined && apiKey !== "") {
+    /^\/file\/d\/([^/]+)/.exec(url.pathname)?.[1] ?? url.searchParams.get('id');
+  if (id === null || id === undefined || id === '') return null;
+  if (apiKey !== undefined && apiKey !== '') {
     return `https://www.googleapis.com/drive/v3/files/${id}?alt=media&key=${apiKey}`;
   }
   return `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
@@ -112,8 +110,8 @@ function normalizeOneDrive(url: URL, rawUrl: string): string {
   }
   // Legacy links: the shares API addresses any share link as `u!` + base64url.
   const token = btoa(rawUrl)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
   return `https://api.onedrive.com/v1.0/shares/u!${token}/root/content`;
 }

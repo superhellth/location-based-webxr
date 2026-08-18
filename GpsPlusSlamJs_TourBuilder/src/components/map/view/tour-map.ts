@@ -143,7 +143,10 @@ export function createTourMap(
         const bounds = L.latLngBounds(
           markers.map((m) => [m.position.lat, m.position.lon]),
         );
-        leafletMap.fitBounds(bounds, { maxZoom: DEFAULT_ZOOM, padding: [40, 40] });
+        leafletMap.fitBounds(bounds, {
+          maxZoom: DEFAULT_ZOOM,
+          padding: [40, 40],
+        });
         hasCenteredOnce = true;
       }
       for (const marker of waypointMarkers) marker.remove();

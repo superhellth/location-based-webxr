@@ -1,15 +1,16 @@
 /**
- * Adapts our swappable {@link ByteSource} to a zip.js `Reader` (C1, C2).
+ * Adapts a {@link ByteSource} to a zip.js `Reader`.
  *
- * This is the whole reason zip.js is here: it parses the central directory and
- * decompresses entries, while every actual byte read is delegated to the
- * ByteSource beneath — which may be a remote Range fetch or the local cache, and
- * may switch between them mid-session without zip.js ever noticing.
+ * This is the whole reason zip.js sees a `ByteSource` at all: it parses the
+ * central directory and decompresses entries, while every actual byte read is
+ * delegated to the source beneath — which may be a remote Range fetch or a
+ * local cache, and may switch between them mid-session without zip.js ever
+ * noticing (see `SwitchableByteSource`).
  */
 
-import { Reader } from "@zip.js/zip.js";
+import { Reader } from '@zip.js/zip.js';
 
-import type { ByteSource } from "../core/byte-source.js";
+import type { ByteSource } from './byte-source.js';
 
 export class ByteSourceReader extends Reader<ByteSource> {
   readonly #source: ByteSource;

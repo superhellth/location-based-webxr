@@ -1,16 +1,15 @@
 /**
- * The swappable byte-source seam (§2.5.4).
+ * The swappable byte-source seam behind range-based ZIP streaming.
  *
  * A `ByteSource` is random-access over one archive: "give me bytes
- * [offset, offset+length)". zip.js reads a tour's whole lifetime through a
- * single Reader backed by one of these; the Reader never learns whether the
- * bytes came from an HTTP Range fetch or the local cache. That indirection is
- * what lets the loading policy swap remote→local mid-session (contract §5).
+ * [offset, offset+length)". A zip.js `Reader` (see `zip-byte-source-reader.ts`)
+ * reads an archive's whole lifetime through a single instance of one of these;
+ * the reader never learns whether the bytes came from an HTTP Range fetch or a
+ * local cache. That indirection is what lets a consumer swap remote→local
+ * mid-session.
  *
  * `SwitchableByteSource` holds the *current* source and flips it atomically
- * once the background download has warmed a local copy.
- *
- * @see plans/2026-07-24-cloud-loader-plan.md (C1, C17)
+ * once, e.g. after a background download has warmed a local copy.
  */
 
 /** Random-access byte source over a single archive. */
@@ -23,8 +22,8 @@ export interface ByteSource {
 
 /**
  * A `ByteSource` whose backing can be swapped once, atomically, without the
- * reader above it noticing (C17). The size is fixed at construction — every
- * source represents the same archive.
+ * reader above it noticing. The size is fixed at construction — every source
+ * represents the same archive.
  */
 export class SwitchableByteSource implements ByteSource {
   readonly size: number;
@@ -42,11 +41,11 @@ export class SwitchableByteSource implements ByteSource {
 
   /**
    * Swap the backing source. Only reads started *after* this see `next`, and
-   * only the *first successful* call takes effect — a warm/fallback race that
-   * fires twice must not re-swap (C17). A source of a different size is refused
-   * (not counted as the one swap): every parsed zip offset is anchored to
-   * `this.size`, so mismatched bytes (redirect page, truncated body) would
-   * silently corrupt every later asset read.
+   * only the *first successful* call takes effect — a duplicate swap must not
+   * re-fire. A source of a different size is refused (not counted as the one
+   * swap): every parsed zip offset is anchored to `this.size`, so mismatched
+   * bytes (redirect page, truncated body) would silently corrupt every later
+   * read.
    */
   switchTo(next: ByteSource): void {
     if (this.#switched || next.size !== this.size) return;

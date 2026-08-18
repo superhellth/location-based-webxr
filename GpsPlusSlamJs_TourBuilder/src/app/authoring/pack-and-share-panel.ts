@@ -3,8 +3,8 @@
  * `plans/2026-08-14-authoring-composition-plan.md`, AC5).
  *
  * A new, small, own-UI panel built from packaging's `core/`
- * (`packTour`, `buildTourUrl`, `generateQr`) and `view/` (`downloadBlob`,
- * `renderQrSvg`) functions — not a reuse of `components/packaging/demo.ts`'s
+ * (`packTour`, `buildTourUrl`, `generateQr`), the framework's `downloadZip`,
+ * and packaging's `view/renderQrSvg` — not a reuse of `components/packaging/demo.ts`'s
  * textarea/file-picker UI, which exists to let that component demo itself
  * against an arbitrary tour. Here the `Tour` + asset files already come from
  * the just-finished authoring session (component 10's `exportTour()`), so
@@ -18,7 +18,7 @@ import {
 } from "../../components/packaging/core/pack-tour.js";
 import { buildTourUrl } from "../../components/packaging/core/build-tour-url.js";
 import { generateQr } from "../../components/packaging/core/generate-qr.js";
-import { downloadBlob } from "../../components/packaging/view/download-blob.js";
+import { downloadZip } from "gps-plus-slam-app-framework/storage";
 import { renderQrSvg } from "../../components/packaging/view/qr-view.js";
 
 export interface PackAndSharePanelDeps {
@@ -81,7 +81,7 @@ export function mountPackAndSharePanel(
       packStatus.dataset["state"] = "";
       try {
         const blob = await packTour(deps.tour, new Map(deps.assetFiles));
-        downloadBlob(blob, "tour.zip");
+        await downloadZip(blob, "tour.zip");
         packStatus.textContent = `Packed tour.zip — ${blob.size.toLocaleString()} bytes.`;
         packStatus.dataset["state"] = "ok";
       } catch (error) {

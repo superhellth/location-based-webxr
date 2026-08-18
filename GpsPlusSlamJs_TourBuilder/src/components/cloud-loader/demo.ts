@@ -17,9 +17,10 @@
  * exactly the transport the Node suite cannot (Option B, C19).
  */
 
+import { normalizeShareUrl } from "gps-plus-slam-app-framework/storage";
+
 import type { AssetEntry } from "../../store/types.js";
 import { TourLoadError } from "./core/errors.js";
-import { normalizeShareUrl } from "./core/share-link.js";
 import { openRemoteTour, type OpenedTour } from "./view/open-remote-tour.js";
 
 /** Hosts that serve bytes but not to a cross-site *browser* — reachable only

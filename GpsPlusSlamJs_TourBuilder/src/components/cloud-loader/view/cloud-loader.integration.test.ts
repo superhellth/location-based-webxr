@@ -1,10 +1,10 @@
 import { zipSync } from "fflate";
+import { InMemoryLocalCacheStore } from "gps-plus-slam-app-framework/storage";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { sampleTour } from "../../../store/fixtures/sample-tour.js";
 import { TourLoadError } from "../core/errors.js";
 import { startFixtureServer, type FixtureServer } from "./fixture-server.js";
-import { InMemoryLocalCacheStore } from "./local-cache-source.js";
 import { openRemoteTour } from "./open-remote-tour.js";
 
 /**

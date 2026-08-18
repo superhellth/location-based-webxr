@@ -1,19 +1,18 @@
 /**
- * The local half of §2.5.4: a persistent full copy of the zip that on-demand
- * reads switch to once the background warm completes (C4, C18).
+ * A persistent full copy of a remote archive that on-demand reads can switch
+ * to once a background warm-download completes.
  *
- * `LocalCacheByteSource` serves ranges by slicing a `Blob` — lazy random access
- * with no heap blow-up, so a media-heavy tour never loads whole into memory.
- * `LocalCacheStore` abstracts *where* the complete copy lives: `CacheApiStore`
- * in the browser (evictable → guarded by `storage.persist()`), and
- * `InMemoryLocalCacheStore` for Node tests where `caches` does not exist (C20).
- *
- * @see plans/2026-07-24-cloud-loader-plan.md (C4, C18, C20)
+ * `LocalCacheByteSource` serves ranges by slicing a `Blob` — lazy random
+ * access with no heap blow-up, so a large archive never loads whole into
+ * memory. `LocalCacheStore` abstracts *where* the complete copy lives:
+ * `CacheApiStore` in the browser (evictable → guarded by
+ * `storage.persist()`), and `InMemoryLocalCacheStore` for Node tests where
+ * `caches` does not exist.
  */
 
-import type { ByteSource } from "../core/byte-source.js";
+import type { ByteSource } from './byte-source.js';
 
-/** Random-access reader over a complete, locally-held zip Blob. */
+/** Random-access reader over a complete, locally-held archive Blob. */
 export class LocalCacheByteSource implements ByteSource {
   readonly size: number;
   readonly #blob: Blob;
@@ -29,13 +28,13 @@ export class LocalCacheByteSource implements ByteSource {
   }
 }
 
-/** Persistent store of complete tour zips, keyed by URL. */
+/** Persistent store of complete archives, keyed by URL. */
 export interface LocalCacheStore {
   /** The complete cached copy, or undefined if not present. */
   get(url: string): Promise<Blob | undefined>;
   /** Store a complete copy atomically (only a finished copy is ever readable). */
   put(url: string, blob: Blob): Promise<void>;
-  /** Evict a copy — used to purge a cached blob that no longer parses (C18). */
+  /** Evict a copy — used to purge a cached blob that no longer parses. */
   delete(url: string): Promise<void>;
 }
 
@@ -59,19 +58,19 @@ export class InMemoryLocalCacheStore implements LocalCacheStore {
 }
 
 /**
- * Cache API store (browser). Requests persistent storage so a warmed tour is
- * not evicted mid-walk (C18). `cache.put` only exposes an entry once its body
- * has been fully consumed, and the reload path additionally re-parses a cached
- * copy before trusting it (evicting a poisoned one), so no extra
- * write-then-promote dance is needed here.
+ * Cache API store (browser). Requests persistent storage so a warmed copy is
+ * not evicted mid-session. `cache.put` only exposes an entry once its body
+ * has been fully consumed, and a caller that re-parses a cached copy before
+ * trusting it (evicting a poisoned one) needs no extra write-then-promote
+ * dance here.
  *
- * Not exercised by the Node suite (`caches` is browser-only) — proven in the
- * manual demo (Option B, C19).
+ * Not exercised by a Node suite (`caches` is browser-only) — proven only in a
+ * real browser.
  */
 export class CacheApiStore implements LocalCacheStore {
   readonly #cacheName: string;
 
-  constructor(cacheName = "tour-zips") {
+  constructor(cacheName = 'range-archives') {
     this.#cacheName = cacheName;
   }
 
