@@ -23,8 +23,8 @@ import type { Vector3 } from "three";
 import {
   createProximityDriver,
   type ProximityDriver,
-  type ProximityObject,
-} from "gps-plus-slam-app-framework/visualization";
+} from "gps-plus-slam-app-framework/visualization/proximity-driver";
+import type { ProximityObject } from "gps-plus-slam-app-framework/visualization/proximity-machine";
 import {
   selectTour,
   type ViewingStateShape,

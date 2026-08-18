@@ -57,9 +57,10 @@ vi.mock("gps-plus-slam-app-framework/sensors", () => ({
   },
 }));
 
-const downloadBlobMock = vi.fn();
-vi.mock("../../components/packaging/view/download-blob.js", () => ({
-  downloadBlob: downloadBlobMock,
+const downloadBlobMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("gps-plus-slam-app-framework/storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  downloadZip: downloadBlobMock,
 }));
 
 class FakeAudioContext {

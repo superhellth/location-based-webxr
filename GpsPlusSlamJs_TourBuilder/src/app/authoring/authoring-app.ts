@@ -155,11 +155,12 @@ async function mountAuthoringTools(
   gpsStatus.textContent = "Waiting for a live GPS fix…";
   toolsHost.appendChild(gpsStatus);
 
-  const mapSection = document.createElement("section");
-  mapSection.className = "map-card";
+  // `.map-card` is the Leaflet container element itself (see tour-map.ts /
+  // app.css) — no wrapper div — so it must be the element passed to
+  // createTourMap directly, not a plain child of a `.map-card` section.
   const mapHost = document.createElement("div");
-  mapSection.appendChild(mapHost);
-  toolsHost.appendChild(mapSection);
+  mapHost.className = "map-card";
+  toolsHost.appendChild(mapHost);
   const tourMap = createTourMap(mapHost);
   tourMap?.show();
 

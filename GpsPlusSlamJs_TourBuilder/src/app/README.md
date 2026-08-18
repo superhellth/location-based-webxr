@@ -21,13 +21,13 @@ and complete; the mode decision is the contract's D13 and lives in `mode.ts`.
 
 ## Layout
 
-| Path                     | What lives here                                                            |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `main.ts` / `index.html` | The entry. Reads `?tour=` once via `mode.ts` and mounts the matching flow. |
-| `mode.ts`                | Pure `resolveAppMode(url)` — the only mode-decision logic (contract D13).  |
+| Path                     | What lives here                                                                                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main.ts` / `index.html` | The entry. Reads `?tour=` once via `mode.ts` and mounts the matching flow.                                                                               |
+| `mode.ts`                | Pure `resolveAppMode(url)` — the only mode-decision logic (contract D13).                                                                                |
 | `wake-lock.ts`           | Screen Wake Lock, used by both modes (authoring's whole session; viewing's non-immersive screens — an immersive session keeps the display awake itself). |
-| `authoring/`             | The real, composed Authoring flow — see below.                             |
-| `viewing/`               | The real, composed Viewing flow — see [`viewing/README.md`](./viewing/README.md). |
+| `authoring/`             | The real, composed Authoring flow — see below.                                                                                                           |
+| `viewing/`               | The real, composed Viewing flow — see [`viewing/README.md`](./viewing/README.md).                                                                        |
 
 ### `authoring/`
 
