@@ -31,7 +31,6 @@
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
     "@zip.js/zip.js": "2.8.26",
-    "fflate": "^0.8.3",
     "gps-plus-slam-app-framework": "workspace:*",
     "leaflet": "^1.9.4",
     "qrcode": "^1.5.4",
@@ -50,6 +49,7 @@
     "dpdm": "^4.2.0",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
+    "fflate": "^0.8.3",
     "globals": "^17.6.0",
     "jscpd": "^4.1.1",
     "jsdom": "^29.1.1",
