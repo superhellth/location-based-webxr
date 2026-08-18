@@ -8,10 +8,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type {
   ProximityObject,
   StepConfig,
+  ZoneState,
   ZoneTransition,
 } from "../core/proximity-machine.js";
 import { createProximityDriver } from "./proximity-driver.js";
-import type { ZoneState } from "../../../store/types.js";
 
 /**
  * Replay e2e (TASK.md §2.3 component 4, second test level): feed a REAL outdoor

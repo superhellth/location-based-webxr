@@ -16,8 +16,8 @@ import {
   step,
   type ProximityObject,
   type ZoneMap,
+  type ZoneState,
 } from "./core/proximity-machine.js";
-import type { ZoneState } from "../../store/types.js";
 import walk from "./demo-walk.json";
 import { createPlaybackLoop } from "../shared/playback-loop.js";
 

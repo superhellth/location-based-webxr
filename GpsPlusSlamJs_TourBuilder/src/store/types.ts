@@ -58,7 +58,10 @@ export interface Tour {
 }
 
 // ── Zone state (proximity state machine output, component 4) ──────────────────
-export type ZoneState = "IDLE" | "PREFETCHING" | "ACTIVE";
+// Canonical definition lives upstream in the framework (promoted from this
+// lab's proximity component, TASK.md §2.6) so it carries no dependency on
+// this store.
+export type { ZoneState } from "gps-plus-slam-app-framework/visualization";
 
 // ── Asset provider (contract §3) ─────────────────────────────────────────────
 /**

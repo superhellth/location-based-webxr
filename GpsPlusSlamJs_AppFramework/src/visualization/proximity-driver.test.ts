@@ -1,13 +1,13 @@
-import { Vector3 } from "three";
-import { describe, expect, it, vi } from "vitest";
+import { Vector3 } from 'three';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   ProximityObject,
   ZoneMap,
   ZoneState,
   ZoneTransition,
-} from "../core/proximity-machine.js";
-import { createProximityDriver } from "./proximity-driver.js";
+} from './proximity-machine.js';
+import { createProximityDriver } from './proximity-driver.js';
 
 /**
  * Why these tests matter: the driver is the only impure half of component 4. It
@@ -23,7 +23,7 @@ import { createProximityDriver } from "./proximity-driver.js";
  */
 
 const WP: ProximityObject = {
-  id: "wp",
+  id: 'wp',
   position: new Vector3(0, 0, 0),
   prefetchRadius: 25,
   activeRadius: 10,
@@ -42,9 +42,9 @@ function fakeStore(seed: ZoneMap = {}) {
   return { zones, onTransition, getZones: () => zones as ZoneMap };
 }
 
-describe("createProximityDriver — reporting transitions", () => {
-  it("reports each zone change as the user approaches", () => {
-    const store = fakeStore({ wp: "IDLE" });
+describe('createProximityDriver — reporting transitions', () => {
+  it('reports each zone change as the user approaches', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const pos = new Vector3(100, 0, 0);
     const driver = createProximityDriver({
       getUserWorldPos: () => pos,
@@ -58,24 +58,24 @@ describe("createProximityDriver — reporting transitions", () => {
     pos.set(20, 0, 0); // inside prefetch
     driver.tick();
     expect(store.onTransition).toHaveBeenLastCalledWith({
-      id: "wp",
-      from: "IDLE",
-      to: "PREFETCHING",
+      id: 'wp',
+      from: 'IDLE',
+      to: 'PREFETCHING',
     });
 
     pos.set(5, 0, 0); // inside active
     driver.tick();
     expect(store.onTransition).toHaveBeenLastCalledWith({
-      id: "wp",
-      from: "PREFETCHING",
-      to: "ACTIVE",
+      id: 'wp',
+      from: 'PREFETCHING',
+      to: 'ACTIVE',
     });
 
-    expect(store.zones.wp).toBe("ACTIVE");
+    expect(store.zones.wp).toBe('ACTIVE');
   });
 
-  it("reports nothing when no zone changes", () => {
-    const store = fakeStore({ wp: "IDLE" });
+  it('reports nothing when no zone changes', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const pos = new Vector3(100, 0, 0); // far outside prefetch
     const driver = createProximityDriver({
       getUserWorldPos: () => pos,
@@ -89,9 +89,9 @@ describe("createProximityDriver — reporting transitions", () => {
   });
 });
 
-describe("createProximityDriver — movement-epsilon gate", () => {
-  it("skips the step when the user moved less than the epsilon, then runs once past it", () => {
-    const store = fakeStore({ wp: "IDLE" });
+describe('createProximityDriver — movement-epsilon gate', () => {
+  it('skips the step when the user moved less than the epsilon, then runs once past it', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const pos = new Vector3(26, 0, 0);
     const driver = createProximityDriver({
       getUserWorldPos: () => pos,
@@ -113,14 +113,14 @@ describe("createProximityDriver — movement-epsilon gate", () => {
     driver.tick();
     expect(store.onTransition).toHaveBeenCalledTimes(1);
     expect(store.onTransition).toHaveBeenLastCalledWith({
-      id: "wp",
-      from: "IDLE",
-      to: "PREFETCHING",
+      id: 'wp',
+      from: 'IDLE',
+      to: 'PREFETCHING',
     });
   });
 
-  it("measures movement from the last evaluated pose, not the last tick", () => {
-    const store = fakeStore({ wp: "IDLE" });
+  it('measures movement from the last evaluated pose, not the last tick', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const pos = new Vector3(26, 0, 0);
     const driver = createProximityDriver({
       getUserWorldPos: () => pos,
@@ -140,9 +140,9 @@ describe("createProximityDriver — movement-epsilon gate", () => {
   });
 });
 
-describe("createProximityDriver — no pose yet", () => {
-  it("does nothing when getUserWorldPos returns null", () => {
-    const store = fakeStore({ wp: "IDLE" });
+describe('createProximityDriver — no pose yet', () => {
+  it('does nothing when getUserWorldPos returns null', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const driver = createProximityDriver({
       getUserWorldPos: () => null,
       getObjects: () => [WP],
@@ -155,9 +155,9 @@ describe("createProximityDriver — no pose yet", () => {
   });
 });
 
-describe("createProximityDriver — reset", () => {
-  it("forgets the last evaluated pose so the next tick always runs", () => {
-    const store = fakeStore({ wp: "IDLE" });
+describe('createProximityDriver — reset', () => {
+  it('forgets the last evaluated pose so the next tick always runs', () => {
+    const store = fakeStore({ wp: 'IDLE' });
     const pos = new Vector3(20, 0, 0);
     const driver = createProximityDriver({
       getUserWorldPos: () => pos,
@@ -174,6 +174,6 @@ describe("createProximityDriver — reset", () => {
     pos.set(20.1, 0, 0); // sub-epsilon move, but reset forces a run
     driver.tick();
     // zone is already PREFETCHING so no *new* transition, but the step ran:
-    expect(store.zones.wp).toBe("PREFETCHING");
+    expect(store.zones.wp).toBe('PREFETCHING');
   });
 });

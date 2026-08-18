@@ -28,10 +28,10 @@
  * @see plans/Shared-Contract.md §2.5 (zone-state consumer contract)
  */
 
-import type { Vector3 } from "three";
+import type { Vector3 } from 'three';
 
 /** A waypoint's proximity zone (mirrors the `zones` slice's `ZoneState`). */
-export type ZoneState = "IDLE" | "PREFETCHING" | "ACTIVE";
+export type ZoneState = 'IDLE' | 'PREFETCHING' | 'ACTIVE';
 
 /** A tracked object: a waypoint's resolved world-space anchor + its radii. */
 export interface ProximityObject {
@@ -81,19 +81,19 @@ function nextZone(
   current: ZoneState,
   distance: number,
   obj: ProximityObject,
-  h: number,
+  h: number
 ): ZoneState {
   const activeExit = obj.activeRadius * (1 + h);
   const prefetchExit = obj.prefetchRadius * (1 + h);
   switch (current) {
-    case "IDLE":
-      return distance <= obj.prefetchRadius ? "PREFETCHING" : "IDLE";
-    case "PREFETCHING":
-      if (distance <= obj.activeRadius) return "ACTIVE";
-      if (distance > prefetchExit) return "IDLE";
-      return "PREFETCHING";
-    case "ACTIVE":
-      return distance > activeExit ? "PREFETCHING" : "ACTIVE";
+    case 'IDLE':
+      return distance <= obj.prefetchRadius ? 'PREFETCHING' : 'IDLE';
+    case 'PREFETCHING':
+      if (distance <= obj.activeRadius) return 'ACTIVE';
+      if (distance > prefetchExit) return 'IDLE';
+      return 'PREFETCHING';
+    case 'ACTIVE':
+      return distance > activeExit ? 'PREFETCHING' : 'ACTIVE';
   }
 }
 
@@ -107,13 +107,13 @@ export function step(
   prev: ZoneMap,
   userPos: Vector3,
   objects: readonly ProximityObject[],
-  config: StepConfig,
+  config: StepConfig
 ): StepResult {
   const zones: Record<string, ZoneState> = {};
   const transitions: ZoneTransition[] = [];
 
   for (const obj of objects) {
-    const from: ZoneState = prev[obj.id] ?? "IDLE";
+    const from: ZoneState = prev[obj.id] ?? 'IDLE';
     const distance = horizontalDistance(userPos, obj.position);
     const to = nextZone(from, distance, obj, config.hysteresisFraction);
     zones[obj.id] = to;
