@@ -1,7 +1,7 @@
+import { StructuralReadError } from "gps-plus-slam-app-framework/storage";
 import { describe, expect, it, vi } from "vitest";
 
 import { RefCountedAssetProvider } from "./asset-provider.js";
-import { StructuralAssetError } from "./errors.js";
 
 /**
  * Why these tests matter: this is the contract's `AssetProvider` (D14) — the
@@ -102,12 +102,12 @@ describe("RefCountedAssetProvider", () => {
 
   it("fails a structural error immediately without retrying", async () => {
     const load = vi.fn(() =>
-      Promise.reject(new StructuralAssetError("no such entry")),
+      Promise.reject(new StructuralReadError("no such entry")),
     );
     const { provider } = makeProvider(load);
 
     await expect(provider.getAssetUrl("ghost")).rejects.toBeInstanceOf(
-      StructuralAssetError,
+      StructuralReadError,
     );
     expect(load).toHaveBeenCalledTimes(1); // never retried
   });

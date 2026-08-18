@@ -15,12 +15,13 @@
  * @see plans/2026-07-24-cloud-loader-plan.md (C12, C13, C15)
  */
 
+import { StructuralReadError } from "gps-plus-slam-app-framework/storage";
+
 import type { AssetId, AssetProvider } from "../../../store/types.js";
-import { StructuralAssetError } from "./errors.js";
 
 export interface RefCountedAssetProviderDeps {
   /** Backing: resolve an asset id to its bytes as a typed Blob. Throw a
-   *  {@link StructuralAssetError} for permanent failures (unknown id, decode);
+   *  {@link StructuralReadError} for permanent failures (unknown id, decode);
    *  any other rejection is treated as transient and retried. */
   loadAssetBlob(id: AssetId): Promise<Blob>;
   /** Defaults to `URL.createObjectURL` (absent in Node — injected in tests). */
@@ -63,7 +64,7 @@ export class RefCountedAssetProvider implements AssetProvider {
 
   /**
    * Load an asset's bytes, retrying *transient* failures with backoff.
-   * A {@link StructuralAssetError} is permanent — thrown at once, never retried.
+   * A {@link StructuralReadError} is permanent — thrown at once, never retried.
    */
   async #loadWithRetry(id: AssetId): Promise<Blob> {
     let lastErr: unknown;
@@ -71,7 +72,7 @@ export class RefCountedAssetProvider implements AssetProvider {
       try {
         return await this.#load(id);
       } catch (err) {
-        if (err instanceof StructuralAssetError) throw err;
+        if (err instanceof StructuralReadError) throw err;
         lastErr = err;
         if (attempt < this.#maxRetries) {
           await this.#delay(BACKOFF_BASE_MS * 2 ** attempt);

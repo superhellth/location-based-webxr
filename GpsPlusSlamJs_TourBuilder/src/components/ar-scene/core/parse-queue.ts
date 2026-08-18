@@ -78,7 +78,7 @@ export function createParseQueue(options: ParseQueueOptions): ParseQueue {
                 finish();
                 // Forward the task's own rejection reason verbatim. Wrapping it
                 // in a fresh Error would erase the type callers branch on (e.g.
-                // the loader's StructuralAssetError / StaleLoadError).
+                // the framework's StructuralReadError / this module's StaleLoadError).
                 // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
                 reject(error);
               },

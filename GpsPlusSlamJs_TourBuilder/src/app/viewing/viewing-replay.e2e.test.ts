@@ -35,6 +35,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { replayRecording } from "gps-plus-slam-app-framework/state";
+import { InMemoryLocalCacheStore } from "gps-plus-slam-app-framework/storage";
 import { Vector3 } from "three";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -49,7 +50,6 @@ import {
   startFixtureServer,
   type FixtureServer,
 } from "../../components/cloud-loader/view/fixture-server.js";
-import { InMemoryLocalCacheStore } from "../../components/cloud-loader/view/local-cache-source.js";
 import { openRemoteTour } from "../../components/cloud-loader/view/open-remote-tour.js";
 import { restoreProgress, persistProgress } from "./progress-store.js";
 

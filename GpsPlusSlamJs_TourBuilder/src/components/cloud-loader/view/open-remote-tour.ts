@@ -19,27 +19,26 @@ import {
   type Entry,
   type FileEntry,
 } from "@zip.js/zip.js";
+import {
+  ByteSourceReader,
+  CacheApiStore,
+  decideFallback,
+  InMemoryLocalCacheStore,
+  LocalCacheByteSource,
+  normalizeShareUrl,
+  probeRemote,
+  RemoteRangeByteSource,
+  StructuralReadError,
+  SwitchableByteSource,
+  type FetchImpl,
+  type LocalCacheStore,
+} from "gps-plus-slam-app-framework/storage";
 
 import type { AssetId, AssetProvider, Tour } from "../../../store/types.js";
 import { parseTourJson } from "../../../store/parse-tour-json.js";
 import { RefCountedAssetProvider } from "../core/asset-provider.js";
-import { SwitchableByteSource } from "../core/byte-source.js";
-import { decideFallback } from "../core/fallback-decision.js";
-import { StructuralAssetError, TourLoadError } from "../core/errors.js";
+import { TourLoadError } from "../core/errors.js";
 import { mimeForAsset } from "../core/mime-for-asset.js";
-import { normalizeShareUrl } from "../core/share-link.js";
-import { ByteSourceReader } from "./byte-source-reader.js";
-import {
-  CacheApiStore,
-  InMemoryLocalCacheStore,
-  LocalCacheByteSource,
-  type LocalCacheStore,
-} from "./local-cache-source.js";
-import {
-  probeRemote,
-  RemoteRangeByteSource,
-  type FetchImpl,
-} from "./remote-range-byte-source.js";
 
 export interface OpenRemoteTourOptions {
   /** Defaults to a Cache API store in the browser (C20). */
@@ -272,7 +271,7 @@ async function loadAssetBlob(
   const entry = entryById.get(id);
   const asset = tour.assets.find((a) => a.id === id);
   if (!entry || !asset) {
-    throw new StructuralAssetError(`unknown asset id: ${id}`);
+    throw new StructuralReadError(`unknown asset id: ${id}`);
   }
   return entry.getData(
     new BlobWriter(mimeForAsset(asset.filename, asset.type)),
