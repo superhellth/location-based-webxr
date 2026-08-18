@@ -36,7 +36,7 @@ dependency-cruiser (module boundaries) and knip (dead code).
 Run a single file or test name:
 
 ```bash
-pnpm exec vitest run src/components/proximity/core/proximity-machine.test.ts
+pnpm exec vitest run src/components/proximity/proximity-replay.e2e.test.ts
 pnpm exec vitest run -t "hysteresis"
 ```
 
@@ -62,7 +62,7 @@ surfaces that compose them.
 | 1   | [Clickable billboard](src/components/billboard/README.md)                         | `/src/components/billboard/`     | Yaw-to-face sprite + spatialized audio + in-world transport panel (play/stop, seekable bar). Seed of the AR knight markers.                                                          |
 | 2   | [In-world text](src/components/in-world-text/README.md)                           | `/src/components/in-world-text/` | Billboarded paginated text panel; HTML-in-3D backend with automatic `CanvasTexture` fallback (XR-safe).                                                                              |
 | 3   | [Tour data model + store](src/store/README.md)                                    | `/src/components/store/`         | The §2.2 contract: schema types, `validateTour`, slices, selectors, the two store factories.                                                                                         |
-| 4   | [Proximity & zone machine](src/components/proximity/core/proximity-machine.ts.md) | `/src/components/proximity/`     | `IDLE → PREFETCHING → ACTIVE` per waypoint with hysteresis, pure world-space (X/Z), no GPS/geo math. Replay-tested.                                                                  |
+| 4   | [Proximity & zone machine](../GpsPlusSlamJs_AppFramework/src/visualization/proximity-machine.ts.md) | `/src/components/proximity/`     | `IDLE → PREFETCHING → ACTIVE` per waypoint with hysteresis, pure world-space (X/Z), no GPS/geo math. Replay-tested. Machine + driver live upstream in the framework; this demo/replay-e2e stays here. |
 | 5   | [Packaging & QR](src/components/packaging/README.md)                              | `/src/components/packaging/`     | Bundles a `Tour` + asset files into an **uncompressed** `tour.zip`; turns the hosted URL into a scannable viewing link.                                                              |
 | 6   | [Cloud-storage tour source](src/components/cloud-loader/README.md)                | `/src/components/cloud-loader/`  | `?tour=<zipUrl>` → running tour: byte-range reads of the hosted ZIP, `AssetProvider` by id, local warm copy, no-range fallback.                                                      |
 | 7   | [2D map overview](src/components/map/README.md)                                   | `/src/components/map/`           | Toggleable real-time Leaflet map (plain DOM, no Three.js): visitor dot + waypoint markers recoloured by the real proximity driver.                                                   |
@@ -126,7 +126,10 @@ still **THREE-free and DOM-free** — dependency-cruiser enforces that boundary.
 2. **Replay e2e** on top, for anything with a movement dependency: real outdoor
    recordings from `recordings/` are fed through `replayRecording` so the
    component runs deterministically on a desktop with no phone. Today:
-   - `src/components/proximity/view/proximity-replay.e2e.test.ts`
+   - `src/components/proximity/proximity-replay.e2e.test.ts` (the proximity
+     machine/driver themselves now live upstream in
+     `gps-plus-slam-app-framework/visualization`; this replay e2e stays here
+     since it needs the recording fixture)
    - `src/components/map/view/tour-map-replay.e2e.test.ts`
    - `src/components/ar-scene/runtime/tour-scene-replay.e2e.test.ts`
    - `src/components/authoring/view/authoring-session-replay.e2e.test.ts`

@@ -18,11 +18,13 @@ import "leaflet/dist/leaflet.css";
 import { Vector3 } from "three";
 
 import { buildMapData } from "gps-plus-slam-app-framework/visualization/map-data";
+import {
+  createProximityDriver,
+  type ProximityObject,
+} from "gps-plus-slam-app-framework/visualization";
 
 import walk from "../proximity/demo-walk.json";
 import trackData from "./demo-track.json";
-import { createProximityDriver } from "../proximity/view/proximity-driver.js";
-import type { ProximityObject } from "../proximity/core/proximity-machine.js";
 
 import { createViewingStore } from "../../store/viewing-store.js";
 import { loadTour } from "../../store/tour-slice.js";
