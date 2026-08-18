@@ -1,21 +1,16 @@
 /**
- * Waypoint → map-marker view-model mapping — the pure heart of component 7
- * (TASK.md §2.3 "2D map overview"). Turns the store's waypoint list, visited
- * ids, and next-unvisited id into the marker status the view layer draws.
+ * Waypoint → map-marker view-model mapping. Turns a list of waypoints, the
+ * ids already visited, and the "next" hint id into per-marker display status
+ * ("visited" | "next" | "unvisited") a map view can render directly.
  *
  * Pure, framework-free: no Leaflet, no DOM, no THREE. Same inputs → same
  * output.
  *
- * `next` is a **visual hint only**, not a gate — component 4 (proximity)
- * activates any waypoint by distance regardless of order, since waypoint
- * order is not enforced (plan: 2026-07-31-map-plan.md, decision 3).
- *
- * @see plans/2026-07-31-map-plan.md
- * @see plans/Shared-Contract.md
+ * `nextId` is a **visual hint only**, not a gate — an app's own proximity
+ * logic decides which waypoint activates, independent of marker order.
  */
 
-/** Minimal position shape this module needs — mirrors the store's `TourCoord`
- * without importing it, so this module has no dependency on the app's store. */
+/** Minimal position shape this module needs. */
 export interface MapWaypointPosition {
   readonly lat: number;
   readonly lon: number;
@@ -23,7 +18,7 @@ export interface MapWaypointPosition {
 }
 
 /** Minimal waypoint shape this module needs — any object with at least these
- * two fields (e.g. the app's store `Waypoint`) satisfies it structurally. */
+ * two fields satisfies it structurally. */
 export interface MapWaypointInput {
   readonly id: string;
   readonly position: MapWaypointPosition;
