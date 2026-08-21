@@ -126,3 +126,30 @@ export {
 
 // --- structural-read-error ---
 export { StructuralReadError } from './structural-read-error.js';
+
+// --- tour-load-error ---
+export {
+  type TourLoadCause,
+  StructuralAssetError,
+  TourLoadError,
+} from './tour-load-error.js';
+
+// --- asset-provider ---
+export {
+  type AssetId,
+  type AssetProvider,
+  type RefCountedAssetProviderDeps,
+  RefCountedAssetProvider,
+} from './asset-provider.js';
+
+// --- mime-for-asset ---
+export { type AssetType, mimeForAsset } from './mime-for-asset.js';
+
+// --- open-remote-tour ---
+export {
+  type OpenRemoteTourOptions,
+  type MinimalAsset,
+  type MinimalParsedArchive,
+  type OpenedTour,
+  openRemoteTour,
+} from './open-remote-tour.js';

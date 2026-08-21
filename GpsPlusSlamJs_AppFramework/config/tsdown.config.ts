@@ -158,6 +158,13 @@ const entryFiles = [
   // coverage-backfill). The `./storage/*` exports wildcard advertises this
   // subpath, so it must be built per-file.
   'src/storage/write-file-or-abort.ts',
+  // Cloud-loader graduation: fatal/per-asset error types, the ref-counted
+  // asset provider, and the generic remote-archive orchestrator. Each is
+  // deep-imported via `./storage/*`, so each must be a per-file dist entry.
+  'src/storage/tour-load-error.ts',
+  'src/storage/asset-provider.ts',
+  'src/storage/mime-for-asset.ts',
+  'src/storage/open-remote-tour.ts',
 
   // test-utils/ (advertised in `exports`; consumed by RecorderApp tests)
   'src/test-utils/browser-mocks.ts',

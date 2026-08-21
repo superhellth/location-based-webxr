@@ -36,7 +36,7 @@ branch is provable without a server.
 ```ts
 const probe = await probeRemote(url, fetch); // see remote-range-byte-source.ts
 const decision = decideFallback(probe);
-if (decision.mode === "reject") throw new MyOpenError(decision.cause);
+if (decision.mode === 'reject') throw new MyOpenError(decision.cause);
 ```
 
 ## Tests
