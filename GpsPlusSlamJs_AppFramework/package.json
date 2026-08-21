@@ -66,13 +66,17 @@
     "@zip.js/zip.js": ">=2.7.0",
     "h3-js": ">=4.0.0",
     "leaflet": ">=1.9.0",
-    "three": ">=0.170.0"
+    "three": ">=0.170.0",
+    "three-html-render": ">=0.1.0"
   },
   "peerDependenciesMeta": {
     "leaflet": {
       "optional": true
     },
     "@sentry/browser": {
+      "optional": true
+    },
+    "three-html-render": {
       "optional": true
     }
   },
@@ -97,6 +101,7 @@
     "prettier": "^3.8.3",
     "qrcode": "^1.5.4",
     "three": "^0.184.0",
+    "three-html-render": "^0.1.2",
     "tsdown": "^0.22.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",

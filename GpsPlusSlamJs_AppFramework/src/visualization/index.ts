@@ -241,3 +241,69 @@ export {
   type ClickableBillboard,
   createClickableBillboard,
 } from './clickable-billboard.js';
+
+// --- text-wrap (greedy word-wrap measurer) ---
+export { type Measure, wrapText } from './text-wrap.js';
+
+// --- text-style (resolved text styling defaults) ---
+export {
+  type TextStyle,
+  type ResolvedTextStyle,
+  DEFAULT_TEXT_STYLE,
+  resolveTextStyle,
+} from './text-style.js';
+
+// --- text-page-state (pure pagination reducer) ---
+export {
+  type TextPageState,
+  type TextPageAction,
+  initialTextPageState,
+  textPageReducer,
+  canPrev,
+  canNext,
+  pageLabel,
+} from './text-page-state.js';
+
+// --- page-layout (paginated text-panel UV layout) ---
+export {
+  type PagePanelLayout,
+  type PageIntent,
+  PAGE_PANEL_LAYOUT,
+  hitToPageIntent,
+  paginate,
+} from './page-layout.js';
+
+// --- describe-panel (pure text-panel draw model) ---
+export {
+  type PxRect,
+  type DrawLine,
+  type DrawButton,
+  type PanelDrawModel,
+  describePanel,
+} from './describe-panel.js';
+
+// --- text-surface (swappable text-rendering backend contract) ---
+export {
+  type SurfaceKind,
+  type SurfaceDeps,
+  type TextSurface,
+  type SurfaceFactory,
+  createMeasure,
+} from './text-surface.js';
+
+// --- canvas-text-surface (XR-safe canvas text-rendering backend) ---
+export { createCanvasTextSurface } from './canvas-text-surface.js';
+
+// --- html-text-surface (primary HTML-in-3D text-rendering backend) ---
+export { createHtmlTextSurface } from './html-text-surface.js';
+
+// --- text-interaction (text-label pointer-pick classification) ---
+export { createTextInteraction } from './text-interaction.js';
+
+// --- in-world-text (billboarded, paginated in-world text label) ---
+export {
+  type TextLabelUserData,
+  type InWorldTextOptions,
+  type InWorldText,
+  createInWorldText,
+} from './in-world-text.js';

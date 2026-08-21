@@ -253,6 +253,20 @@ const entryFiles = [
   'src/visualization/transport-panel-view.ts',
   'src/visualization/billboard-interaction.ts',
   'src/visualization/clickable-billboard.ts',
+  // In-world paginated text label (audio-tour-guide graduation, built on the
+  // billboard promotion's tap-picking/panel-geometry/billboard-math helpers).
+  // Each is deep-imported via `./visualization/*`, so each must be a
+  // per-file dist entry.
+  'src/visualization/text-wrap.ts',
+  'src/visualization/text-style.ts',
+  'src/visualization/text-page-state.ts',
+  'src/visualization/page-layout.ts',
+  'src/visualization/describe-panel.ts',
+  'src/visualization/text-surface.ts',
+  'src/visualization/canvas-text-surface.ts',
+  'src/visualization/html-text-surface.ts',
+  'src/visualization/text-interaction.ts',
+  'src/visualization/in-world-text.ts',
 ];
 
 export default defineConfig({
