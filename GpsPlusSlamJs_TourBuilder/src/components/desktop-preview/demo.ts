@@ -100,6 +100,10 @@ const assetProvider: AssetProvider = new RefCountedAssetProvider({
   },
 });
 
+// Creating the store activates gps-plus-slam-js's license; must happen
+// before any call into its math (computePreviewStart -> toWorld).
+const store = createViewingStore();
+
 const { origin, start, route } = computePreviewStart(tour);
 const session = createPreviewSession({
   container,
@@ -115,7 +119,6 @@ const camera = session.runtime.getCamera()!;
 const audioListener = new AudioListener();
 camera.add(audioListener);
 
-const store = createViewingStore();
 const adapter = createThreeSceneAdapter({
   parent: session.runtime.getArWorldGroup()!,
   camera,

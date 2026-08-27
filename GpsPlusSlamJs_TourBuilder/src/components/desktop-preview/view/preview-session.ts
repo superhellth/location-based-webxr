@@ -155,7 +155,7 @@ function createSky(): Mesh {
  * Deliberately cheap and deliberately plain: it has to read as "outdoors, and
  * that thing over there is a tour stop", nothing more.
  */
-function buildWorld(container: HTMLElement): {
+function buildWorld(): {
   scene: Scene;
   camera: PerspectiveCamera;
   arWorldGroup: Group;
@@ -193,7 +193,7 @@ function buildWorld(container: HTMLElement): {
 
   return {
     scene,
-    camera: new PerspectiveCamera(65, aspectOf(container), 0.1, 1200),
+    camera: new PerspectiveCamera(65, aspectOf(), 0.1, 1200),
     arWorldGroup,
   };
 }
@@ -221,12 +221,12 @@ export function createPreviewSession(
   const frame = createPreviewFrame(options.origin);
 
   // ── The world ─────────────────────────────────────────────────────────────
-  const { scene, camera, arWorldGroup } = buildWorld(options.container);
+  const { scene, camera, arWorldGroup } = buildWorld();
 
   const renderer =
     options.createRenderer?.(options.container) ?? createDefaultRenderer();
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
-  renderer.setSize(widthOf(options.container), heightOf(options.container));
+  renderer.setSize(widthOf(), heightOf());
   renderer.domElement.className = "preview-canvas";
   options.container.appendChild(renderer.domElement);
 
@@ -312,9 +312,9 @@ export function createPreviewSession(
   rafHandle = raf(tick);
 
   const onResize = (): void => {
-    camera.aspect = aspectOf(options.container);
+    camera.aspect = aspectOf();
     camera.updateProjectionMatrix();
-    renderer.setSize(widthOf(options.container), heightOf(options.container));
+    renderer.setSize(widthOf(), heightOf());
   };
   globalThis.window.addEventListener("resize", onResize);
 
@@ -368,12 +368,13 @@ export function createPreviewSession(
 const clampPitch = (value: number): number =>
   Math.max(-1.2, Math.min(1.2, value));
 
-const widthOf = (element: HTMLElement): number =>
-  element.clientWidth || globalThis.window.innerWidth;
-const heightOf = (element: HTMLElement): number =>
-  element.clientHeight || globalThis.window.innerHeight;
-const aspectOf = (element: HTMLElement): number =>
-  widthOf(element) / Math.max(heightOf(element), 1);
+// The canvas is a fixed, full-viewport backdrop (`.preview-canvas` sits under
+// the HUD and the map, exactly where the camera feed sits in a real AR
+// session) — its resolution must track the viewport, not whatever box its
+// mount point happens to have in the surrounding page's layout.
+const widthOf = (): number => globalThis.window.innerWidth;
+const heightOf = (): number => globalThis.window.innerHeight;
+const aspectOf = (): number => widthOf() / Math.max(heightOf(), 1);
 
 function createDefaultRenderer(): PreviewRenderer {
   const renderer = new WebGLRenderer({ antialias: true });

@@ -31,7 +31,7 @@ export interface WalkInput {
 
 export interface WalkSimulatorOptions {
   readonly start?: WalkPose;
-  /** Comfortable walking pace; the default is the usual 1.4 m/s. */
+  /** Comfortable walking pace; the default is 3.0 m/s. */
   readonly walkSpeedMps?: number;
   readonly runMultiplier?: number;
   readonly turnRateRadPerSec?: number;
@@ -54,7 +54,7 @@ const clamp = (value: number): number => Math.max(-1, Math.min(1, value));
 export function createWalkSimulator(
   options: WalkSimulatorOptions = {},
 ): WalkSimulator {
-  const walkSpeed = options.walkSpeedMps ?? 1.4;
+  const walkSpeed = options.walkSpeedMps ?? 3.0;
   const runMultiplier = options.runMultiplier ?? 2.2;
   const turnRate = options.turnRateRadPerSec ?? Math.PI * 0.9;
   let current: WalkPose = options.start ?? ORIGIN;

@@ -413,6 +413,21 @@ p[data-testid="qr-status"] {
   z-index: 5;
 }
 
+/* In-session (AR or preview), the map is a direct child of `.ar-container`
+   (`mountSessionShell` appends it straight to `arHost`) — floated top-right
+   over the scene, clear of the HUD which anchors the opposite edge. The
+   entry screen's map card stays nested inside `.panel` and keeps the inline
+   layout above. */
+.ar-container > .map-card {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  left: auto;
+  z-index: 6;
+  width: 200px;
+  height: 200px;
+}
+
 /* ── Small screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 400px) {
