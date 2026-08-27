@@ -43,8 +43,25 @@ const TRANSCRIPT_VISUAL_HEIGHT_M = 2;
 /** Transcript panel width, matched to the assumed visual's own width. */
 export const TRANSCRIPT_PANEL_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M;
 
-/** Gap between the visual's assumed edge and the transcript panel's edge. */
+/** Gap between the visual's assumed edge and a panel's edge. */
 const TRANSCRIPT_PADDING_M = 0.15;
+
+/**
+ * Transport (play/pause) panel size, matched to component 1's demo panel
+ * proportions.
+ */
+export const TRANSPORT_PANEL_WIDTH_M = TRANSCRIPT_PANEL_WIDTH_M;
+export const TRANSPORT_PANEL_HEIGHT_M = 0.4;
+
+/**
+ * How far the visual's own bottom edge floats above the ground (local Y),
+ * sized to leave exactly enough room for the transport panel plus padding on
+ * both sides. Both the sprite template (`gltf-loading.ts`) and the fallback
+ * marker are raised by this amount so the transport panel always has a gap
+ * to sit in beneath whichever visual actually renders.
+ */
+export const VISUAL_GROUND_CLEARANCE_M =
+  TRANSPORT_PANEL_HEIGHT_M + 2 * TRANSCRIPT_PADDING_M;
 
 /**
  * Transcript panel offset beside the visual, in metres. Local X so it moves
@@ -62,35 +79,24 @@ export function transcriptOffset(textPanelWidthM: number): {
       TRANSCRIPT_VISUAL_HALF_WIDTH_M +
       TRANSCRIPT_PADDING_M +
       textPanelWidthM / 2,
-    // Vertically centred on the assumed visual height.
-    y: TRANSCRIPT_VISUAL_HEIGHT_M / 2,
+    // Vertically centred on the assumed visual height — the visual's own
+    // centre sits `VISUAL_GROUND_CLEARANCE_M` above the ground now, so the
+    // text stays centred on it by rising the same amount.
+    y: VISUAL_GROUND_CLEARANCE_M + TRANSCRIPT_VISUAL_HEIGHT_M / 2,
   };
 }
 
 /**
- * Transport (play/pause) panel size, matched to component 1's demo panel
- * proportions but stretched to the transcript panel's width so the two form
- * one aligned column beside the visual.
+ * Transport panel offset: centred directly beneath the visual (local X = 0,
+ * not beside it like the transcript column) in the ground-clearance gap the
+ * visual floats above, with equal padding above and below the panel.
  */
-export const TRANSPORT_PANEL_WIDTH_M = TRANSCRIPT_PANEL_WIDTH_M;
-export const TRANSPORT_PANEL_HEIGHT_M = 0.4;
-
-/**
- * Transport panel offset: same local X as the transcript panel (one aligned
- * column beside the visual), stacked directly below it with the same
- * edge-to-edge padding.
- */
-export function transportPanelOffset(
-  textPanelWidthM: number,
-  textPanelHeightM: number,
-): { readonly x: number; readonly y: number } {
-  const transcript = transcriptOffset(textPanelWidthM);
+export function transportPanelOffset(): {
+  readonly x: number;
+  readonly y: number;
+} {
   return {
-    x: transcript.x,
-    y:
-      transcript.y -
-      textPanelHeightM / 2 -
-      TRANSCRIPT_PADDING_M -
-      TRANSPORT_PANEL_HEIGHT_M / 2,
+    x: 0,
+    y: VISUAL_GROUND_CLEARANCE_M / 2,
   };
 }

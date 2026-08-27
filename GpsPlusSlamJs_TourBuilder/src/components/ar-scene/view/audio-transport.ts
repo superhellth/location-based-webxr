@@ -26,11 +26,7 @@ import { createListenerSet } from "../core/listener-set.js";
 import { stamp } from "./pick-classify.js";
 import type { WaypointNode } from "./waypoint-registry.js";
 
-export function createAudioTransport(
-  audioListener: AudioListener,
-  transcriptPanelWidth: number,
-  transcriptPanelHeight: number,
-) {
+export function createAudioTransport(audioListener: AudioListener) {
   const audioEndListeners = createListenerSet<[]>();
   /** The one story that may be playing (exclusivity is the runtime's rule). */
   let currentAudio: AudioPlayer | null = null;
@@ -60,10 +56,7 @@ export function createAudioTransport(
       TRANSPORT_PANEL_WIDTH_M,
       TRANSPORT_PANEL_HEIGHT_M,
     );
-    const offset = transportPanelOffset(
-      transcriptPanelWidth,
-      transcriptPanelHeight,
-    );
+    const offset = transportPanelOffset();
     panel.mesh.position.set(offset.x, offset.y, 0);
     panel.mesh.visible = false; // synced to the visual's own visibility
     stamp(panel.mesh, node.waypointId, "transport");

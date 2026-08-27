@@ -22,6 +22,7 @@ import {
   type parseTemplate,
 } from "./gltf-loading.js";
 import { stamp } from "./pick-classify.js";
+import { VISUAL_GROUND_CLEARANCE_M } from "../config.js";
 import type { WaypointNode } from "./waypoint-registry.js";
 
 export function createVisualInstances(
@@ -55,6 +56,7 @@ export function createVisualInstances(
       node: WaypointNode | undefined,
       handle: WaypointHandle,
       template: TemplateHandle,
+      hasAudio = true,
     ): VisualHandle {
       const parsed = templates.get(template.templateId);
       if (node === undefined || parsed === undefined) {
@@ -64,7 +66,7 @@ export function createVisualInstances(
       stamp(object, handle.waypointId, "visual");
       node.group.add(object);
       node.visual = object;
-      ensureTransportPanel(node);
+      if (hasAudio) ensureTransportPanel(node);
       const visualId = `visual-${nextVisualId++}`;
       instances.set(visualId, { node, object });
       return { visualId };
@@ -73,6 +75,7 @@ export function createVisualInstances(
     buildFallbackVisual(
       node: WaypointNode | undefined,
       handle: WaypointHandle,
+      hasAudio = true,
     ): VisualHandle {
       if (node === undefined) return { visualId: `void-${nextVisualId++}` };
       // A plain marker cone: the visitor sees that SOMETHING is here and the
@@ -81,12 +84,14 @@ export function createVisualInstances(
         new ConeGeometry(0.25, 1, 8),
         new MeshBasicMaterial({ color: 0xff8a5c, wireframe: true }),
       );
-      marker.position.y = 0.5;
+      // Same ground clearance as the real visual, so the transport panel has
+      // room beneath a fallback marker too.
+      marker.position.y = VISUAL_GROUND_CLEARANCE_M + 0.5;
       marker.visible = false;
       stamp(marker, handle.waypointId, "visual");
       node.group.add(marker);
       node.visual = marker;
-      ensureTransportPanel(node);
+      if (hasAudio) ensureTransportPanel(node);
       const visualId = `fallback-${nextVisualId++}`;
       instances.set(visualId, { node, object: marker });
       return { visualId };

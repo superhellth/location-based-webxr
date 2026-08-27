@@ -173,6 +173,7 @@ export function createFakeSceneAdapter(
     instantiate(
       handle: WaypointHandle,
       _template: TemplateHandle,
+      _hasAudio?: boolean,
     ): VisualHandle {
       record("instantiate", handle.waypointId);
       const visual = { visualId: `v${nextVisualId++}` };
@@ -180,7 +181,10 @@ export function createFakeSceneAdapter(
       visualOwner.set(visual.visualId, handle.waypointId);
       return visual;
     },
-    buildFallbackVisual(handle: WaypointHandle): VisualHandle {
+    buildFallbackVisual(
+      handle: WaypointHandle,
+      _hasAudio?: boolean,
+    ): VisualHandle {
       record("buildFallbackVisual", handle.waypointId);
       const visual = { visualId: `fallback-${nextVisualId++}` };
       liveVisuals.add(visual.visualId);

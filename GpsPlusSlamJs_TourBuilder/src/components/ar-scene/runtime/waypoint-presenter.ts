@@ -71,6 +71,7 @@ export function createWaypointPresenter(
   const { waypoint, adapter, assetProvider, loader } = deps;
   const handle = adapter.createWaypointRoot(waypoint.id, waypoint.position);
   const visual = selectWaypointVisual(waypoint);
+  const hasAudio = waypoint.content.audio !== undefined;
 
   let state = initialLifecycleState();
   let instance: VisualHandle | null = null;
@@ -101,7 +102,7 @@ export function createWaypointPresenter(
         releaseModelRef();
         break;
       case "fallback":
-        instance = adapter.buildFallbackVisual(handle);
+        instance = adapter.buildFallbackVisual(handle, hasAudio);
         break;
       case "show":
         if (instance !== null) adapter.setVisible(instance, true);
@@ -160,7 +161,7 @@ export function createWaypointPresenter(
         heldModelAsset = assetId;
         // Instantiate BEFORE consulting the lifecycle: a stale generation makes
         // the next line emit `discard`, which releases the reference we just took.
-        const attached = adapter.instantiate(handle, template);
+        const attached = adapter.instantiate(handle, template, hasAudio);
         const result = onLoadResolved(state, generation);
         if (result.intents.some((i) => i.kind === "discard")) {
           adapter.releaseVisual(attached);

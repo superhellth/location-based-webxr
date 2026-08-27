@@ -82,10 +82,19 @@ export interface SceneAdapter {
   buildTemplate(kind: "model" | "sprite", url: string): Promise<TemplateHandle>;
   /** Free the template's GPU resources. Called on LRU eviction only (A9). */
   disposeTemplate(template: TemplateHandle): void;
-  /** Clone the template under the waypoint's root, INVISIBLE (§2.5.3). */
-  instantiate(handle: WaypointHandle, template: TemplateHandle): VisualHandle;
+  /**
+   * Clone the template under the waypoint's root, INVISIBLE (§2.5.3).
+   * `hasAudio` (default `true`) gates the always-visible transport panel —
+   * pass `false` for a waypoint with no sound asset so no play/pause control
+   * appears under a story that cannot play anything.
+   */
+  instantiate(
+    handle: WaypointHandle,
+    template: TemplateHandle,
+    hasAudio?: boolean,
+  ): VisualHandle;
   /** Procedural stand-in when an asset is missing or corrupt (§7.2 soft-fail). */
-  buildFallbackVisual(handle: WaypointHandle): VisualHandle;
+  buildFallbackVisual(handle: WaypointHandle, hasAudio?: boolean): VisualHandle;
   /** Detach + drop this clone. Never deep-disposes shared resources (A10). */
   releaseVisual(visual: VisualHandle): void;
   setVisible(visual: VisualHandle, visible: boolean): void;

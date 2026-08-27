@@ -33,17 +33,12 @@ import { Vector3, type AudioListener, type Camera } from "three";
 
 import type { TourCoord } from "../../../store/types.js";
 import { computeBillboardYaw } from "../../shared/billboard-math.js";
-import {
-  DEFAULT_TEXT_STYLE,
-  resolveTextStyle,
-} from "../../in-world-text/core/text-style.js";
 import type {
   SceneAdapter,
   TemplateHandle,
   VisualHandle,
   WaypointHandle,
 } from "../runtime/scene-adapter.js";
-import { TRANSCRIPT_PANEL_WIDTH_M } from "../config.js";
 import { parseTemplate } from "./gltf-loading.js";
 import {
   createBreadcrumbOrbs,
@@ -66,13 +61,6 @@ import { createAudioTransport } from "./audio-transport.js";
 import { createTapPicking } from "./tap-picking.js";
 
 export type { SceneAnchor };
-
-/** The transcript panel's real plane height, needed to stack the transport
- *  panel directly beneath it with no gap-miscalculation drift. */
-const TRANSCRIPT_PANEL_HEIGHT_M = resolveTextStyle({
-  ...DEFAULT_TEXT_STYLE,
-  maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
-}).planeH;
 
 export interface ThreeSceneAdapterOptions {
   /** The `arWorldGroup` (or any world-space parent in replay mode). */
@@ -99,11 +87,7 @@ export function createThreeSceneAdapter(
   options: ThreeSceneAdapterOptions,
 ): SceneAdapter {
   const registry = createWaypointRegistry(options.parent, options.createAnchor);
-  const audioTransport = createAudioTransport(
-    options.audioListener,
-    TRANSCRIPT_PANEL_WIDTH_M,
-    TRANSCRIPT_PANEL_HEIGHT_M,
-  );
+  const audioTransport = createAudioTransport(options.audioListener);
   const visuals = createVisualInstances(
     options.parse ?? parseTemplate,
     audioTransport.ensureTransportPanel,
@@ -161,18 +145,24 @@ export function createThreeSceneAdapter(
     instantiate(
       handle: WaypointHandle,
       template: TemplateHandle,
+      hasAudio = true,
     ): VisualHandle {
       return visuals.instantiate(
         registry.get(handle.waypointId),
         handle,
         template,
+        hasAudio,
       );
     },
 
-    buildFallbackVisual(handle: WaypointHandle): VisualHandle {
+    buildFallbackVisual(
+      handle: WaypointHandle,
+      hasAudio = true,
+    ): VisualHandle {
       return visuals.buildFallbackVisual(
         registry.get(handle.waypointId),
         handle,
+        hasAudio,
       );
     },
 
