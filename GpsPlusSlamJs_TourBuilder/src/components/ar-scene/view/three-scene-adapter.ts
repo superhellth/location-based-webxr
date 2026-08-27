@@ -413,12 +413,17 @@ export function createThreeSceneAdapter(
       const cameraPos = options.camera.getWorldPosition(new Vector3());
       for (const node of nodes.values()) {
         // Cylindrical billboarding: yaw only, never pitch or roll (component 1).
+        // The text sits on the same vertical (local x=z=0) axis as the visual,
+        // so this one yaw already faces it correctly too — `InWorldText.faceCamera`
+        // expects a *world* position, but the text's `group.position` here is its
+        // local offset inside `node.group` (contract A14), so calling it would
+        // apply a second, wrong rotation on top of this one and turn the panel
+        // away from the camera instead of leaving it aligned with its parent.
         node.group.rotation.y = computeBillboardYaw(
           node.group.getWorldPosition(new Vector3()),
           cameraPos,
           node.group.rotation.y,
         );
-        node.text?.faceCamera(cameraPos);
       }
       orbs.update(dtSeconds);
     },

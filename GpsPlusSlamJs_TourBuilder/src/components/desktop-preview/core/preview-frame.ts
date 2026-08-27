@@ -43,12 +43,10 @@ export function createPreviewFrame(origin: {
   return {
     origin,
     toWorld(coord) {
-      const nue = calcRelativeCoordsInMeters(
-        origin,
-        coord,
-        coord.altitude ?? 0,
-        0,
-      );
+      // Altitude is persisted but not yet consumed (contract D6) — every
+      // point sits on the floor plane regardless of its recorded GPS
+      // altitude, which is too noisy to place objects with.
+      const nue = calcRelativeCoordsInMeters(origin, coord, 0, 0);
       return { x: nue[0], y: nue[1], z: nue[2] };
     },
     toCoord(point) {

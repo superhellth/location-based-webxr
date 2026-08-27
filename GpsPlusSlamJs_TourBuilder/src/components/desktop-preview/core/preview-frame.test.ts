@@ -36,4 +36,18 @@ describe("preview frame", () => {
     expect(roundTripped.lat).toBeCloseTo(coord.lat, 6);
     expect(roundTripped.lon).toBeCloseTo(coord.lon, 6);
   });
+
+  it("ignores recorded GPS altitude — every point sits on the floor plane (contract D6)", () => {
+    const frame = createPreviewFrame(ORIGIN);
+
+    // Real recorded GPS altitude (ASL, ~200 m), not relative to the origin —
+    // must not leak into the world Y component.
+    const point = frame.toWorld({
+      lat: ORIGIN.lat + 0.0001,
+      lon: ORIGIN.lon,
+      altitude: 216.75,
+    });
+
+    expect(point.y).toBe(0);
+  });
 });

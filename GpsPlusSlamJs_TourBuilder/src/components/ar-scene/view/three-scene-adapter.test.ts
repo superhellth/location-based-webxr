@@ -275,3 +275,65 @@ describe("anchoring and teardown", () => {
     expect(positions[0]).toEqual(new Vector3(1, 0, 2));
   });
 });
+
+describe("transcript billboarding (plan A14)", () => {
+  it("leaves the transcript panel's own rotation at identity so it inherits the parent's yaw instead of double-rotating", () => {
+    // jsdom ships no real 2D canvas backend; stub just enough of it for
+    // `createMeasure` (and the Canvas-backend fallback, if it swaps to one) to
+    // run without throwing. This test cares about rotation, not rendering.
+    const fake2dContext = {
+      font: "",
+      measureText: () => ({ width: 0 }),
+      fillRect: () => undefined,
+      clearRect: () => undefined,
+      fillText: () => undefined,
+      save: () => undefined,
+      restore: () => undefined,
+      beginPath: () => undefined,
+      closePath: () => undefined,
+      fill: () => undefined,
+      arc: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
+      roundRect: () => undefined,
+      translate: () => undefined,
+      scale: () => undefined,
+    };
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(fake2dContext as unknown as CanvasRenderingContext2D);
+
+    const h = setup();
+    const handle = h.adapter.createWaypointRoot("wp-1", COORD);
+    const group = h.parent.getObjectByName("waypoint-wp-1")!;
+    // Far from the world origin — this is what exposes a yaw computed from a
+    // LOCAL offset (near the origin) instead of the panel's true world position.
+    group.position.set(20, 0, 5);
+    // Deliberately NOT (0, _, 0): the local x/z the bug mistakes for a world
+    // position is (0, 0.9, 0), so a camera whose world x/z is also (0, 0)
+    // would make `computeBillboardYaw` hit its "no horizontal direction"
+    // fallback by coincidence and mask the bug either way.
+    h.camera.position.set(8, 1.6, -30);
+    h.parent.updateMatrixWorld(true);
+
+    h.adapter.showTranscript(handle, "hello");
+    h.adapter.update(0);
+
+    let pickMesh: Mesh | undefined;
+    group.traverse((node) => {
+      const stamped = (node.userData as { arScene?: { role?: string } })
+        .arScene;
+      if (stamped?.role === "transcript") pickMesh = node as Mesh;
+    });
+    expect(pickMesh).toBeDefined();
+    // The parent (`waypoint-wp-1`) already yawed to face the camera — the
+    // text's own group must not apply a second, independently-computed yaw.
+    expect(pickMesh!.parent!.rotation.y).toBe(0);
+
+    // Left un-restored deliberately: the HTML backend's fallback wiring keeps
+    // retrying `getContext` asynchronously (plan R1/R2) past this test's own
+    // synchronous assertions, and restoring early turns that into an unhandled
+    // rejection instead of a harmless no-op.
+    void getContextSpy;
+  });
+});
