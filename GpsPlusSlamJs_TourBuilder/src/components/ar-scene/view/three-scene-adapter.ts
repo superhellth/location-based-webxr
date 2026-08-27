@@ -22,10 +22,10 @@
  *
  * The transport panel deliberately deviates from A13/A14's tap-only design: it
  * is always visible alongside the visual (not shown only once a story starts),
- * for discoverability. A tap anywhere on it is classified with the "transport"
- * role and reuses the exact same story toggle as tapping the visual — the
- * runtime's tap handler treats any non-"transcript" role identically, so no
- * orchestration changes were needed to wire it in.
+ * for discoverability. A hit on it is classified with the "transport" role and
+ * carries the panel-local `uv`; the runtime maps that through component 1's
+ * `hitToAction` to tell a button tap (toggle, same as tapping the visual) from
+ * a track tap (seek) instead of treating every hit on the panel as a toggle.
  */
 
 import type { Object3D } from "three";
@@ -211,6 +211,12 @@ export function createThreeSceneAdapter(
 
     stopAudio(): void {
       audioTransport.stopAudio();
+    },
+
+    seekAudio(handle: WaypointHandle, fraction: number): void {
+      const node = registry.get(handle.waypointId);
+      if (node === undefined) return;
+      audioTransport.seekAudio(node, fraction);
     },
 
     isAudioReady(): boolean {

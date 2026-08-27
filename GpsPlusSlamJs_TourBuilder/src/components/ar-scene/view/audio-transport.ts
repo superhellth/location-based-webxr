@@ -113,6 +113,18 @@ export function createAudioTransport(audioListener: AudioListener) {
       }
     },
 
+    /** Scrubs the currently-playing node's own audio only — a `fraction` on
+     *  some other (inactive) waypoint has no element to seek yet. */
+    seekAudio(node: WaypointNode, fraction: number): void {
+      if (node.audio === null || node !== currentAudioNode) return;
+      const seconds = fraction * node.transportDurationSec;
+      node.audio.seekToSeconds(seconds);
+      // Immediate visual feedback; the element's own `timeupdate` will
+      // confirm (or correct) this shortly after.
+      node.transportPositionSec = seconds;
+      redrawTransportPanel(node);
+    },
+
     stopAudio(): void {
       if (currentAudio === null) return;
       currentAudio.pause();

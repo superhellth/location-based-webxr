@@ -33,7 +33,12 @@ export function classify(hit: Intersection<Object3D>): TapHit | null {
   let node: Object3D | null = hit.object;
   while (node !== null) {
     const stamped = (node.userData as Partial<ArSceneUserData>).arScene;
-    if (stamped !== undefined) return { ...stamped };
+    if (stamped !== undefined) {
+      return {
+        ...stamped,
+        ...(hit.uv !== undefined && { uv: { u: hit.uv.x, v: hit.uv.y } }),
+      };
+    }
     node = node.parent;
   }
   return null;

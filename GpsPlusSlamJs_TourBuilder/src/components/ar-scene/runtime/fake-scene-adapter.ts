@@ -230,6 +230,9 @@ export function createFakeSceneAdapter(
     stopAudio(): void {
       audioLog.push("stop");
     },
+    seekAudio(handle: WaypointHandle, fraction: number): void {
+      audioLog.push(`seek:${handle.waypointId}:${fraction}`);
+    },
     isAudioReady(): boolean {
       return options.audioReady ?? true;
     },

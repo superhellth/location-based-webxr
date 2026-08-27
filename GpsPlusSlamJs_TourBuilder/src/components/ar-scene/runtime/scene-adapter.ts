@@ -43,12 +43,15 @@ export interface TapHit {
   readonly waypointId: string;
   /**
    * `"visual"` = the knight itself; `"transcript"` = the text panel;
-   * `"transport"` = the always-visible play/pause panel (component 1's
-   * transport panel) — a tap anywhere on it toggles the story exactly like
-   * tapping the visual (the runtime's tap handler treats any non-transcript
-   * role identically).
+   * `"transport"` = the always-visible play/pause + seek panel (component 1's
+   * transport panel) — the runtime maps `uv` through component 1's
+   * `hitToAction` to tell a button tap (toggle) from a track tap (seek)
+   * instead of treating every hit on it as a toggle.
    */
   readonly role: "visual" | "transcript" | "transport";
+  /** Panel-local hit position in [0,1]; only set for a `"transport"` hit
+   *  (the mesh's `PlaneGeometry` UV), needed to resolve toggle vs seek. */
+  readonly uv?: { readonly u: number; readonly v: number };
 }
 
 export interface SceneAdapter {
@@ -111,6 +114,9 @@ export interface SceneAdapter {
   pauseAudio(): void;
   resumeAudio(): void;
   stopAudio(): void;
+  /** Scrub the given waypoint's own audio to `fraction` (in [0,1]) of its
+   *  known duration. A no-op if that waypoint has no audio element yet. */
+  seekAudio(handle: WaypointHandle, fraction: number): void;
   /** `true` when the injected `AudioListener`'s context is running (A16). */
   isAudioReady(): boolean;
 
