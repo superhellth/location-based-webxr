@@ -130,5 +130,3 @@ export function createVisualInstances(
     },
   };
 }
-
-export type VisualInstances = ReturnType<typeof createVisualInstances>;

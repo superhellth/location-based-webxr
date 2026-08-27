@@ -81,5 +81,3 @@ export function createTapPicking(options: TapPickingOptions) {
     },
   };
 }
-
-export type TapPicking = ReturnType<typeof createTapPicking>;

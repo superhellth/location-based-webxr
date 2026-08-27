@@ -150,5 +150,3 @@ export function createAudioTransport(
     },
   };
 }
-
-export type AudioTransport = ReturnType<typeof createAudioTransport>;

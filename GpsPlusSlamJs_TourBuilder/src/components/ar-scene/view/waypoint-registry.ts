@@ -104,5 +104,3 @@ export function createWaypointRegistry(
     },
   };
 }
-
-export type WaypointRegistry = ReturnType<typeof createWaypointRegistry>;
