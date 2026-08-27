@@ -30,8 +30,39 @@ export const TRAIL_ORB_POOL_SIZE = 16;
 export const TRAIL_WINDOW_RADIUS_M = 15;
 
 /**
- * Transcript panel offset below the visual, in metres (A14). Below, not above:
- * a label over a ~1.8 m knight falls outside a phone's portrait field of view
- * at typical tap distance.
+ * Assumed visual footprint, in metres (A14, revised) — matches the sprite
+ * template's own "knight-sized banner" default (`SPRITE_WIDTH_M`/`_HEIGHT_M`
+ * in `gltf-loading.ts`). A GLTF model's real bounds aren't known until it's
+ * parsed, so the transcript panel is placed off this assumed box rather than
+ * a per-model bounding-box computation.
  */
-export const TRANSCRIPT_OFFSET_M = 0.9;
+const TRANSCRIPT_VISUAL_WIDTH_M = 1.2;
+const TRANSCRIPT_VISUAL_HALF_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M / 2;
+const TRANSCRIPT_VISUAL_HEIGHT_M = 2;
+
+/** Transcript panel width, matched to the assumed visual's own width. */
+export const TRANSCRIPT_PANEL_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M;
+
+/** Gap between the visual's assumed edge and the transcript panel's edge. */
+const TRANSCRIPT_PADDING_M = 0.15;
+
+/**
+ * Transcript panel offset beside the visual, in metres. Local X so it moves
+ * with the waypoint group's own yaw and always reads as "next to" the visual
+ * rather than turning away from camera on its own. `textPanelWidthM` is the
+ * panel's own configured width (`TextStyle.maxWidthMeters`), needed so the
+ * padding is measured edge-to-edge rather than center-to-edge.
+ */
+export function transcriptOffset(textPanelWidthM: number): {
+  readonly x: number;
+  readonly y: number;
+} {
+  return {
+    x:
+      TRANSCRIPT_VISUAL_HALF_WIDTH_M +
+      TRANSCRIPT_PADDING_M +
+      textPanelWidthM / 2,
+    // Vertically centred on the assumed visual height.
+    y: TRANSCRIPT_VISUAL_HEIGHT_M / 2,
+  };
+}

@@ -47,7 +47,7 @@ import type {
   VisualHandle,
   WaypointHandle,
 } from "../runtime/scene-adapter.js";
-import { TRANSCRIPT_OFFSET_M } from "../config.js";
+import { transcriptOffset, TRANSCRIPT_PANEL_WIDTH_M } from "../config.js";
 import { createListenerSet } from "../core/listener-set.js";
 import {
   disposeTemplate,
@@ -312,10 +312,12 @@ export function createThreeSceneAdapter(
       const node = nodes.get(handle.waypointId);
       if (node === undefined) return;
       if (node.text === null) {
+        const offset = transcriptOffset(TRANSCRIPT_PANEL_WIDTH_M);
         node.text = createInWorldText({
           text,
           id: `transcript-${handle.waypointId}`,
-          position: new Vector3(0, TRANSCRIPT_OFFSET_M, 0),
+          position: new Vector3(offset.x, offset.y, 0),
+          maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
         });
         stamp(node.text.pickMesh, handle.waypointId, "transcript");
         node.group.add(node.text.group);
@@ -413,8 +415,8 @@ export function createThreeSceneAdapter(
       const cameraPos = options.camera.getWorldPosition(new Vector3());
       for (const node of nodes.values()) {
         // Cylindrical billboarding: yaw only, never pitch or roll (component 1).
-        // The text sits on the same vertical (local x=z=0) axis as the visual,
-        // so this one yaw already faces it correctly too — `InWorldText.faceCamera`
+        // The text is a child of this same group at a fixed local offset, so
+        // this one yaw already faces it correctly too — `InWorldText.faceCamera`
         // expects a *world* position, but the text's `group.position` here is its
         // local offset inside `node.group` (contract A14), so calling it would
         // apply a second, wrong rotation on top of this one and turn the panel

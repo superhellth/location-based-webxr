@@ -46,7 +46,7 @@ const textureLoader = new TextureLoader();
 
 /** Default sprite size in metres — a knight-sized banner at eye height. */
 const SPRITE_WIDTH_M = 1.2;
-const SPRITE_HEIGHT_M = 1.8;
+const SPRITE_HEIGHT_M = 2;
 
 /**
  * Parse a model or sprite from a Blob URL into a shareable template.

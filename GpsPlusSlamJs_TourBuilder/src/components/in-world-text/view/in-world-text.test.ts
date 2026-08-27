@@ -36,6 +36,11 @@ const TWO_PAGE_TEXT = Array.from({ length: 10 }, (_, i) => `line ${i}`).join(
   "\n",
 );
 
+// Pins pagination to the line height these fixtures were tuned against, so
+// the pagination-navigation tests below don't drift if the app's default
+// font size (`DEFAULT_TEXT_STYLE`) changes.
+const TWO_PAGE_STYLE = { lineHeightPx: 56 };
+
 describe("createInWorldText — backend selection & fallback", () => {
   it("uses the HTML backend on the happy path", async () => {
     const createSurface = vi.fn(
@@ -146,6 +151,7 @@ describe("createInWorldText — pagination & navigation", () => {
       text: TWO_PAGE_TEXT,
       position: new Vector3(),
       backend: "canvas",
+      style: TWO_PAGE_STYLE,
       measure,
       createSurface: () => workingSurface(),
     });
@@ -172,6 +178,7 @@ describe("createInWorldText — pagination & navigation", () => {
       text: TWO_PAGE_TEXT,
       position: new Vector3(),
       backend: "canvas",
+      style: TWO_PAGE_STYLE,
       measure,
       createSurface: () => workingSurface(),
     });
