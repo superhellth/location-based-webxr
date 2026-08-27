@@ -2,20 +2,23 @@
  * The one real `SceneAdapter` — Three.js on one side, the port on the other
  * (plan A20).
  *
- * Everything THREE-specific in component 8 lives here or in this folder:
- * anchoring, GLTF parsing and cloning, billboard yaw, the orb pool, the
- * transcript label, the audio player and the ray source. The orchestrator in
- * `runtime/` sees none of it.
+ * This file is the orchestrator only: it owns the waypoint registry and
+ * wires the sub-modules together, but every actual THREE-specific behavior
+ * lives in its own module in this folder:
+ *
+ * - `waypoint-registry.ts` — the `WaypointNode` map, anchoring, teardown.
+ * - `visual-instances.ts` — template parse/dispose, clone instantiate/release.
+ * - `transcript.ts` — the in-world text panel (component 2).
+ * - `audio-transport.ts` — the audio player + always-visible transport panel.
+ * - `tap-picking.ts` — the raycast pick set and tap classification.
+ * - `pick-classify.ts` — the `userData.arScene` stamp both sides share.
+ * - `breadcrumb-orbs.ts` / `gltf-loading.ts` / `ray-sources.ts` — unchanged.
  *
  * Framework specifics are **injected** rather than imported: `createAnchor`,
  * `toWorld` and `getUserWorldPos` are the three seams where the framework's
  * GPS/alignment machinery would otherwise leak in. That is what lets the demo
  * run the very same adapter with an identity anchor factory on a desktop, with
  * no GPS zero reference and no alignment matrix in sight (plan A23).
- *
- * Reuse, not reimplementation: the audio player, its `PositionalAudio`
- * spatialisation and the transport panel come from component 1, the transcript
- * from component 2, the yaw math from `components/shared/billboard-math`.
  *
  * The transport panel deliberately deviates from A13/A14's tap-only design: it
  * is always visible alongside the visual (not shown only once a story starts),
@@ -26,70 +29,43 @@
  */
 
 import type { Object3D } from "three";
-import {
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  ConeGeometry,
-  Vector3,
-  type AudioListener,
-  type Camera,
-  type Intersection,
-} from "three";
+import { Vector3, type AudioListener, type Camera } from "three";
 
 import type { TourCoord } from "../../../store/types.js";
 import { computeBillboardYaw } from "../../shared/billboard-math.js";
-import {
-  createAudioPlayer,
-  type AudioPlayer,
-} from "../../billboard/view/audio-player.js";
-import {
-  createTransportPanel,
-  type TransportPanel,
-} from "../../billboard/view/transport-panel-view.js";
-import type { TransportState } from "../../billboard/core/playback-transport.js";
-import {
-  createInWorldText,
-  type InWorldText,
-} from "../../in-world-text/view/in-world-text.js";
 import {
   DEFAULT_TEXT_STYLE,
   resolveTextStyle,
 } from "../../in-world-text/core/text-style.js";
 import type {
   SceneAdapter,
-  TapHit,
   TemplateHandle,
   VisualHandle,
   WaypointHandle,
 } from "../runtime/scene-adapter.js";
-import {
-  transcriptOffset,
-  transportPanelOffset,
-  TRANSCRIPT_PANEL_WIDTH_M,
-  TRANSPORT_PANEL_WIDTH_M,
-  TRANSPORT_PANEL_HEIGHT_M,
-} from "../config.js";
-import { createListenerSet } from "../core/listener-set.js";
-import {
-  disposeTemplate,
-  instantiateTemplate,
-  parseTemplate,
-  releaseInstance,
-  type ParsedTemplate,
-} from "./gltf-loading.js";
+import { TRANSCRIPT_PANEL_WIDTH_M } from "../config.js";
+import { parseTemplate } from "./gltf-loading.js";
 import {
   createBreadcrumbOrbs,
   type BreadcrumbOrbs,
-  type OrbAnchor,
 } from "./breadcrumb-orbs.js";
+import type { TargetRayMatrixSource, XrSessionLike } from "./ray-sources.js";
 import {
-  createPointerRaySource,
-  createXrSelectRaySource,
-  type RaySource,
-  type TargetRayMatrixSource,
-  type XrSessionLike,
-} from "./ray-sources.js";
+  createWaypointRegistry,
+  type AnchorFactory,
+  type SceneAnchor,
+} from "./waypoint-registry.js";
+import { createVisualInstances } from "./visual-instances.js";
+import {
+  disposeTranscript,
+  hideTranscript,
+  pageTranscript,
+  showTranscript,
+} from "./transcript.js";
+import { createAudioTransport } from "./audio-transport.js";
+import { createTapPicking } from "./tap-picking.js";
+
+export type { SceneAnchor };
 
 /** The transcript panel's real plane height, needed to stack the transport
  *  panel directly beneath it with no gap-miscalculation drift. */
@@ -97,21 +73,6 @@ const TRANSCRIPT_PANEL_HEIGHT_M = resolveTextStyle({
   ...DEFAULT_TEXT_STYLE,
   maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
 }).planeH;
-
-/** What this adapter needs from a GPS anchor (the framework's `GpsAnchor`). */
-export interface SceneAnchor extends OrbAnchor {
-  readonly isFullyAnchored: boolean;
-}
-
-type AnchorFactory = (object3D: Object3D, coord: TourCoord) => SceneAnchor;
-
-/** Stamped on pickable meshes so a raycast hit can be classified. */
-interface ArSceneUserData {
-  readonly arScene: {
-    readonly waypointId: string;
-    readonly role: TapHit["role"];
-  };
-}
 
 export interface ThreeSceneAdapterOptions {
   /** The `arWorldGroup` (or any world-space parent in replay mode). */
@@ -134,36 +95,20 @@ export interface ThreeSceneAdapterOptions {
   readonly parse?: typeof parseTemplate;
 }
 
-interface WaypointNode {
-  readonly waypointId: string;
-  readonly group: Group;
-  readonly anchor: SceneAnchor;
-  visual: Object3D | null;
-  text: InWorldText | null;
-  audio: AudioPlayer | null;
-  audioElement: HTMLAudioElement | null;
-  /** Always visible alongside the visual, not gated by tap/play state. */
-  transportPanel: TransportPanel | null;
-  transportPlaying: boolean;
-  transportPositionSec: number;
-  transportDurationSec: number;
-}
-
 export function createThreeSceneAdapter(
   options: ThreeSceneAdapterOptions,
 ): SceneAdapter {
-  const parse = options.parse ?? parseTemplate;
-  const nodes = new Map<string, WaypointNode>();
-  const templates = new Map<string, ParsedTemplate>();
-  const instances = new Map<string, { node: WaypointNode; object: Object3D }>();
-  const tapListeners = createListenerSet<[TapHit]>();
-  const audioEndListeners = createListenerSet<[]>();
-  let pickTargets: Object3D[] = [];
-  let nextTemplateId = 0;
-  let nextVisualId = 0;
-  /** The one story that may be playing (exclusivity is the runtime's rule). */
-  let currentAudio: AudioPlayer | null = null;
-  let currentAudioNode: WaypointNode | null = null;
+  const registry = createWaypointRegistry(options.parent, options.createAnchor);
+  const audioTransport = createAudioTransport(
+    options.audioListener,
+    TRANSCRIPT_PANEL_WIDTH_M,
+    TRANSCRIPT_PANEL_HEIGHT_M,
+  );
+  const visuals = createVisualInstances(
+    options.parse ?? parseTemplate,
+    audioTransport.ensureTransportPanel,
+  );
+  const tapPicking = createTapPicking(options);
 
   const orbs: BreadcrumbOrbs = createBreadcrumbOrbs({
     parent: options.parent,
@@ -171,131 +116,21 @@ export function createThreeSceneAdapter(
     anchorFactory: (object3D, coord) => options.createAnchor(object3D, coord),
   });
 
-  /** Walk up from the hit mesh to the nearest stamped ancestor. */
-  function classify(hit: Intersection<Object3D>): TapHit | null {
-    let node: Object3D | null = hit.object;
-    while (node !== null) {
-      const stamped = (node.userData as Partial<ArSceneUserData>).arScene;
-      if (stamped !== undefined) return { ...stamped };
-      node = node.parent;
-    }
-    return null;
-  }
-
-  const raySource: RaySource =
-    options.xrSession !== undefined && options.getTargetRayMatrix !== undefined
-      ? createXrSelectRaySource({
-          session: options.xrSession,
-          getTargetRayMatrix: options.getTargetRayMatrix,
-          getPickTargets: () => pickTargets,
-          onHit: (hit) => {
-            emitTap(hit);
-          },
-        })
-      : createPointerRaySource({
-          domElement: options.domElement!,
-          camera: options.camera,
-          getPickTargets: () => pickTargets,
-          onHit: (hit) => {
-            emitTap(hit);
-          },
-        });
-
-  function emitTap(hit: Intersection<Object3D>): void {
-    const classified = classify(hit);
-    if (classified === null) return;
-    tapListeners.emit(classified);
-  }
-
-  function stamp(
-    object: Object3D,
-    waypointId: string,
-    role: TapHit["role"],
-  ): void {
-    (object.userData as Record<string, unknown>).arScene = {
-      waypointId,
-      role,
-    };
-  }
-
-  /** This node's own transport state, expressed as `TransportState` so it can
-   *  drive component 1's panel drawing/isPlaying/progressFraction helpers. */
-  function transportStateOf(node: WaypointNode): TransportState {
-    return {
-      activeId: node.waypointId,
-      status: node.transportPlaying ? "playing" : "paused",
-      positionSec: node.transportPositionSec,
-      durationSec: node.transportDurationSec,
-    };
-  }
-
-  function redrawTransportPanel(node: WaypointNode): void {
-    node.transportPanel?.redraw(transportStateOf(node), node.waypointId);
-  }
-
-  /** Built once per waypoint, the first time it gets a visual (A9-style: cheap
-   *  enough that it need not be pooled). Always visible whenever the visual
-   *  is, per the "discoverable, not just on tap" requirement. */
-  function ensureTransportPanel(node: WaypointNode): TransportPanel {
-    if (node.transportPanel !== null) return node.transportPanel;
-    const panel = createTransportPanel(
-      TRANSPORT_PANEL_WIDTH_M,
-      TRANSPORT_PANEL_HEIGHT_M,
-    );
-    const offset = transportPanelOffset(
-      TRANSCRIPT_PANEL_WIDTH_M,
-      TRANSCRIPT_PANEL_HEIGHT_M,
-    );
-    panel.mesh.position.set(offset.x, offset.y, 0);
-    panel.mesh.visible = false; // synced to the visual's own visibility
-    stamp(panel.mesh, node.waypointId, "transport");
-    node.group.add(panel.mesh);
-    node.transportPanel = panel;
-    redrawTransportPanel(node);
-    return panel;
-  }
-
   return {
     createWaypointRoot(id: string, coord: TourCoord): WaypointHandle {
-      const group = new Group();
-      group.name = `waypoint-${id}`;
-      options.parent.add(group);
-      const anchor = options.createAnchor(group, coord);
-      nodes.set(id, {
-        waypointId: id,
-        group,
-        anchor,
-        visual: null,
-        text: null,
-        audio: null,
-        audioElement: null,
-        transportPanel: null,
-        transportPlaying: false,
-        transportPositionSec: 0,
-        transportDurationSec: 0,
-      });
-      return { waypointId: id };
+      return registry.create(id, coord);
     },
 
     destroyWaypointRoot(handle: WaypointHandle): void {
-      const node = nodes.get(handle.waypointId);
-      if (node === undefined) return;
-      node.text?.dispose();
-      node.audio?.dispose();
-      node.transportPanel?.dispose();
-      node.anchor.dispose();
-      node.group.removeFromParent();
-      nodes.delete(handle.waypointId);
+      registry.destroy(handle);
     },
 
     isAnchored(handle: WaypointHandle): boolean {
-      return nodes.get(handle.waypointId)?.anchor.isFullyAnchored ?? false;
+      return registry.isAnchored(handle);
     },
 
     getWorldPosition(handle: WaypointHandle): Vector3 | null {
-      const node = nodes.get(handle.waypointId);
-      if (node === undefined) return null;
-      return node.group.getWorldPosition(new Vector3());
+      return registry.getWorldPosition(handle);
     },
 
     toWorldPositions(
@@ -312,223 +147,103 @@ export function createThreeSceneAdapter(
       orbs.setCoords(coords);
     },
 
-    async buildTemplate(
+    buildTemplate(
       kind: "model" | "sprite",
       url: string,
     ): Promise<TemplateHandle> {
-      const parsed = await parse(kind, url);
-      const templateId = `template-${nextTemplateId++}`;
-      templates.set(templateId, parsed);
-      return { templateId };
+      return visuals.buildTemplate(kind, url);
     },
 
     disposeTemplate(template: TemplateHandle): void {
-      const parsed = templates.get(template.templateId);
-      if (parsed === undefined) return;
-      disposeTemplate(parsed);
-      templates.delete(template.templateId);
+      visuals.disposeTemplate(template);
     },
 
     instantiate(
       handle: WaypointHandle,
       template: TemplateHandle,
     ): VisualHandle {
-      const node = nodes.get(handle.waypointId);
-      const parsed = templates.get(template.templateId);
-      if (node === undefined || parsed === undefined) {
-        return { visualId: `void-${nextVisualId++}` };
-      }
-      const object = instantiateTemplate(parsed);
-      stamp(object, handle.waypointId, "visual");
-      node.group.add(object);
-      node.visual = object;
-      ensureTransportPanel(node);
-      const visualId = `visual-${nextVisualId++}`;
-      instances.set(visualId, { node, object });
-      return { visualId };
+      return visuals.instantiate(
+        registry.get(handle.waypointId),
+        handle,
+        template,
+      );
     },
 
     buildFallbackVisual(handle: WaypointHandle): VisualHandle {
-      const node = nodes.get(handle.waypointId);
-      if (node === undefined) return { visualId: `void-${nextVisualId++}` };
-      // A plain marker cone: the visitor sees that SOMETHING is here and the
-      // failure is diagnosable in the field instead of looking like empty space.
-      const marker = new Mesh(
-        new ConeGeometry(0.25, 1, 8),
-        new MeshBasicMaterial({ color: 0xff8a5c, wireframe: true }),
+      return visuals.buildFallbackVisual(
+        registry.get(handle.waypointId),
+        handle,
       );
-      marker.position.y = 0.5;
-      marker.visible = false;
-      stamp(marker, handle.waypointId, "visual");
-      node.group.add(marker);
-      node.visual = marker;
-      ensureTransportPanel(node);
-      const visualId = `fallback-${nextVisualId++}`;
-      instances.set(visualId, { node, object: marker });
-      return { visualId };
     },
 
     releaseVisual(visual: VisualHandle): void {
-      const entry = instances.get(visual.visualId);
-      if (entry === undefined) return;
-      if (visual.visualId.startsWith("fallback-")) {
-        // The fallback owns its own geometry/material — nothing shares them.
-        const mesh = entry.object as Mesh;
-        mesh.geometry.dispose();
-        (mesh.material as MeshBasicMaterial).dispose();
-      }
-      // Clones share the template's geometry/materials: detach only, NEVER a
-      // recursive dispose (plan A10).
-      releaseInstance(entry.object);
-      if (entry.node.visual === entry.object) entry.node.visual = null;
-      // The panel follows the visual's own lifecycle: released with it, rebuilt
-      // by the next `instantiate`/`buildFallbackVisual` if the waypoint returns.
-      entry.node.transportPanel?.mesh.removeFromParent();
-      entry.node.transportPanel?.dispose();
-      entry.node.transportPanel = null;
-      instances.delete(visual.visualId);
+      visuals.releaseVisual(visual);
     },
 
     setVisible(visual: VisualHandle, isVisible: boolean): void {
-      const entry = instances.get(visual.visualId);
-      if (entry === undefined) return;
-      entry.object.visible = isVisible;
-      // Always shown alongside the visual — discoverability, not gated by tap.
-      if (entry.node.transportPanel !== null) {
-        entry.node.transportPanel.mesh.visible = isVisible;
-      }
+      visuals.setVisible(visual, isVisible);
     },
 
     showTranscript(handle: WaypointHandle, text: string): void {
-      const node = nodes.get(handle.waypointId);
+      const node = registry.get(handle.waypointId);
       if (node === undefined) return;
-      if (node.text === null) {
-        const offset = transcriptOffset(TRANSCRIPT_PANEL_WIDTH_M);
-        node.text = createInWorldText({
-          text,
-          id: `transcript-${handle.waypointId}`,
-          position: new Vector3(offset.x, offset.y, 0),
-          maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
-        });
-        stamp(node.text.pickMesh, handle.waypointId, "transcript");
-        node.group.add(node.text.group);
-      } else {
-        node.text.setText(text);
-      }
-      node.text.group.visible = true;
+      showTranscript(node, text);
     },
 
     hideTranscript(handle: WaypointHandle): void {
-      const node = nodes.get(handle.waypointId);
-      if (node?.text != null) node.text.group.visible = false;
+      const node = registry.get(handle.waypointId);
+      if (node !== undefined) hideTranscript(node);
     },
 
     disposeTranscript(handle: WaypointHandle): void {
-      const node = nodes.get(handle.waypointId);
-      if (node?.text == null) return;
-      node.text.group.removeFromParent();
-      node.text.dispose();
-      node.text = null;
+      const node = registry.get(handle.waypointId);
+      if (node !== undefined) disposeTranscript(node);
     },
 
     pageTranscript(handle: WaypointHandle): void {
-      nodes.get(handle.waypointId)?.text?.next();
+      const node = registry.get(handle.waypointId);
+      if (node !== undefined) pageTranscript(node);
     },
 
     playAudio(handle: WaypointHandle, url: string): void {
-      const node = nodes.get(handle.waypointId);
+      const node = registry.get(handle.waypointId);
       if (node === undefined) return;
-      if (node.audio === null) {
-        const element = new Audio(url);
-        element.crossOrigin = "anonymous";
-        node.audioElement = element;
-        node.audio = createAudioPlayer(element, options.audioListener, {
-          onTick: (positionSec, durationSec) => {
-            node.transportPositionSec = positionSec;
-            node.transportDurationSec = durationSec;
-            redrawTransportPanel(node);
-          },
-          onEnded: () => {
-            node.transportPlaying = false;
-            redrawTransportPanel(node);
-            audioEndListeners.emit();
-          },
-        });
-        // Spatialised from the waypoint's own position (component 1's tuning).
-        node.group.add(node.audio.spatialNode);
-      }
-      currentAudio = node.audio;
-      currentAudioNode = node;
-      node.transportPlaying = true;
-      node.audio.play();
-      redrawTransportPanel(node);
+      audioTransport.playAudio(node, url);
     },
 
     pauseAudio(): void {
-      currentAudio?.pause();
-      if (currentAudioNode !== null) {
-        currentAudioNode.transportPlaying = false;
-        redrawTransportPanel(currentAudioNode);
-      }
+      audioTransport.pauseAudio();
     },
 
     resumeAudio(): void {
-      currentAudio?.play();
-      if (currentAudioNode !== null) {
-        currentAudioNode.transportPlaying = true;
-        redrawTransportPanel(currentAudioNode);
-      }
+      audioTransport.resumeAudio();
     },
 
     stopAudio(): void {
-      if (currentAudio === null) return;
-      currentAudio.pause();
-      currentAudio.seekToSeconds(0);
-      if (currentAudioNode !== null) {
-        currentAudioNode.transportPlaying = false;
-        currentAudioNode.transportPositionSec = 0;
-        redrawTransportPanel(currentAudioNode);
-      }
-      currentAudio = null;
-      currentAudioNode = null;
+      audioTransport.stopAudio();
     },
 
     isAudioReady(): boolean {
-      // A suspended context silently swallows playback, so the runtime asks
-      // BEFORE starting a story and surfaces the failure (plan A16).
-      return options.audioListener.context.state === "running";
+      return audioTransport.isAudioReady();
     },
 
     setPickTargets(handles: readonly WaypointHandle[]): void {
-      const targets: Object3D[] = [];
-      for (const handle of handles) {
-        const node = nodes.get(handle.waypointId);
-        if (node === undefined) continue;
-        // Only what is actually on screen: the raycaster does not skip
-        // invisible objects, so a hidden mesh here would eat taps (plan A12).
-        if (node.visual !== null && node.visual.visible)
-          targets.push(node.visual);
-        if (node.text !== null && node.text.group.visible) {
-          targets.push(node.text.pickMesh);
-        }
-        if (node.transportPanel !== null && node.transportPanel.mesh.visible) {
-          targets.push(node.transportPanel.mesh);
-        }
-      }
-      pickTargets = targets;
+      tapPicking.setPickTargets(
+        handles.map((handle) => registry.get(handle.waypointId)),
+      );
     },
 
-    onTap(listener: (hit: TapHit) => void): () => void {
-      return tapListeners.add(listener);
+    onTap(listener) {
+      return tapPicking.onTap(listener);
     },
 
     onAudioEnded(listener: () => void): () => void {
-      return audioEndListeners.add(listener);
+      return audioTransport.onAudioEnded(listener);
     },
 
     update(dtSeconds: number): void {
       const cameraPos = options.camera.getWorldPosition(new Vector3());
-      for (const node of nodes.values()) {
+      for (const node of registry.values()) {
         // Cylindrical billboarding: yaw only, never pitch or roll (component 1).
         // The text is a child of this same group at a fixed local offset, so
         // this one yaw already faces it correctly too — `InWorldText.faceCamera`
@@ -546,23 +261,17 @@ export function createThreeSceneAdapter(
     },
 
     dispose(): void {
-      raySource.dispose();
+      tapPicking.dispose();
       orbs.dispose();
-      for (const id of [...nodes.keys()]) {
-        const node = nodes.get(id)!;
+      for (const node of registry.values()) {
         node.text?.dispose();
         node.audio?.dispose();
         node.anchor.dispose();
         node.group.removeFromParent();
       }
-      nodes.clear();
-      for (const parsed of templates.values()) disposeTemplate(parsed);
-      templates.clear();
-      instances.clear();
-      tapListeners.clear();
-      audioEndListeners.clear();
-      pickTargets = [];
-      currentAudio = null;
+      registry.clear();
+      visuals.disposeAllTemplates();
+      audioTransport.dispose();
     },
   };
 }
