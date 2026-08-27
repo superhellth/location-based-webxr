@@ -36,9 +36,9 @@ export const TRAIL_WINDOW_RADIUS_M = 15;
  * parsed, so the transcript panel is placed off this assumed box rather than
  * a per-model bounding-box computation.
  */
-const TRANSCRIPT_VISUAL_WIDTH_M = 1.2;
+const TRANSCRIPT_VISUAL_WIDTH_M = 1.08;
 const TRANSCRIPT_VISUAL_HALF_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M / 2;
-const TRANSCRIPT_VISUAL_HEIGHT_M = 2;
+const TRANSCRIPT_VISUAL_HEIGHT_M = 1.8;
 
 /** Transcript panel width, matched to the assumed visual's own width. */
 export const TRANSCRIPT_PANEL_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M;

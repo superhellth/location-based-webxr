@@ -300,11 +300,9 @@ export function createTourScene(options: TourSceneOptions): TourScene {
       switch (command.kind) {
         case "stop":
           adapter.stopAudio();
-          presenter?.hideTranscript();
           break;
         case "start":
           presenter?.startStory();
-          presenter?.showTranscript();
           break;
         case "pause":
           adapter.pauseAudio();

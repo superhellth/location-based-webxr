@@ -87,6 +87,21 @@ export function createWaypointPresenter(
     for (const intent of result.intents) execute(intent);
   };
 
+  /** Shown as soon as the waypoint is visible — not gated by tap/story state
+   *  (the transcript reads at a glance, no interaction required). */
+  function showTranscript(): void {
+    const text = waypoint.content.transcript;
+    if (text === undefined || text === "") return;
+    adapter.showTranscript(handle, text);
+    transcriptShown = true;
+  }
+
+  function hideTranscript(): void {
+    if (!transcriptShown) return;
+    adapter.hideTranscript(handle);
+    transcriptShown = false;
+  }
+
   function execute(intent: LifecycleIntent): void {
     switch (intent.kind) {
       case "startLoad":
@@ -106,10 +121,12 @@ export function createWaypointPresenter(
         break;
       case "show":
         if (instance !== null) adapter.setVisible(instance, true);
+        showTranscript();
         deps.onVisited(waypoint.id);
         break;
       case "hide":
         if (instance !== null) adapter.setVisible(instance, false);
+        hideTranscript();
         break;
       case "teardown":
         tearDownChildren();
@@ -217,18 +234,8 @@ export function createWaypointPresenter(
         });
     },
 
-    showTranscript(): void {
-      const text = waypoint.content.transcript;
-      if (text === undefined || text === "") return;
-      adapter.showTranscript(handle, text);
-      transcriptShown = true;
-    },
-
-    hideTranscript(): void {
-      if (!transcriptShown) return;
-      adapter.hideTranscript(handle);
-      transcriptShown = false;
-    },
+    showTranscript,
+    hideTranscript,
 
     pageTranscript(): void {
       if (transcriptShown) adapter.pageTranscript(handle);
