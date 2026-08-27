@@ -41,8 +41,14 @@ export interface VisualHandle {
 /** What the visitor tapped, classified by the adapter's ray source. */
 export interface TapHit {
   readonly waypointId: string;
-  /** `"visual"` = the knight itself; `"transcript"` = the text panel. */
-  readonly role: "visual" | "transcript";
+  /**
+   * `"visual"` = the knight itself; `"transcript"` = the text panel;
+   * `"transport"` = the always-visible play/pause panel (component 1's
+   * transport panel) — a tap anywhere on it toggles the story exactly like
+   * tapping the visual (the runtime's tap handler treats any non-transcript
+   * role identically).
+   */
+  readonly role: "visual" | "transcript" | "transport";
 }
 
 export interface SceneAdapter {

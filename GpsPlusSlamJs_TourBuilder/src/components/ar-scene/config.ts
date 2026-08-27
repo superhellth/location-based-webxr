@@ -66,3 +66,31 @@ export function transcriptOffset(textPanelWidthM: number): {
     y: TRANSCRIPT_VISUAL_HEIGHT_M / 2,
   };
 }
+
+/**
+ * Transport (play/pause) panel size, matched to component 1's demo panel
+ * proportions but stretched to the transcript panel's width so the two form
+ * one aligned column beside the visual.
+ */
+export const TRANSPORT_PANEL_WIDTH_M = TRANSCRIPT_PANEL_WIDTH_M;
+export const TRANSPORT_PANEL_HEIGHT_M = 0.4;
+
+/**
+ * Transport panel offset: same local X as the transcript panel (one aligned
+ * column beside the visual), stacked directly below it with the same
+ * edge-to-edge padding.
+ */
+export function transportPanelOffset(
+  textPanelWidthM: number,
+  textPanelHeightM: number,
+): { readonly x: number; readonly y: number } {
+  const transcript = transcriptOffset(textPanelWidthM);
+  return {
+    x: transcript.x,
+    y:
+      transcript.y -
+      textPanelHeightM / 2 -
+      TRANSCRIPT_PADDING_M -
+      TRANSPORT_PANEL_HEIGHT_M / 2,
+  };
+}

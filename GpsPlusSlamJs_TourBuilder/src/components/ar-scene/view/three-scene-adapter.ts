@@ -13,9 +13,16 @@
  * run the very same adapter with an identity anchor factory on a desktop, with
  * no GPS zero reference and no alignment matrix in sight (plan A23).
  *
- * Reuse, not reimplementation: the audio player and its `PositionalAudio`
- * spatialisation come from component 1, the transcript from component 2, the
- * yaw math from `components/shared/billboard-math`.
+ * Reuse, not reimplementation: the audio player, its `PositionalAudio`
+ * spatialisation and the transport panel come from component 1, the transcript
+ * from component 2, the yaw math from `components/shared/billboard-math`.
+ *
+ * The transport panel deliberately deviates from A13/A14's tap-only design: it
+ * is always visible alongside the visual (not shown only once a story starts),
+ * for discoverability. A tap anywhere on it is classified with the "transport"
+ * role and reuses the exact same story toggle as tapping the visual — the
+ * runtime's tap handler treats any non-"transcript" role identically, so no
+ * orchestration changes were needed to wire it in.
  */
 
 import type { Object3D } from "three";
@@ -37,9 +44,18 @@ import {
   type AudioPlayer,
 } from "../../billboard/view/audio-player.js";
 import {
+  createTransportPanel,
+  type TransportPanel,
+} from "../../billboard/view/transport-panel-view.js";
+import type { TransportState } from "../../billboard/core/playback-transport.js";
+import {
   createInWorldText,
   type InWorldText,
 } from "../../in-world-text/view/in-world-text.js";
+import {
+  DEFAULT_TEXT_STYLE,
+  resolveTextStyle,
+} from "../../in-world-text/core/text-style.js";
 import type {
   SceneAdapter,
   TapHit,
@@ -47,7 +63,13 @@ import type {
   VisualHandle,
   WaypointHandle,
 } from "../runtime/scene-adapter.js";
-import { transcriptOffset, TRANSCRIPT_PANEL_WIDTH_M } from "../config.js";
+import {
+  transcriptOffset,
+  transportPanelOffset,
+  TRANSCRIPT_PANEL_WIDTH_M,
+  TRANSPORT_PANEL_WIDTH_M,
+  TRANSPORT_PANEL_HEIGHT_M,
+} from "../config.js";
 import { createListenerSet } from "../core/listener-set.js";
 import {
   disposeTemplate,
@@ -68,6 +90,13 @@ import {
   type TargetRayMatrixSource,
   type XrSessionLike,
 } from "./ray-sources.js";
+
+/** The transcript panel's real plane height, needed to stack the transport
+ *  panel directly beneath it with no gap-miscalculation drift. */
+const TRANSCRIPT_PANEL_HEIGHT_M = resolveTextStyle({
+  ...DEFAULT_TEXT_STYLE,
+  maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
+}).planeH;
 
 /** What this adapter needs from a GPS anchor (the framework's `GpsAnchor`). */
 export interface SceneAnchor extends OrbAnchor {
@@ -106,12 +135,18 @@ export interface ThreeSceneAdapterOptions {
 }
 
 interface WaypointNode {
+  readonly waypointId: string;
   readonly group: Group;
   readonly anchor: SceneAnchor;
   visual: Object3D | null;
   text: InWorldText | null;
   audio: AudioPlayer | null;
   audioElement: HTMLAudioElement | null;
+  /** Always visible alongside the visual, not gated by tap/play state. */
+  transportPanel: TransportPanel | null;
+  transportPlaying: boolean;
+  transportPositionSec: number;
+  transportDurationSec: number;
 }
 
 export function createThreeSceneAdapter(
@@ -128,6 +163,7 @@ export function createThreeSceneAdapter(
   let nextVisualId = 0;
   /** The one story that may be playing (exclusivity is the runtime's rule). */
   let currentAudio: AudioPlayer | null = null;
+  let currentAudioNode: WaypointNode | null = null;
 
   const orbs: BreadcrumbOrbs = createBreadcrumbOrbs({
     parent: options.parent,
@@ -182,6 +218,43 @@ export function createThreeSceneAdapter(
     };
   }
 
+  /** This node's own transport state, expressed as `TransportState` so it can
+   *  drive component 1's panel drawing/isPlaying/progressFraction helpers. */
+  function transportStateOf(node: WaypointNode): TransportState {
+    return {
+      activeId: node.waypointId,
+      status: node.transportPlaying ? "playing" : "paused",
+      positionSec: node.transportPositionSec,
+      durationSec: node.transportDurationSec,
+    };
+  }
+
+  function redrawTransportPanel(node: WaypointNode): void {
+    node.transportPanel?.redraw(transportStateOf(node), node.waypointId);
+  }
+
+  /** Built once per waypoint, the first time it gets a visual (A9-style: cheap
+   *  enough that it need not be pooled). Always visible whenever the visual
+   *  is, per the "discoverable, not just on tap" requirement. */
+  function ensureTransportPanel(node: WaypointNode): TransportPanel {
+    if (node.transportPanel !== null) return node.transportPanel;
+    const panel = createTransportPanel(
+      TRANSPORT_PANEL_WIDTH_M,
+      TRANSPORT_PANEL_HEIGHT_M,
+    );
+    const offset = transportPanelOffset(
+      TRANSCRIPT_PANEL_WIDTH_M,
+      TRANSCRIPT_PANEL_HEIGHT_M,
+    );
+    panel.mesh.position.set(offset.x, offset.y, 0);
+    panel.mesh.visible = false; // synced to the visual's own visibility
+    stamp(panel.mesh, node.waypointId, "transport");
+    node.group.add(panel.mesh);
+    node.transportPanel = panel;
+    redrawTransportPanel(node);
+    return panel;
+  }
+
   return {
     createWaypointRoot(id: string, coord: TourCoord): WaypointHandle {
       const group = new Group();
@@ -189,12 +262,17 @@ export function createThreeSceneAdapter(
       options.parent.add(group);
       const anchor = options.createAnchor(group, coord);
       nodes.set(id, {
+        waypointId: id,
         group,
         anchor,
         visual: null,
         text: null,
         audio: null,
         audioElement: null,
+        transportPanel: null,
+        transportPlaying: false,
+        transportPositionSec: 0,
+        transportDurationSec: 0,
       });
       return { waypointId: id };
     },
@@ -204,6 +282,7 @@ export function createThreeSceneAdapter(
       if (node === undefined) return;
       node.text?.dispose();
       node.audio?.dispose();
+      node.transportPanel?.dispose();
       node.anchor.dispose();
       node.group.removeFromParent();
       nodes.delete(handle.waypointId);
@@ -263,6 +342,7 @@ export function createThreeSceneAdapter(
       stamp(object, handle.waypointId, "visual");
       node.group.add(object);
       node.visual = object;
+      ensureTransportPanel(node);
       const visualId = `visual-${nextVisualId++}`;
       instances.set(visualId, { node, object });
       return { visualId };
@@ -282,6 +362,7 @@ export function createThreeSceneAdapter(
       stamp(marker, handle.waypointId, "visual");
       node.group.add(marker);
       node.visual = marker;
+      ensureTransportPanel(node);
       const visualId = `fallback-${nextVisualId++}`;
       instances.set(visualId, { node, object: marker });
       return { visualId };
@@ -300,12 +381,22 @@ export function createThreeSceneAdapter(
       // recursive dispose (plan A10).
       releaseInstance(entry.object);
       if (entry.node.visual === entry.object) entry.node.visual = null;
+      // The panel follows the visual's own lifecycle: released with it, rebuilt
+      // by the next `instantiate`/`buildFallbackVisual` if the waypoint returns.
+      entry.node.transportPanel?.mesh.removeFromParent();
+      entry.node.transportPanel?.dispose();
+      entry.node.transportPanel = null;
       instances.delete(visual.visualId);
     },
 
     setVisible(visual: VisualHandle, isVisible: boolean): void {
       const entry = instances.get(visual.visualId);
-      if (entry !== undefined) entry.object.visible = isVisible;
+      if (entry === undefined) return;
+      entry.object.visible = isVisible;
+      // Always shown alongside the visual — discoverability, not gated by tap.
+      if (entry.node.transportPanel !== null) {
+        entry.node.transportPanel.mesh.visible = isVisible;
+      }
     },
 
     showTranscript(handle: WaypointHandle, text: string): void {
@@ -352,10 +443,14 @@ export function createThreeSceneAdapter(
         element.crossOrigin = "anonymous";
         node.audioElement = element;
         node.audio = createAudioPlayer(element, options.audioListener, {
-          onTick: () => {
-            /* the transport panel is component 1's concern, not the scene's */
+          onTick: (positionSec, durationSec) => {
+            node.transportPositionSec = positionSec;
+            node.transportDurationSec = durationSec;
+            redrawTransportPanel(node);
           },
           onEnded: () => {
+            node.transportPlaying = false;
+            redrawTransportPanel(node);
             audioEndListeners.emit();
           },
         });
@@ -363,22 +458,39 @@ export function createThreeSceneAdapter(
         node.group.add(node.audio.spatialNode);
       }
       currentAudio = node.audio;
+      currentAudioNode = node;
+      node.transportPlaying = true;
       node.audio.play();
+      redrawTransportPanel(node);
     },
 
     pauseAudio(): void {
       currentAudio?.pause();
+      if (currentAudioNode !== null) {
+        currentAudioNode.transportPlaying = false;
+        redrawTransportPanel(currentAudioNode);
+      }
     },
 
     resumeAudio(): void {
       currentAudio?.play();
+      if (currentAudioNode !== null) {
+        currentAudioNode.transportPlaying = true;
+        redrawTransportPanel(currentAudioNode);
+      }
     },
 
     stopAudio(): void {
       if (currentAudio === null) return;
       currentAudio.pause();
       currentAudio.seekToSeconds(0);
+      if (currentAudioNode !== null) {
+        currentAudioNode.transportPlaying = false;
+        currentAudioNode.transportPositionSec = 0;
+        redrawTransportPanel(currentAudioNode);
+      }
       currentAudio = null;
+      currentAudioNode = null;
     },
 
     isAudioReady(): boolean {
@@ -398,6 +510,9 @@ export function createThreeSceneAdapter(
           targets.push(node.visual);
         if (node.text !== null && node.text.group.visible) {
           targets.push(node.text.pickMesh);
+        }
+        if (node.transportPanel !== null && node.transportPanel.mesh.visible) {
+          targets.push(node.transportPanel.mesh);
         }
       }
       pickTargets = targets;

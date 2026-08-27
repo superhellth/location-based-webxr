@@ -37,6 +37,35 @@ import {
 } from "./three-scene-adapter.js";
 import type { XrSelectEvent, XrSessionLike } from "./ray-sources.js";
 
+// jsdom ships no real 2D canvas backend. Every waypoint now gets a transport
+// panel (`CanvasTexture`-backed, component 1) the moment it gets a visual, so
+// this stub must be installed before any test runs, not just the transcript
+// ones. Left un-restored deliberately: the HTML text backend's fallback wiring
+// keeps retrying `getContext` asynchronously (plan R1/R2) past any one test's
+// own lifetime, so swapping it back mid-suite would make an unrelated later
+// test flaky depending on timing.
+const fake2dContext = {
+  font: "",
+  measureText: () => ({ width: 0 }),
+  fillRect: () => undefined,
+  clearRect: () => undefined,
+  fillText: () => undefined,
+  save: () => undefined,
+  restore: () => undefined,
+  beginPath: () => undefined,
+  closePath: () => undefined,
+  fill: () => undefined,
+  arc: () => undefined,
+  moveTo: () => undefined,
+  lineTo: () => undefined,
+  roundRect: () => undefined,
+  translate: () => undefined,
+  scale: () => undefined,
+};
+vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+  fake2dContext as unknown as CanvasRenderingContext2D,
+);
+
 const COORD: TourCoord = { lat: 0, lon: 0 };
 
 /** A nested "model": Group → Group → Mesh, like a real GLTF export. */
@@ -115,11 +144,12 @@ describe("template vs clone (plan A9/A10)", () => {
     const handleB = h.adapter.createWaypointRoot("wp-2", COORD);
     h.adapter.instantiate(handleB, template);
 
-    // Look only at the two waypoint subtrees — the orb pool has its own
-    // (separately shared) geometry hanging off the same parent.
+    // Look only at each waypoint's cloned visual (`children[0]`, added before
+    // its transport panel) — the orb pool and each waypoint's own transport
+    // panel have their own, separately-owned geometry on the same parent.
     const geometries = new Set<unknown>();
     for (const name of ["waypoint-wp-1", "waypoint-wp-2"]) {
-      h.parent.getObjectByName(name)!.traverse((node) => {
+      h.parent.getObjectByName(name)!.children[0]!.traverse((node) => {
         const mesh = node as Partial<Mesh>;
         if (mesh.geometry !== undefined) geometries.add(mesh.geometry);
       });
@@ -278,31 +308,6 @@ describe("anchoring and teardown", () => {
 
 describe("transcript billboarding (plan A14)", () => {
   it("leaves the transcript panel's own rotation at identity so it inherits the parent's yaw instead of double-rotating", () => {
-    // jsdom ships no real 2D canvas backend; stub just enough of it for
-    // `createMeasure` (and the Canvas-backend fallback, if it swaps to one) to
-    // run without throwing. This test cares about rotation, not rendering.
-    const fake2dContext = {
-      font: "",
-      measureText: () => ({ width: 0 }),
-      fillRect: () => undefined,
-      clearRect: () => undefined,
-      fillText: () => undefined,
-      save: () => undefined,
-      restore: () => undefined,
-      beginPath: () => undefined,
-      closePath: () => undefined,
-      fill: () => undefined,
-      arc: () => undefined,
-      moveTo: () => undefined,
-      lineTo: () => undefined,
-      roundRect: () => undefined,
-      translate: () => undefined,
-      scale: () => undefined,
-    };
-    const getContextSpy = vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValue(fake2dContext as unknown as CanvasRenderingContext2D);
-
     const h = setup();
     const handle = h.adapter.createWaypointRoot("wp-1", COORD);
     const group = h.parent.getObjectByName("waypoint-wp-1")!;
@@ -329,11 +334,5 @@ describe("transcript billboarding (plan A14)", () => {
     // The parent (`waypoint-wp-1`) already yawed to face the camera — the
     // text's own group must not apply a second, independently-computed yaw.
     expect(pickMesh!.parent!.rotation.y).toBe(0);
-
-    // Left un-restored deliberately: the HTML backend's fallback wiring keeps
-    // retrying `getContext` asynchronously (plan R1/R2) past this test's own
-    // synchronous assertions, and restoring early turns that into an unhandled
-    // rejection instead of a harmless no-op.
-    void getContextSpy;
   });
 });
