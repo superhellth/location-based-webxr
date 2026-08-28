@@ -7,7 +7,11 @@
 
 import { Vector3 } from "three";
 
-import { TRANSCRIPT_PANEL_WIDTH_M, transcriptOffset } from "../config.js";
+import {
+  TRANSCRIPT_PANEL_WIDTH_M,
+  TRANSCRIPT_VISUAL_HEIGHT_M,
+  transcriptOffset,
+} from "../config.js";
 import { createInWorldText } from "../../in-world-text/view/in-world-text.js";
 import { stamp } from "./pick-classify.js";
 import type { WaypointNode } from "./waypoint-registry.js";
@@ -20,6 +24,7 @@ export function showTranscript(node: WaypointNode, text: string): void {
       id: `transcript-${node.waypointId}`,
       position: new Vector3(offset.x, offset.y, 0),
       maxWidthMeters: TRANSCRIPT_PANEL_WIDTH_M,
+      maxHeightMeters: TRANSCRIPT_VISUAL_HEIGHT_M,
     });
     stamp(node.text.pickMesh, node.waypointId, "transcript");
     node.group.add(node.text.group);

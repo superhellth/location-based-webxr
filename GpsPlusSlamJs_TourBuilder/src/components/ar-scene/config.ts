@@ -38,7 +38,11 @@ export const TRAIL_WINDOW_RADIUS_M = 15;
  */
 const TRANSCRIPT_VISUAL_WIDTH_M = 1.08;
 const TRANSCRIPT_VISUAL_HALF_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M / 2;
-const TRANSCRIPT_VISUAL_HEIGHT_M = 1.8;
+/**
+ * Also the transcript panel's own max-height cap: it may grow to fit long
+ * text, but never taller than the visual it sits beside.
+ */
+export const TRANSCRIPT_VISUAL_HEIGHT_M = 1.8;
 
 /** Transcript panel width, matched to the assumed visual's own width. */
 export const TRANSCRIPT_PANEL_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M;
