@@ -1,8 +1,8 @@
 /**
- * Desktop-preview-only OSM building layer.
+ * Desktop-preview-only OSM building + road layer.
  *
- * Fetches real OSM buildings once around a fixed origin and extrudes them
- * onto the desktop preview's flat ground — see
+ * Fetches real OSM buildings and roads once around a fixed origin and draws
+ * them onto the desktop preview's flat ground — see
  * `plans/2026-08-27-desktop-preview-osm-buildings-plan.md`. Deliberately NOT
  * the incremental, terrain-aware pipeline `GpsPlusSlamJs_OsmDemo` runs: a
  * tour's preview area is small and known up front, so one bounded fetch is
@@ -27,31 +27,61 @@ import {
   loadTiles,
   enuFrameAt,
   buildBuildings,
-  type BuildingVolume,
+  buildRoads,
+  buildAreaPlates,
+  cellToBoundingBox,
+  DEFAULT_ROAD_RGB,
+  type MeshData,
   type OsmDataSource,
   type OsmFeature,
 } from "gps-plus-slam-osm";
 import { latLngToCell } from "h3-js";
 import { disposeObject3D } from "gps-plus-slam-app-framework/visualization/three-dispose";
 
+/** Plain building tone — matches the preview's "cheap and plain" look. */
+const BUILDING_RGB = 0xb9b3a6;
+
+/**
+ * Ground plates — parks, car parks, plazas, water, landuse — one flat tone
+ * for all of them, same reasoning as `BUILDING_RGB`/`DEFAULT_ROAD_RGB`: no
+ * per-feature colouring yet. Chosen distinct from both the green ground
+ * plane (0x6f8f5e, `preview-session.ts`) and the building tone above, so
+ * real parcels read as texture breaking up the plain green rather than
+ * blending into either.
+ */
+const PLATE_RGB = 0x9a9184;
+
+/**
+ * Plates drape at y=0 by default (same as roads/buildings) unless given a
+ * `groundHeightM`, and roads/buildings ALSO sit at y=0 — coincident geometry
+ * z-fights wherever a landuse polygon (e.g. a whole residential block)
+ * underlies a road or building footprint. Lifting plates 1cm below that
+ * baseline, and the ground plane itself 1cm below the plates
+ * (`preview-session.ts`'s `ground.position.y = -0.02`), stacks the three
+ * layers with enough separation to never be coplanar, without the
+ * `renderOrder` machinery `GpsPlusSlamJs_OsmDemo` needs for its much larger,
+ * terrain-draped scene.
+ */
+const PLATE_Y_OFFSET_M = -0.01;
+
 /**
  * `gps-plus-slam-osm` is deliberately three.js-free (plan §4.2) — it hands
  * back raw `Float32Array`/`Uint32Array` buffers (`MeshData`) and stops. This
  * is the "three lines that turn those buffers into a mesh" the package's own
  * docs say belong in the consumer (see `GpsPlusSlamJs_OsmDemo/src/mesh-layers.ts`).
+ * Shared by buildings and roads: both `BuildingVolume` and `RoadRibbon` carry
+ * a `mesh: MeshData` in the same positions/normals/indices shape.
  */
-function toMesh(volume: BuildingVolume): Mesh {
+function toMesh(meshData: MeshData, color: number): Mesh {
   const geometry = new BufferGeometry();
   geometry.setAttribute(
     "position",
-    new BufferAttribute(volume.mesh.positions, 3),
+    new BufferAttribute(meshData.positions, 3),
   );
-  geometry.setAttribute("normal", new BufferAttribute(volume.mesh.normals, 3));
-  geometry.setIndex(new BufferAttribute(volume.mesh.indices, 1));
-  // A single plain material for every building, matching the preview's
-  // "deliberately cheap and deliberately plain" look (`preview-session.ts`) —
-  // no per-feature colouring yet.
-  const material = new MeshLambertMaterial({ color: 0xb9b3a6 });
+  geometry.setAttribute("normal", new BufferAttribute(meshData.normals, 3));
+  geometry.setIndex(new BufferAttribute(meshData.indices, 1));
+  // A single plain material per layer — no per-feature colouring yet.
+  const material = new MeshLambertMaterial({ color });
   return new Mesh(geometry, material);
 }
 
@@ -111,6 +141,16 @@ export function createOsmBuildingLayer(
 ): OsmBuildingLayer {
   const group = new Group();
   group.name = "osm-buildings";
+  // `gps-plus-slam-osm`'s mesh output is FIXED to +x=east, -z=north
+  // (mesh-data.ts's MeshData doc) — a different convention from this app's
+  // own AR-world axes (x=north, z=east; preview-frame.ts), which is what
+  // every waypoint, the route, the camera and the 2D map are placed in.
+  // Left uncorrected, buildings/roads render 90° off from the tour's own
+  // content. Rotating the whole group -90° around Y maps OSM's (east,
+  // -north) onto this app's (north, east) — verified: a building 100m due
+  // east in OSM's frame lands at world (x=0, z=100) after this, matching
+  // where the tour's own frame would place a point 100m east of the origin.
+  group.rotation.y = -Math.PI / 2;
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_OSM_BUILDING_TIMEOUT_MS;
   const source =
@@ -140,11 +180,29 @@ export function createOsmBuildingLayer(
       });
       if (disposed) return;
 
-      const features: OsmFeature[] = loaded.flatMap((tile) => tile.features);
+      const features: OsmFeature[] = loaded.flatMap((result) => result.features);
       const frame = enuFrameAt(origin);
       const volumes = buildBuildings(features, { frame });
       for (const volume of volumes) {
-        group.add(toMesh(volume));
+        group.add(toMesh(volume.mesh, BUILDING_RGB));
+      }
+      // Free: same fetch, same features, just a second pure-data pass over
+      // them — no extra Overpass request.
+      const roads = buildRoads(features, { frame });
+      for (const road of roads) {
+        group.add(toMesh(road.mesh, DEFAULT_ROAD_RGB));
+      }
+      // Also free, same reasoning. `clipTo` is the exact bbox of the one
+      // tile fetched: triangulation is O(n²) in ring size (plates.ts), and
+      // clipping to what was actually fetched keeps a landuse polygon that
+      // extends beyond the tile from costing more than the tile's worth.
+      const plates = buildAreaPlates(features, {
+        frame,
+        groundHeightM: () => PLATE_Y_OFFSET_M,
+        clipTo: cellToBoundingBox(tile),
+      });
+      for (const plate of plates) {
+        group.add(toMesh(plate.mesh, PLATE_RGB));
       }
     } catch (error) {
       // Fail soft, always — see the module doc. A slow/down Overpass

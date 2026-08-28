@@ -155,10 +155,7 @@ export function createThreeSceneAdapter(
       );
     },
 
-    buildFallbackVisual(
-      handle: WaypointHandle,
-      hasAudio = true,
-    ): VisualHandle {
+    buildFallbackVisual(handle: WaypointHandle, hasAudio = true): VisualHandle {
       return visuals.buildFallbackVisual(
         registry.get(handle.waypointId),
         handle,

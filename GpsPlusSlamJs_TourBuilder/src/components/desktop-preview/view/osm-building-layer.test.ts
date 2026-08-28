@@ -27,6 +27,31 @@ const BUILDING_FEATURE: OsmFeature = {
   ],
 };
 
+/** A short residential road segment near ORIGIN. */
+const ROAD_FEATURE: OsmFeature = {
+  type: "way",
+  id: 2,
+  tags: { highway: "residential" },
+  geometry: [
+    { lat: 50.9414, lng: 6.9583 },
+    { lat: 50.9414, lng: 6.9585 },
+  ],
+};
+
+/** A closed park footprint, tagged as a ground plate, near ORIGIN. */
+const PARK_FEATURE: OsmFeature = {
+  type: "way",
+  id: 3,
+  tags: { leisure: "park" },
+  geometry: [
+    { lat: 50.9412, lng: 6.9581 },
+    { lat: 50.94125, lng: 6.9581 },
+    { lat: 50.94125, lng: 6.95815 },
+    { lat: 50.9412, lng: 6.95815 },
+    { lat: 50.9412, lng: 6.9581 },
+  ],
+};
+
 function tileResult(features: readonly OsmFeature[]): OsmTileResult {
   return {
     tile: "test-tile",
@@ -76,6 +101,18 @@ describe("createOsmBuildingLayer", () => {
     expect(DEFAULT_OSM_BUILDING_TIMEOUT_MS).toBe(120_000);
   });
 
+  it("rotates the group -90deg to match this app's (north, east) world axes", () => {
+    // gps-plus-slam-osm's mesh output is fixed to +x=east, -z=north
+    // (mesh-data.ts). This app's own AR-world frame (preview-frame.ts) is
+    // x=north, z=east — a 90deg difference. Without this rotation, buildings
+    // and roads render 90deg off from the tour's own waypoints/route/map.
+    const layer = createOsmBuildingLayer({
+      origin: ORIGIN,
+      source: resolvingSource([]),
+    });
+    expect(layer.group.rotation.y).toBeCloseTo(-Math.PI / 2);
+  });
+
   it("adds building meshes to the group once loaded", async () => {
     const layer = createOsmBuildingLayer({
       origin: ORIGIN,
@@ -87,6 +124,33 @@ describe("createOsmBuildingLayer", () => {
 
     expect(layer.group.children.length).toBeGreaterThan(0);
     expect(layer.group.children[0]).toBeInstanceOf(Mesh);
+  });
+
+  it("adds road meshes to the same group, from the same fetch", async () => {
+    const layer = createOsmBuildingLayer({
+      origin: ORIGIN,
+      source: resolvingSource([BUILDING_FEATURE, ROAD_FEATURE]),
+    });
+
+    await layer.load();
+
+    // One building mesh, one road mesh — no second network round trip.
+    expect(layer.group.children).toHaveLength(2);
+    expect(layer.group.children.every((child) => child instanceof Mesh)).toBe(
+      true,
+    );
+  });
+
+  it("adds ground plate meshes (parks, car parks, ...) from the same fetch", async () => {
+    const layer = createOsmBuildingLayer({
+      origin: ORIGIN,
+      source: resolvingSource([BUILDING_FEATURE, ROAD_FEATURE, PARK_FEATURE]),
+    });
+
+    await layer.load();
+
+    // Building + road + park plate — still one network round trip.
+    expect(layer.group.children).toHaveLength(3);
   });
 
   it("fails soft: a rejecting source leaves the group empty and does not throw", async () => {
