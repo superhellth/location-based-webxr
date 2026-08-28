@@ -388,11 +388,44 @@ p[data-testid="qr-status"] {
   justify-content: flex-end;
 }
 
+/* Desktop preview: the rendered world stands in for the camera feed, so it
+   fills the viewport and sits BELOW the HUD and the map in the stack, exactly
+   where the camera feed sits in a real session. */
+.preview-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.preview-canvas:active {
+  cursor: grabbing;
+}
+
 /* The map card is re-parented between the entry screen and the in-session
    overlay, so it must look right in both. */
 .ar-container .map-card {
   position: relative;
   z-index: 5;
+}
+
+/* In-session (AR or preview), the map is a direct child of `.ar-container`
+   (`mountSessionShell` appends it straight to `arHost`) — floated top-right
+   over the scene, clear of the HUD which anchors the opposite edge. The
+   entry screen's map card stays nested inside `.panel` and keeps the inline
+   layout above. */
+.ar-container > .map-card {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  left: auto;
+  z-index: 6;
+  width: 200px;
+  height: 200px;
 }
 
 /* ── Small screens ────────────────────────────────────────────────────── */

@@ -17,7 +17,7 @@ import { createThreeSceneAdapter } from "../../components/ar-scene/view/three-sc
 import { TRAIL_ORB_POOL_SIZE } from "../../components/ar-scene/config.js";
 import type { AssetProvider } from "../../store/types.js";
 import type { ViewingStateShape } from "../../store/selectors.js";
-import { createArSeams } from "./ar-seams.js";
+import { createArSeams, type ArSeams } from "./ar-seams.js";
 import { createSceneAudioListener } from "./audio-listener.js";
 
 /** Contract D16 default — the same fraction component 8's own demo uses. */
@@ -74,6 +74,17 @@ export interface StartArSceneOptions {
   /** The context component 9 unlocked. Never unlocked here (plan A16/VC4). */
   readonly audioContext: AudioContext;
   readonly runtime: ArRuntime;
+  /**
+   * The geo→world seams. Defaults to the GPS/alignment ones; the desktop
+   * preview passes its own pinned-frame implementation, which is what lets
+   * this one file build the identical scene with or without a WebXR session.
+   */
+  readonly seams?: ArSeams;
+  /**
+   * Where taps are raycast from when there is no XR session to supply a
+   * target ray — i.e. the desktop preview's canvas.
+   */
+  readonly domElement?: HTMLElement;
   readonly onAudioBlocked?: () => void;
   readonly log?: (message: string) => void;
 }
@@ -106,12 +117,14 @@ export function startArScene(options: StartArSceneOptions): ArSceneHandle {
   const audioListener = createSceneAudioListener(options.audioContext);
   camera.add(audioListener);
 
-  const seams = createArSeams({
-    getAlignmentMatrix: () => runtime.selectAlignmentMatrix(store.getState()),
-    getGpsZeroRef: () => runtime.selectZeroReference(store.getState()),
-    getArWorldGroup: () => arWorldGroup,
-    getCamera: () => camera,
-  });
+  const seams =
+    options.seams ??
+    createArSeams({
+      getAlignmentMatrix: () => runtime.selectAlignmentMatrix(store.getState()),
+      getGpsZeroRef: () => runtime.selectZeroReference(store.getState()),
+      getArWorldGroup: () => arWorldGroup,
+      getCamera: () => camera,
+    });
 
   const xrSession = runtime.getXrSession();
   const scratchMatrix = new Matrix4();
@@ -146,7 +159,9 @@ export function startArScene(options: StartArSceneOptions): ArSceneHandle {
             return scratchMatrix.fromArray(Array.from(pose.transform.matrix));
           },
         }
-      : {}),
+      : options.domElement
+        ? { domElement: options.domElement }
+        : {}),
   } as Parameters<typeof createThreeSceneAdapter>[0]);
 
   const scene = createTourScene({

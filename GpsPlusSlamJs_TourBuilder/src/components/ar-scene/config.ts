@@ -30,8 +30,73 @@ export const TRAIL_ORB_POOL_SIZE = 16;
 export const TRAIL_WINDOW_RADIUS_M = 15;
 
 /**
- * Transcript panel offset below the visual, in metres (A14). Below, not above:
- * a label over a ~1.8 m knight falls outside a phone's portrait field of view
- * at typical tap distance.
+ * Assumed visual footprint, in metres (A14, revised) — matches the sprite
+ * template's own "knight-sized banner" default (`SPRITE_WIDTH_M`/`_HEIGHT_M`
+ * in `gltf-loading.ts`). A GLTF model's real bounds aren't known until it's
+ * parsed, so the transcript panel is placed off this assumed box rather than
+ * a per-model bounding-box computation.
  */
-export const TRANSCRIPT_OFFSET_M = 0.9;
+const TRANSCRIPT_VISUAL_WIDTH_M = 1.08;
+const TRANSCRIPT_VISUAL_HALF_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M / 2;
+const TRANSCRIPT_VISUAL_HEIGHT_M = 1.8;
+
+/** Transcript panel width, matched to the assumed visual's own width. */
+export const TRANSCRIPT_PANEL_WIDTH_M = TRANSCRIPT_VISUAL_WIDTH_M;
+
+/** Gap between the visual's assumed edge and a panel's edge. */
+const TRANSCRIPT_PADDING_M = 0.15;
+
+/**
+ * Transport (play/pause) panel size, matched to component 1's demo panel
+ * proportions.
+ */
+export const TRANSPORT_PANEL_WIDTH_M = TRANSCRIPT_PANEL_WIDTH_M;
+export const TRANSPORT_PANEL_HEIGHT_M = 0.4;
+
+/**
+ * How far the visual's own bottom edge floats above the ground (local Y),
+ * sized to leave exactly enough room for the transport panel plus padding on
+ * both sides. Both the sprite template (`gltf-loading.ts`) and the fallback
+ * marker are raised by this amount so the transport panel always has a gap
+ * to sit in beneath whichever visual actually renders.
+ */
+export const VISUAL_GROUND_CLEARANCE_M =
+  TRANSPORT_PANEL_HEIGHT_M + 2 * TRANSCRIPT_PADDING_M;
+
+/**
+ * Transcript panel offset beside the visual, in metres. Local X so it moves
+ * with the waypoint group's own yaw and always reads as "next to" the visual
+ * rather than turning away from camera on its own. `textPanelWidthM` is the
+ * panel's own configured width (`TextStyle.maxWidthMeters`), needed so the
+ * padding is measured edge-to-edge rather than center-to-edge.
+ */
+export function transcriptOffset(textPanelWidthM: number): {
+  readonly x: number;
+  readonly y: number;
+} {
+  return {
+    x:
+      TRANSCRIPT_VISUAL_HALF_WIDTH_M +
+      TRANSCRIPT_PADDING_M +
+      textPanelWidthM / 2,
+    // Vertically centred on the assumed visual height — the visual's own
+    // centre sits `VISUAL_GROUND_CLEARANCE_M` above the ground now, so the
+    // text stays centred on it by rising the same amount.
+    y: VISUAL_GROUND_CLEARANCE_M + TRANSCRIPT_VISUAL_HEIGHT_M / 2,
+  };
+}
+
+/**
+ * Transport panel offset: centred directly beneath the visual (local X = 0,
+ * not beside it like the transcript column) in the ground-clearance gap the
+ * visual floats above, with equal padding above and below the panel.
+ */
+export function transportPanelOffset(): {
+  readonly x: number;
+  readonly y: number;
+} {
+  return {
+    x: 0,
+    y: VISUAL_GROUND_CLEARANCE_M / 2,
+  };
+}

@@ -37,6 +37,35 @@ import {
 } from "./three-scene-adapter.js";
 import type { XrSelectEvent, XrSessionLike } from "./ray-sources.js";
 
+// jsdom ships no real 2D canvas backend. Every waypoint now gets a transport
+// panel (`CanvasTexture`-backed, component 1) the moment it gets a visual, so
+// this stub must be installed before any test runs, not just the transcript
+// ones. Left un-restored deliberately: the HTML text backend's fallback wiring
+// keeps retrying `getContext` asynchronously (plan R1/R2) past any one test's
+// own lifetime, so swapping it back mid-suite would make an unrelated later
+// test flaky depending on timing.
+const fake2dContext = {
+  font: "",
+  measureText: () => ({ width: 0 }),
+  fillRect: () => undefined,
+  clearRect: () => undefined,
+  fillText: () => undefined,
+  save: () => undefined,
+  restore: () => undefined,
+  beginPath: () => undefined,
+  closePath: () => undefined,
+  fill: () => undefined,
+  arc: () => undefined,
+  moveTo: () => undefined,
+  lineTo: () => undefined,
+  roundRect: () => undefined,
+  translate: () => undefined,
+  scale: () => undefined,
+};
+vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+  fake2dContext as unknown as CanvasRenderingContext2D,
+);
+
 const COORD: TourCoord = { lat: 0, lon: 0 };
 
 /** A nested "model": Group → Group → Mesh, like a real GLTF export. */
@@ -115,11 +144,12 @@ describe("template vs clone (plan A9/A10)", () => {
     const handleB = h.adapter.createWaypointRoot("wp-2", COORD);
     h.adapter.instantiate(handleB, template);
 
-    // Look only at the two waypoint subtrees — the orb pool has its own
-    // (separately shared) geometry hanging off the same parent.
+    // Look only at each waypoint's cloned visual (`children[0]`, added before
+    // its transport panel) — the orb pool and each waypoint's own transport
+    // panel have their own, separately-owned geometry on the same parent.
     const geometries = new Set<unknown>();
     for (const name of ["waypoint-wp-1", "waypoint-wp-2"]) {
-      h.parent.getObjectByName(name)!.traverse((node) => {
+      h.parent.getObjectByName(name)!.children[0]!.traverse((node) => {
         const mesh = node as Partial<Mesh>;
         if (mesh.geometry !== undefined) geometries.add(mesh.geometry);
       });
@@ -273,5 +303,36 @@ describe("anchoring and teardown", () => {
     const positions = h.adapter.toWorldPositions([COORD, COORD]);
     expect(positions).toHaveLength(2);
     expect(positions[0]).toEqual(new Vector3(1, 0, 2));
+  });
+});
+
+describe("transcript billboarding (plan A14)", () => {
+  it("leaves the transcript panel's own rotation at identity so it inherits the parent's yaw instead of double-rotating", () => {
+    const h = setup();
+    const handle = h.adapter.createWaypointRoot("wp-1", COORD);
+    const group = h.parent.getObjectByName("waypoint-wp-1")!;
+    // Far from the world origin — this is what exposes a yaw computed from a
+    // LOCAL offset (near the origin) instead of the panel's true world position.
+    group.position.set(20, 0, 5);
+    // Deliberately NOT (0, _, 0): the local x/z the bug mistakes for a world
+    // position is (0, 0.9, 0), so a camera whose world x/z is also (0, 0)
+    // would make `computeBillboardYaw` hit its "no horizontal direction"
+    // fallback by coincidence and mask the bug either way.
+    h.camera.position.set(8, 1.6, -30);
+    h.parent.updateMatrixWorld(true);
+
+    h.adapter.showTranscript(handle, "hello");
+    h.adapter.update(0);
+
+    let pickMesh: Mesh | undefined;
+    group.traverse((node) => {
+      const stamped = (node.userData as { arScene?: { role?: string } })
+        .arScene;
+      if (stamped?.role === "transcript") pickMesh = node as Mesh;
+    });
+    expect(pickMesh).toBeDefined();
+    // The parent (`waypoint-wp-1`) already yawed to face the camera — the
+    // text's own group must not apply a second, independently-computed yaw.
+    expect(pickMesh!.parent!.rotation.y).toBe(0);
   });
 });

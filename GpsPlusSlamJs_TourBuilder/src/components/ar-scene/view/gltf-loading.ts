@@ -33,6 +33,7 @@ import {
 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { VISUAL_GROUND_CLEARANCE_M } from "../config.js";
 
 /** The parsed, GPU-resident asset shared by every clone of it. */
 export interface ParsedTemplate {
@@ -45,7 +46,7 @@ const gltfLoader = new GLTFLoader();
 const textureLoader = new TextureLoader();
 
 /** Default sprite size in metres — a knight-sized banner at eye height. */
-const SPRITE_WIDTH_M = 1.2;
+const SPRITE_WIDTH_M = 1.08;
 const SPRITE_HEIGHT_M = 1.8;
 
 /**
@@ -74,7 +75,9 @@ export async function parseTemplate(
       side: DoubleSide,
     }),
   );
-  mesh.position.y = SPRITE_HEIGHT_M / 2; // stand it on the ground, not through it
+  // Float above the ground by the transport-panel clearance, not stand flush
+  // on it, so the always-visible play/pause panel has room underneath.
+  mesh.position.y = VISUAL_GROUND_CLEARANCE_M + SPRITE_HEIGHT_M / 2;
   return { root: mesh, ownedTextures: [texture] };
 }
 

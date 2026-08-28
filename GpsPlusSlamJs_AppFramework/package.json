@@ -59,7 +59,6 @@
     "@reduxjs/toolkit": "^2.11.2",
     "gl-matrix": "3.4.4",
     "gps-plus-slam-js": "^1.19.0",
-    "gps-plus-slam-js": "^1.17.0",
     "qrcode": "^1.5.4",
     "redux": "^5.0.1"
   },

@@ -103,6 +103,10 @@ export function createTourMap(
   let waypointMarkers: L.Marker[] = [];
   let visible = false;
   let hasCenteredOnce = false;
+  /** The most recent fix, so `show()` can re-centre after an unhide even if
+   *  every `setGpsPosition`/`panTo` in between ran against a hidden (0×0)
+   *  container and left Leaflet's view in an undefined state. */
+  let lastPosition: L.LatLngTuple | null = null;
 
   // Toggleable, starts hidden (matches recorder's "map opens via a button").
   container.style.display = "none";
@@ -113,6 +117,7 @@ export function createTourMap(
 
   return {
     setGpsPosition(lat: number, lon: number): void {
+      lastPosition = [lat, lon];
       if (!leafletMap) return;
       // Only the first fix sets the initial view (incl. zoom). Later calls
       // pan without touching zoom, so a user's manual zoom during playback
@@ -178,7 +183,17 @@ export function createTourMap(
       if (visible) return;
       container.style.display = "";
       visible = true;
-      requestAnimationFrame(resize);
+      requestAnimationFrame(() => {
+        resize();
+        // A fix reported while hidden (e.g. the preview's first position,
+        // which fires synchronously before the session shell shows the map)
+        // was applied against a 0×0 container — invalidateSize alone can't
+        // recover from that, so force the last known fix back to centre now
+        // that the real size is known.
+        if (lastPosition && leafletMap) {
+          leafletMap.setView(lastPosition, leafletMap.getZoom());
+        }
+      });
     },
 
     hide(): void {

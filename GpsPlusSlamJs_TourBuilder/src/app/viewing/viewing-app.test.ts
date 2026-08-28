@@ -151,10 +151,40 @@ function fakeMap() {
   };
 }
 
+function fakePreviewSession() {
+  const domElement = document.createElement("canvas");
+  return {
+    runtime: {
+      getArWorldGroup: () => ({}) as never,
+      getCamera: () => ({}) as never,
+      getXrSession: () => null,
+      getXrReferenceSpace: () => null,
+      enableArWorldGroupAlignment: () => ({ dispose: vi.fn() }),
+      registerFrameUpdate: () => vi.fn(),
+      selectAlignmentMatrix: () => [1],
+      selectZeroReference: () => ({ lat: 48, lon: 11 }),
+    },
+    seams: {
+      createAnchor: vi.fn(),
+      toWorld: vi.fn(),
+      getUserWorldPos: vi.fn(),
+    },
+    frame: { toWorld: vi.fn(), toCoord: vi.fn(), origin: { lat: 48, lon: 11 } },
+    domElement,
+    getPose: () => ({ x: 0, z: 0, headingRad: 0 }),
+    setAutopilot: vi.fn(),
+    isAutopilot: () => false,
+    // The session owns its canvas and takes it back on dispose, exactly as
+    // the real one does.
+    dispose: vi.fn(() => domElement.remove()),
+  };
+}
+
 function testDeps(
   overrides: Partial<ViewingAppDeps> = {},
 ): Partial<ViewingAppDeps> {
   return {
+    createPreviewSession: vi.fn(() => fakePreviewSession()),
     openRemoteTour: vi.fn(() =>
       Promise.resolve({
         tour: TOUR,
@@ -434,6 +464,121 @@ describe("Viewing mode screen flow", () => {
     await vi.waitFor(() => {
       expect(startArScene).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("offers a desktop preview when AR is unavailable, and runs the real scene in it", async () => {
+    const { controller } = fakeController({ status: "unsupported" });
+    const preview = fakePreviewSession();
+    const createPreviewSession = vi.fn(() => preview);
+    const startArScene = vi.fn((_options: unknown) => ({
+      scene: {} as never,
+      dispose: vi.fn(),
+    }));
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        createPreviewSession:
+          createPreviewSession as unknown as ViewingAppDeps["createPreviewSession"],
+        startArScene: startArScene as unknown as ViewingAppDeps["startArScene"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    const enterPreview = query(root, "viewing-enter-preview");
+    expect(enterPreview).not.toBeNull();
+    enterPreview!.click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    // The same component-8 scene the phone runs — only the runtime differs.
+    const options = startArScene.mock.calls[0]![0] as {
+      runtime: unknown;
+      seams: unknown;
+    };
+    expect(options.runtime).toBe(preview.runtime);
+    expect(options.seams).toBe(preview.seams);
+    // The preview canvas lives inside the app container, under the HUD.
+    expect(preview.domElement.parentElement).not.toBeNull();
+
+    // Ending the preview tears the session down and returns to the entry.
+    (query(root, "viewing-end-tour") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-entry")).not.toBeNull();
+    });
+    expect(preview.dispose).toHaveBeenCalled();
+    expect(preview.domElement.parentElement).toBeNull();
+  });
+
+  it("hides the desktop preview on a device that can actually run AR", async () => {
+    const { controller } = fakeController({ status: "ready" });
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps(),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    expect(query(root, "viewing-enter-preview")).toBeNull();
+  });
+
+  it("offers the preview on any device when the link asks for it", async () => {
+    const { controller } = fakeController({ status: "ready" });
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ forcePreview: true }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    expect(query(root, "viewing-enter-preview")).not.toBeNull();
+  });
+
+  it("keeps the map following the walker through the preview", async () => {
+    const { controller } = fakeController({ status: "unsupported" });
+    const map = fakeMap();
+    let report: ((position: { lat: number; lon: number }) => void) | undefined;
+    const createPreviewSession = vi.fn(
+      (options: { onPositionChange?: (p: unknown) => void }) => {
+        report = options.onPositionChange;
+        return fakePreviewSession();
+      },
+    );
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        createTourMap: (() =>
+          map) as unknown as ViewingAppDeps["createTourMap"],
+        createPreviewSession:
+          createPreviewSession as unknown as ViewingAppDeps["createPreviewSession"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    query(root, "viewing-enter-preview")!.click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    report!({ lat: 48.5, lon: 11.5 });
+    expect(map.setGpsPosition).toHaveBeenCalledWith(48.5, 11.5);
   });
 
   it("clears stored progress on Restart tour", async () => {

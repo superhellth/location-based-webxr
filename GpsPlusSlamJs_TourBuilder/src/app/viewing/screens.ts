@@ -86,6 +86,8 @@ export interface TourEntryScreenOptions {
   readonly visitedCount: number;
   readonly onEnterAr: () => void;
   readonly onRestartTour: () => void;
+  /** Walk the tour in the desktop preview instead of in AR. */
+  readonly onEnterPreview: () => void;
   /** Where the 2D map (component 7) is mounted — kept across screens. */
   readonly mapHost: HTMLElement;
 }
@@ -95,6 +97,8 @@ export interface TourEntryScreen extends Screen {
   setArStatus(message: string, tone: "info" | "error"): void;
   setEnterArEnabled(enabled: boolean): void;
   setEnterArLabel(label: string): void;
+  /** Show/hide the desktop-preview entry (plan VC25). */
+  setPreviewOffered(offered: boolean): void;
   /** Shown once the background cache warm has finished (plan VC11). */
   markOfflineReady(): void;
 }
@@ -129,6 +133,14 @@ export function mountTourEntryScreen(
   status.dataset.testid = "viewing-ar-status";
   status.hidden = true;
 
+  // Kept out of the DOM until offered, so a phone that can run AR never shows
+  // a second, weaker way in.
+  const preview = document.createElement("button");
+  preview.className = "secondary";
+  preview.textContent = "Walk it on this screen";
+  preview.dataset.testid = "viewing-enter-preview";
+  preview.addEventListener("click", () => options.onEnterPreview());
+
   const restart = document.createElement("button");
   restart.textContent = "Restart tour";
   restart.dataset.testid = "viewing-restart";
@@ -158,6 +170,13 @@ export function mountTourEntryScreen(
     },
     setEnterArLabel(label) {
       enterAr.textContent = label;
+    },
+    setPreviewOffered(offered) {
+      if (offered) {
+        if (preview.parentElement === null) status.after(preview);
+      } else {
+        preview.remove();
+      }
     },
     markOfflineReady() {
       offline.hidden = false;

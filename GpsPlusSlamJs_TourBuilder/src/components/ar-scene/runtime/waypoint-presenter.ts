@@ -71,6 +71,7 @@ export function createWaypointPresenter(
   const { waypoint, adapter, assetProvider, loader } = deps;
   const handle = adapter.createWaypointRoot(waypoint.id, waypoint.position);
   const visual = selectWaypointVisual(waypoint);
+  const hasAudio = waypoint.content.audio !== undefined;
 
   let state = initialLifecycleState();
   let instance: VisualHandle | null = null;
@@ -85,6 +86,21 @@ export function createWaypointPresenter(
     state = result.state;
     for (const intent of result.intents) execute(intent);
   };
+
+  /** Shown as soon as the waypoint is visible — not gated by tap/story state
+   *  (the transcript reads at a glance, no interaction required). */
+  function showTranscript(): void {
+    const text = waypoint.content.transcript;
+    if (text === undefined || text === "") return;
+    adapter.showTranscript(handle, text);
+    transcriptShown = true;
+  }
+
+  function hideTranscript(): void {
+    if (!transcriptShown) return;
+    adapter.hideTranscript(handle);
+    transcriptShown = false;
+  }
 
   function execute(intent: LifecycleIntent): void {
     switch (intent.kind) {
@@ -101,14 +117,16 @@ export function createWaypointPresenter(
         releaseModelRef();
         break;
       case "fallback":
-        instance = adapter.buildFallbackVisual(handle);
+        instance = adapter.buildFallbackVisual(handle, hasAudio);
         break;
       case "show":
         if (instance !== null) adapter.setVisible(instance, true);
+        showTranscript();
         deps.onVisited(waypoint.id);
         break;
       case "hide":
         if (instance !== null) adapter.setVisible(instance, false);
+        hideTranscript();
         break;
       case "teardown":
         tearDownChildren();
@@ -160,7 +178,7 @@ export function createWaypointPresenter(
         heldModelAsset = assetId;
         // Instantiate BEFORE consulting the lifecycle: a stale generation makes
         // the next line emit `discard`, which releases the reference we just took.
-        const attached = adapter.instantiate(handle, template);
+        const attached = adapter.instantiate(handle, template, hasAudio);
         const result = onLoadResolved(state, generation);
         if (result.intents.some((i) => i.kind === "discard")) {
           adapter.releaseVisual(attached);
@@ -216,18 +234,8 @@ export function createWaypointPresenter(
         });
     },
 
-    showTranscript(): void {
-      const text = waypoint.content.transcript;
-      if (text === undefined || text === "") return;
-      adapter.showTranscript(handle, text);
-      transcriptShown = true;
-    },
-
-    hideTranscript(): void {
-      if (!transcriptShown) return;
-      adapter.hideTranscript(handle);
-      transcriptShown = false;
-    },
+    showTranscript,
+    hideTranscript,
 
     pageTranscript(): void {
       if (transcriptShown) adapter.pageTranscript(handle);

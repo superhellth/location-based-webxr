@@ -41,8 +41,17 @@ export interface VisualHandle {
 /** What the visitor tapped, classified by the adapter's ray source. */
 export interface TapHit {
   readonly waypointId: string;
-  /** `"visual"` = the knight itself; `"transcript"` = the text panel. */
-  readonly role: "visual" | "transcript";
+  /**
+   * `"visual"` = the knight itself; `"transcript"` = the text panel;
+   * `"transport"` = the always-visible play/pause + seek panel (component 1's
+   * transport panel) — the runtime maps `uv` through component 1's
+   * `hitToAction` to tell a button tap (toggle) from a track tap (seek)
+   * instead of treating every hit on it as a toggle.
+   */
+  readonly role: "visual" | "transcript" | "transport";
+  /** Panel-local hit position in [0,1]; only set for a `"transport"` hit
+   *  (the mesh's `PlaneGeometry` UV), needed to resolve toggle vs seek. */
+  readonly uv?: { readonly u: number; readonly v: number };
 }
 
 export interface SceneAdapter {
@@ -76,10 +85,19 @@ export interface SceneAdapter {
   buildTemplate(kind: "model" | "sprite", url: string): Promise<TemplateHandle>;
   /** Free the template's GPU resources. Called on LRU eviction only (A9). */
   disposeTemplate(template: TemplateHandle): void;
-  /** Clone the template under the waypoint's root, INVISIBLE (§2.5.3). */
-  instantiate(handle: WaypointHandle, template: TemplateHandle): VisualHandle;
+  /**
+   * Clone the template under the waypoint's root, INVISIBLE (§2.5.3).
+   * `hasAudio` (default `true`) gates the always-visible transport panel —
+   * pass `false` for a waypoint with no sound asset so no play/pause control
+   * appears under a story that cannot play anything.
+   */
+  instantiate(
+    handle: WaypointHandle,
+    template: TemplateHandle,
+    hasAudio?: boolean,
+  ): VisualHandle;
   /** Procedural stand-in when an asset is missing or corrupt (§7.2 soft-fail). */
-  buildFallbackVisual(handle: WaypointHandle): VisualHandle;
+  buildFallbackVisual(handle: WaypointHandle, hasAudio?: boolean): VisualHandle;
   /** Detach + drop this clone. Never deep-disposes shared resources (A10). */
   releaseVisual(visual: VisualHandle): void;
   setVisible(visual: VisualHandle, visible: boolean): void;
@@ -96,6 +114,9 @@ export interface SceneAdapter {
   pauseAudio(): void;
   resumeAudio(): void;
   stopAudio(): void;
+  /** Scrub the given waypoint's own audio to `fraction` (in [0,1]) of its
+   *  known duration. A no-op if that waypoint has no audio element yet. */
+  seekAudio(handle: WaypointHandle, fraction: number): void;
   /** `true` when the injected `AudioListener`'s context is running (A16). */
   isAudioReady(): boolean;
 

@@ -25,8 +25,8 @@ export interface TextStyle {
 }
 
 export const DEFAULT_TEXT_STYLE: TextStyle = {
-  fontPx: 40,
-  lineHeightPx: 56,
+  fontPx: 120,
+  lineHeightPx: 168,
   fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   panelColor: "rgba(16, 19, 26, 0.9)",
   textColor: "#e9eef7",

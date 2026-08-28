@@ -51,6 +51,7 @@ import {
   type StoryCommand,
   type StorySessionState,
 } from "../core/story-session.js";
+import { hitToAction } from "../../billboard/core/panel-layout.js";
 import {
   createWaypointPresenter,
   type WaypointPresenter,
@@ -58,6 +59,7 @@ import {
 import { createTemplateLoader } from "./template-loader.js";
 import type {
   SceneAdapter,
+  TapHit,
   TemplateHandle,
   WaypointHandle,
 } from "./scene-adapter.js";
@@ -300,11 +302,9 @@ export function createTourScene(options: TourSceneOptions): TourScene {
       switch (command.kind) {
         case "stop":
           adapter.stopAudio();
-          presenter?.hideTranscript();
           break;
         case "start":
           presenter?.startStory();
-          presenter?.showTranscript();
           break;
         case "pause":
           adapter.pauseAudio();
@@ -316,6 +316,29 @@ export function createTourScene(options: TourSceneOptions): TourScene {
     }
   }
 
+  /**
+   * A transport-panel hit needs its `uv` resolved through component 1's
+   * `hitToAction` before it can be treated as a toggle — otherwise a track tap
+   * (seek) would be misread as a button tap (toggle), the bug this fixes.
+   * Returns `true` once the hit is fully handled (seek, or inert chrome);
+   * `false` means the caller should fall through to the shared toggle path.
+   */
+  function handleTransportTap(
+    hit: TapHit,
+    presenter: WaypointPresenter,
+  ): boolean {
+    if (hit.uv === undefined) return false;
+    const action = hitToAction(hit.uv);
+    if (action === null) return true; // panel padding/chrome — not interactive
+    if (action.type !== "seek") return false; // toggle: shared path handles it
+    // Only the waypoint that is actually playing has an audio element to
+    // scrub; a track tap on any other panel is a no-op.
+    if (story.playingId === hit.waypointId) {
+      adapter.seekAudio(presenter.handle, action.fraction);
+    }
+    return true;
+  }
+
   const unsubscribeTap = adapter.onTap((hit) => {
     if (disposed) return;
     const presenter = presenters.get(hit.waypointId);
@@ -324,6 +347,7 @@ export function createTourScene(options: TourSceneOptions): TourScene {
       presenter.pageTranscript();
       return;
     }
+    if (hit.role === "transport" && handleTransportTap(hit, presenter)) return;
     if (previousZones[hit.waypointId] !== "ACTIVE") return;
     if (!adapter.isAudioReady()) {
       // Silent failure is the worst field outcome: surface it so the app can

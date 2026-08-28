@@ -6,7 +6,7 @@ and its own tests; nothing here is imported by `src/components/`.
 
 ```
 ?tour=<zipUrl>  →  cloud-loader (6)  →  onboarding gate (9)  →  Enter AR  →  AR scene (8)
-                                                                              + proximity (4)
+                                                          └→ Desktop preview (11) ↗  + proximity (4)
                                                                               + map (7)
 ```
 
@@ -23,6 +23,12 @@ Plan: [`plans/2026-08-14-viewing-composition-plan.md`](../../../plans/2026-08-14
 | `audio-listener.ts`     | Hands the gate's unlocked `AudioContext` to three the one way that actually works (see below).                                       |
 | `progress-store.ts`     | Visited waypoints in `localStorage`, so a reload or an evicted tab does not lose the visitor's place.                                |
 | `screens.ts` / `hud.ts` | The non-immersive screens and the in-session HUD. Plain DOM, no store, no framework.                                                 |
+
+Where a device cannot run AR (any desktop), the entry screen offers the
+desktop preview instead of a dead end: `viewing-app.ts` swaps component 11's
+session in as the `ArRuntime` + seams and `startArScene` builds the _same_
+scene — same proximity, same assets, same audio, same taps. `&preview=1`
+offers it even where AR works.
 
 ## Three things that are easy to get wrong here
 
@@ -67,7 +73,7 @@ call for the same reason.
 | No `?tour=`                              | "No tour link" — scan the QR / open the shared link. No retry.       |
 | CORS-blocked, 404, or a share _page_ URL | Named cause + what to fix, with a retry that re-opens the tour.      |
 | Corrupt zip / invalid `tour.json`        | "This tour file is damaged" — **no** retry; retrying cannot fix it.  |
-| No WebXR on this device                  | Enter AR disabled, honest message, **map still usable**.             |
+| No WebXR on this device                  | Enter AR disabled, **desktop preview offered**, map still usable.    |
 | Permission denied / `initAR` failure     | Inline reason on the entry screen, still retryable.                  |
 | Alignment not converged yet              | The framework's own coaching ("walk a few metres"), no empty camera. |
 | Session ended by the system back gesture | Back to the entry screen with tour, progress and warm cache intact.  |
