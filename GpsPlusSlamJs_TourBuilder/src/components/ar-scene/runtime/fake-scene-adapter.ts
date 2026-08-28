@@ -214,7 +214,10 @@ export function createFakeSceneAdapter(
     disposeTranscript(handle: WaypointHandle): void {
       transcriptLog.push(`dispose:${handle.waypointId}`);
     },
-    pageTranscript(handle: WaypointHandle): void {
+    pageTranscript(
+      handle: WaypointHandle,
+      _uv?: { readonly u: number; readonly v: number },
+    ): void {
       transcriptLog.push(`page:${handle.waypointId}`);
     },
 

@@ -40,6 +40,26 @@ export function disposeTranscript(node: WaypointNode): void {
   node.text = null;
 }
 
-export function pageTranscript(node: WaypointNode): void {
-  node.text?.next();
+/**
+ * Resolves the tapped `uv` against the panel's own prev/next/chrome layout
+ * (component 2's `hitTest`) so only the footer buttons page the panel — a
+ * tap on the text body is a no-op. Without this, every tap anywhere on the
+ * panel (text included) always paged forward and there was no way back.
+ * `uv` is only absent for a caller with no ray-cast surface (e.g. tests
+ * driving taps directly); that case falls back to the prior next-only
+ * behavior.
+ */
+export function pageTranscript(
+  node: WaypointNode,
+  uv?: { readonly u: number; readonly v: number },
+): void {
+  const text = node.text;
+  if (text === null) return;
+  if (uv === undefined) {
+    text.next();
+    return;
+  }
+  const intent = text.hitTest(uv);
+  if (intent?.type === "next") text.next();
+  else if (intent?.type === "prev") text.prev();
 }

@@ -155,10 +155,7 @@ export function createThreeSceneAdapter(
       );
     },
 
-    buildFallbackVisual(
-      handle: WaypointHandle,
-      hasAudio = true,
-    ): VisualHandle {
+    buildFallbackVisual(handle: WaypointHandle, hasAudio = true): VisualHandle {
       return visuals.buildFallbackVisual(
         registry.get(handle.waypointId),
         handle,
@@ -190,9 +187,12 @@ export function createThreeSceneAdapter(
       if (node !== undefined) disposeTranscript(node);
     },
 
-    pageTranscript(handle: WaypointHandle): void {
+    pageTranscript(
+      handle: WaypointHandle,
+      uv?: { readonly u: number; readonly v: number },
+    ): void {
       const node = registry.get(handle.waypointId);
-      if (node !== undefined) pageTranscript(node);
+      if (node !== undefined) pageTranscript(node, uv);
     },
 
     playAudio(handle: WaypointHandle, url: string): void {

@@ -49,8 +49,9 @@ export interface TapHit {
    * instead of treating every hit on it as a toggle.
    */
   readonly role: "visual" | "transcript" | "transport";
-  /** Panel-local hit position in [0,1]; only set for a `"transport"` hit
-   *  (the mesh's `PlaneGeometry` UV), needed to resolve toggle vs seek. */
+  /** Panel-local hit position in [0,1] (the mesh's `PlaneGeometry` UV); set
+   *  for a `"transport"` hit (resolves toggle vs seek) and a `"transcript"`
+   *  hit (resolves prev vs next vs a no-op tap on the text body). */
   readonly uv?: { readonly u: number; readonly v: number };
 }
 
@@ -106,8 +107,11 @@ export interface SceneAdapter {
   showTranscript(handle: WaypointHandle, text: string): void;
   hideTranscript(handle: WaypointHandle): void;
   disposeTranscript(handle: WaypointHandle): void;
-  /** Page the shown transcript after a tap on its controls. */
-  pageTranscript(handle: WaypointHandle): void;
+  /** Page the shown transcript after a tap on its controls (`uv` decides prev/next/no-op). */
+  pageTranscript(
+    handle: WaypointHandle,
+    uv?: { readonly u: number; readonly v: number },
+  ): void;
 
   // ── Audio (component 1's player, A16/A17) ─────────────────────────────────
   playAudio(handle: WaypointHandle, url: string): void;

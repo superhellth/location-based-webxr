@@ -59,7 +59,7 @@ export interface WaypointPresenter {
   startStory(): void;
   showTranscript(): void;
   hideTranscript(): void;
-  pageTranscript(): void;
+  pageTranscript(uv?: { readonly u: number; readonly v: number }): void;
   /** Introspection for the demo HUD and the e2e assertions. */
   debugState(): VisualLifecycleState;
   dispose(): void;
@@ -237,8 +237,8 @@ export function createWaypointPresenter(
     showTranscript,
     hideTranscript,
 
-    pageTranscript(): void {
-      if (transcriptShown) adapter.pageTranscript(handle);
+    pageTranscript(uv?: { readonly u: number; readonly v: number }): void {
+      if (transcriptShown) adapter.pageTranscript(handle, uv);
     },
 
     debugState: () => state,
