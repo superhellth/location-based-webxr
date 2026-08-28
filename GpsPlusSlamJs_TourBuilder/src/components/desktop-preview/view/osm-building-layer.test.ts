@@ -71,9 +71,9 @@ function hangingSource(): OsmDataSource {
 }
 
 describe("createOsmBuildingLayer", () => {
-  it("defaults to a 300m radius and a 20s timeout", () => {
+  it("defaults to a 300m radius and a 120s timeout", () => {
     expect(DEFAULT_OSM_BUILDING_RADIUS_M).toBe(300);
-    expect(DEFAULT_OSM_BUILDING_TIMEOUT_MS).toBe(20_000);
+    expect(DEFAULT_OSM_BUILDING_TIMEOUT_MS).toBe(120_000);
   });
 
   it("adds building meshes to the group once loaded", async () => {

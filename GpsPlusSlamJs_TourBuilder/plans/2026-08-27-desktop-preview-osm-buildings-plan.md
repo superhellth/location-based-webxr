@@ -179,14 +179,34 @@ export function createOsmBuildingLayer(options: OsmBuildingLayerOptions): OsmBui
 
 ## Decided parameters
 
-1. **Radius: 300 m**, fixed, around the tour's origin.
-2. **Timeout: 20 s.** Given the 75–130 s measured public-Overpass worst case,
-   most loads will simply time out and leave the flat plane — an accepted
-   tradeoff (a walkable preview starting fast beats reliably showing
-   buildings, for a scene-dressing nicety). `OverpassSource` calls are free
-   (no billing, no API key) but run on shared, rate-limited, volunteer
-   infrastructure with no SLA — the timeout exists because that pool is
-   genuinely slow/down sometimes, not to save money.
+1. **Radius: 300 m as a guarantee, not a fetch parameter (revised
+   2026-08-28).** Originally implemented as `ensureAreaLoaded(origin, 300,
+   …)`, but that always rounds any non-zero radius up to a full 1-ring
+   (7-tile) disk (`tilesWithin`'s `Math.ceil`) — for a real origin this
+   dispatched 7 sequential Overpass requests per preview session (measured
+   86 s total), and repeated dev-server reloads tripped public Overpass's
+   per-client rate limit (429s). Switched to fetching the single `FETCH_RES`
+   (7) tile containing the origin directly (`loadTiles(source, [tile], …)`,
+   `tile = latLngToCell(origin.lat, origin.lng, FETCH_RES)`), since that
+   tile's ~1406 m edge already covers 300 m on every side with room to
+   spare. Measured live: 1 request, 13.5 s, ~7x fewer requests for the same
+   effective coverage — the 300 m figure now documents the guaranteed floor,
+   not something threaded through to the fetch call.
+2. **Timeout: 120 s (revised from the original 20 s, 2026-08-28).** The
+   original 20 s figure was based on `overpass-source.ts.md`'s single-tile
+   worst case, but a 300 m radius spans multiple fetch tiles (7, for a real
+   origin) that `area-loader.ts`'s `loadTiles` fetches SEQUENTIALLY by
+   design — so the real latency is per-tile time × tile count, not one
+   tile's. Measured live (Munich, 300 m, 2026-08-28): 7/7 tiles succeeded,
+   zero retries, zero rate-limiting, in 86 s total. A 20 s timeout aborted
+   every real load before completion, which is what "buildings never
+   appear" actually was in practice — not the accepted "sometimes times
+   out" tradeoff this was meant to be. 120 s comfortably covers the 86 s
+   measurement with headroom; a walkable preview still starts immediately
+   either way (buildings pop in later, or don't) — only the odds of them
+   appearing at all changes. `OverpassSource` calls are free (no billing,
+   no API key) but run on shared, rate-limited, volunteer infrastructure
+   with no SLA.
 3. **No demo/fixture split.** There is no dedicated demo page for this
    feature and no fixture-vs-live branching in the shipped code — **every**
    desktop preview, whether opened from a real shared tour link or the
