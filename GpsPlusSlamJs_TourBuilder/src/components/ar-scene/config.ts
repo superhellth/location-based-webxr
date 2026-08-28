@@ -73,16 +73,24 @@ export const VISUAL_GROUND_CLEARANCE_M =
  * rather than turning away from camera on its own. `textPanelWidthM` is the
  * panel's own configured width (`TextStyle.maxWidthMeters`), needed so the
  * padding is measured edge-to-edge rather than center-to-edge.
+ *
+ * `centered` is for the breadcrumb-only stop (no image, no model): with no
+ * fallback marker taking up the visual's slot, the transcript moves into
+ * that slot (local X = 0) instead of sitting beside it.
  */
-export function transcriptOffset(textPanelWidthM: number): {
+export function transcriptOffset(
+  textPanelWidthM: number,
+  centered = false,
+): {
   readonly x: number;
   readonly y: number;
 } {
   return {
-    x:
-      TRANSCRIPT_VISUAL_HALF_WIDTH_M +
-      TRANSCRIPT_PADDING_M +
-      textPanelWidthM / 2,
+    x: centered
+      ? 0
+      : TRANSCRIPT_VISUAL_HALF_WIDTH_M +
+        TRANSCRIPT_PADDING_M +
+        textPanelWidthM / 2,
     // Vertically centred on the assumed visual height — the visual's own
     // centre sits `VISUAL_GROUND_CLEARANCE_M` above the ground now, so the
     // text stays centred on it by rising the same amount.

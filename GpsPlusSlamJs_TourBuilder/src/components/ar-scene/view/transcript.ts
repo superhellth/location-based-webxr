@@ -16,9 +16,13 @@ import { createInWorldText } from "../../in-world-text/view/in-world-text.js";
 import { stamp } from "./pick-classify.js";
 import type { WaypointNode } from "./waypoint-registry.js";
 
-export function showTranscript(node: WaypointNode, text: string): void {
+export function showTranscript(
+  node: WaypointNode,
+  text: string,
+  centered = false,
+): void {
   if (node.text === null) {
-    const offset = transcriptOffset(TRANSCRIPT_PANEL_WIDTH_M);
+    const offset = transcriptOffset(TRANSCRIPT_PANEL_WIDTH_M, centered);
     node.text = createInWorldText({
       text,
       id: `transcript-${node.waypointId}`,
