@@ -48,26 +48,35 @@ function fakeStore(initial: AuthoringSliceState) {
   };
 }
 
-function harness(initial: AuthoringSliceState = draft()) {
+function harness(
+  initial: AuthoringSliceState = draft(),
+  overrides: {
+    packAndDownload?: AuthoringViewDeps["packAndDownload"];
+    dropWaypoint?: () => string | null;
+  } = {},
+) {
   const root = document.createElement("div");
   document.body.append(root);
   const store = fakeStore(initial);
   const session = {
-    dropWaypoint: vi.fn(() => "wp-1"),
+    dropWaypoint: overrides.dropWaypoint ?? vi.fn(() => "wp-1"),
     attachAsset: vi.fn(),
     exportTour: vi.fn(() => ({ tour: { id: "t" }, assetFiles: new Map() })),
     destroy: vi.fn(),
   };
   const onExport = vi.fn();
+  const packAndDownload =
+    overrides.packAndDownload ?? vi.fn().mockResolvedValue(undefined);
   const deps: AuthoringViewDeps = {
     session: session as unknown as AuthoringViewDeps["session"],
     subscribe: store.subscribe,
     getState: store.getState,
     dispatch: store.dispatch,
+    packAndDownload,
     onExport,
   };
   const view = mountAuthoringView(root, deps);
-  return { root, store, session, onExport, view };
+  return { root, store, session, onExport, packAndDownload, view };
 }
 
 function byTestId(root: HTMLElement, id: string): HTMLElement {
@@ -283,15 +292,130 @@ describe("mountAuthoringView", () => {
     });
   });
 
-  it("Export button calls session.exportTour() and forwards the result to onExport", () => {
-    const { root, session, onExport } = harness();
+  it("Export button packs+downloads before calling onExport, and shows a plain confirmation", async () => {
+    const { root, session, packAndDownload, onExport } = harness();
     byTestId(root, "export").click();
 
     expect(session.exportTour).toHaveBeenCalledTimes(1);
-    expect(onExport).toHaveBeenCalledWith({
-      tour: { id: "t" },
-      assetFiles: new Map(),
+    expect(packAndDownload).toHaveBeenCalledWith({ id: "t" }, new Map());
+
+    await vi.waitFor(() =>
+      expect(onExport).toHaveBeenCalledWith({
+        tour: { id: "t" },
+        assetFiles: new Map(),
+      }),
+    );
+    expect(byTestId(root, "export-status").textContent).toBe(
+      "Download started.",
+    );
+  });
+
+  it("shows the error inline and re-enables Export if packAndDownload rejects, without calling onExport", async () => {
+    const { root, onExport } = harness(draft(), {
+      packAndDownload: vi.fn().mockRejectedValue(new Error("no network")),
     });
+    const exportButton = byTestId(root, "export") as HTMLButtonElement;
+    exportButton.click();
+
+    expect(exportButton.disabled).toBe(true);
+    await vi.waitFor(() =>
+      expect(byTestId(root, "export-status").textContent).toBe("no network"),
+    );
+    expect(exportButton.disabled).toBe(false);
+    expect(onExport).not.toHaveBeenCalled();
+  });
+
+  it("waypoints render collapsed by default and expand on header click; opening one collapses the other", () => {
+    const { root } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+          { id: "wp-2", position: { lat: 3, lon: 4 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+
+    expect(byTestId(root, "waypoint-wp-1").classList.contains("open")).toBe(false);
+    expect(byTestId(root, "waypoint-wp-2").classList.contains("open")).toBe(false);
+
+    byTestId(root, "wp-toggle-wp-1").click();
+    expect(byTestId(root, "waypoint-wp-1").classList.contains("open")).toBe(true);
+
+    byTestId(root, "wp-toggle-wp-2").click();
+    expect(byTestId(root, "waypoint-wp-1").classList.contains("open")).toBe(false);
+    expect(byTestId(root, "waypoint-wp-2").classList.contains("open")).toBe(true);
+  });
+
+  it("dropping a new waypoint expands it and collapses whatever was open", () => {
+    const { root, store } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+      { dropWaypoint: () => "wp-2" },
+    );
+    byTestId(root, "wp-toggle-wp-1").click();
+    expect(byTestId(root, "waypoint-wp-1").classList.contains("open")).toBe(true);
+
+    // dropWaypoint() (mocked above to return "wp-2") is what actually adds
+    // the waypoint via the real session in production; the fake store here
+    // needs its own matching setState so the render the click triggers has
+    // something to find at "waypoint-wp-2".
+    store.setState(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+          { id: "wp-2", position: { lat: 5, lon: 6 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+    byTestId(root, "drop-waypoint").click();
+
+    expect(byTestId(root, "waypoint-wp-1").classList.contains("open")).toBe(false);
+    expect(byTestId(root, "waypoint-wp-2").classList.contains("open")).toBe(true);
+  });
+
+  it("clicking a visual tile's clear button dispatches removeAsset for that asset", () => {
+    const { root, store } = harness(
+      draft({
+        assets: [{ id: "asset-1", type: "model", filename: "assets/asset-1.glb" }],
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: { model: "asset-1" } },
+        ],
+      }),
+    );
+    byTestId(root, "clear-model-wp-1").click();
+
+    expect(store.actions).toContainEqual({
+      type: "authoring/removeAsset",
+      payload: "asset-1",
+    });
+  });
+
+  it("collapsed summary shows an icon per attached content type, and 'empty' text when nothing is attached", () => {
+    const { root } = harness(
+      draft({
+        assets: [
+          { id: "asset-1", type: "model", filename: "assets/asset-1.glb" },
+          { id: "asset-2", type: "audio", filename: "assets/asset-2.mp3" },
+        ],
+        waypoints: [
+          {
+            id: "wp-1",
+            position: { lat: 1, lon: 2 },
+            prefetchRadius: 25,
+            activeRadius: 10,
+            content: { model: "asset-1", audio: "asset-2", transcript: "  " },
+          },
+          { id: "wp-2", position: { lat: 3, lon: 4 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+
+    const wp1Summary = byTestId(root, "waypoint-wp-1").querySelector(".wp-summary")!;
+    expect(wp1Summary.querySelectorAll("svg")).toHaveLength(2); // model + audio, whitespace-only transcript doesn't count
+    expect(byTestId(root, "waypoint-wp-2").querySelector(".wp-summary-empty")?.textContent).toBe("empty");
   });
 
   it("shows an empty-state message when there are no waypoints, and hides it once one exists", () => {

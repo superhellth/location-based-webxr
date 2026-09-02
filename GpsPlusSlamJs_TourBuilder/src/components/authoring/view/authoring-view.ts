@@ -1,30 +1,38 @@
 /**
  * `mountAuthoringView` — the DOM wiring for component 10. Renders tour
- * meta inputs, the waypoint list as labeled cards (radius inputs, per-slot
- * file inputs with their attached filename read from state, remove), a
- * Drop Waypoint button, and an Export button. Reacts to store changes via
- * an injected `subscribe`/`getState` pair rather than owning state itself —
- * the `authoring` slice (already built by component 3) is the single
- * source of truth.
+ * meta inputs, the waypoint list as collapsible cards (radius inputs with
+ * hint tooltips, a Model/Picture tile pair, an audio tile, a transcript
+ * textarea), a Drop Waypoint button, and an Export button that packs,
+ * downloads, and only then hands off to the injected `onExport`. Reacts to
+ * store changes via an injected `subscribe`/`getState` pair rather than
+ * owning state itself — the `authoring` slice (already built by component 3)
+ * is the single source of truth for everything except which waypoint card is
+ * expanded, which is local UI state (see the `expandedId` closure variable
+ * below) so it survives unrelated re-renders without ever touching Redux.
  *
  * @see plans/2026-08-07-authoring-plan.md
  * @see plans/2026-08-07-authoring-demo-ux-plan.md (card layout, U5/U6)
+ * @see plans/2026-09-02-authoring-composition-ui-refresh-design.md
  */
 
 import {
   setTourMeta,
   updateWaypoint,
   removeWaypoint,
+  removeAsset,
   type AuthoringSliceState,
 } from "../../../store/authoring-slice.js";
 import type { AuthoringStateShape } from "../../../store/selectors.js";
 import type { AssetSlot } from "../core/asset-attachment.js";
 import type { AssetId, Tour } from "../../../store/types.js";
+import { ICONS } from "../../shared/icons.js";
+import { buildLabeledField } from "../../shared/labeled-field.js";
 
 type AuthoringViewAction =
   | ReturnType<typeof setTourMeta>
   | ReturnType<typeof updateWaypoint>
-  | ReturnType<typeof removeWaypoint>;
+  | ReturnType<typeof removeWaypoint>
+  | ReturnType<typeof removeAsset>;
 
 interface AuthoringViewSession {
   dropWaypoint(): string | null;
@@ -37,6 +45,13 @@ export interface AuthoringViewDeps {
   readonly subscribe: (listener: () => void) => () => void;
   readonly getState: () => AuthoringStateShape;
   readonly dispatch: (action: AuthoringViewAction) => void;
+  /** Packs the tour and starts the download. Rejecting leaves the author on
+   *  this screen with the error shown inline — nothing is torn down. */
+  readonly packAndDownload: (
+    tour: Tour,
+    assetFiles: ReadonlyMap<AssetId, File>,
+  ) => Promise<void>;
+  /** Fires once `packAndDownload` has resolved successfully. */
   readonly onExport: (result: {
     tour: Tour;
     assetFiles: ReadonlyMap<AssetId, File>;
@@ -47,34 +62,22 @@ export interface AuthoringView {
   readonly destroy: () => void;
 }
 
-const ASSET_SLOT_LABEL: Record<AssetSlot, string> = {
-  model: "Model (.glb/.gltf)",
-  sprite: "Sprite (image)",
-  audio: "Audio (.mp3/.ogg)",
-};
-function labeledField(
-  labelText: string,
-  input: HTMLElement,
-  testid: string,
-): HTMLElement {
-  const wrapper = document.createElement("label");
-  wrapper.className = "field";
-  wrapper.dataset.testid = `field-${testid}`;
-  const span = document.createElement("span");
-  span.textContent = labelText;
-  wrapper.append(span, input);
-  return wrapper;
-}
+const PREFETCH_HINT =
+  "Distance at which this waypoint's media starts downloading, so it's ready before the visitor arrives.";
+const ACTIVE_HINT =
+  "Distance at which this waypoint's content actually plays. Must be smaller than the prefetch distance.";
 
 export function mountAuthoringView(
   root: HTMLElement,
   deps: AuthoringViewDeps,
 ): AuthoringView {
   let destroyed = false;
+  /** Which waypoint card is expanded (accordion: at most one at a time).
+   *  Local UI state, deliberately never dispatched — a store round trip on
+   *  every collapse/expand would defeat the whole point of keeping it
+   *  independent from unrelated store updates. */
+  let expandedId: string | null = null;
 
-  /** The attached filename for a slot, read from state — never from a
-   *  native <input>'s own "chosen file" label, which resets on every
-   *  re-render (U5). "(none)" when nothing is attached. */
   function attachedFilename(
     authoring: AuthoringSliceState,
     wp: AuthoringSliceState["waypoints"][number],
@@ -86,34 +89,192 @@ export function mountAuthoringView(
     return asset?.filename ?? "(none)";
   }
 
+  function buildVisualTile(
+    slot: Extract<AssetSlot, "model" | "sprite">,
+    authoring: AuthoringSliceState,
+    wp: AuthoringSliceState["waypoints"][number],
+  ): HTMLElement {
+    const assetId = wp.content[slot];
+    const active = assetId !== undefined;
+
+    const tile = document.createElement("label");
+    tile.className = `visual-tile${active ? " visual-tile-active" : ""}`;
+
+    const icon = document.createElement("span");
+    icon.className = "visual-tile-icon";
+    icon.innerHTML = slot === "model" ? ICONS.cube : ICONS.photo;
+
+    const label = document.createElement("span");
+    label.className = "visual-tile-label";
+    label.textContent = slot === "model" ? "Model" : "Picture";
+
+    const status = document.createElement("span");
+    status.className = "visual-tile-status";
+    status.dataset["testid"] = `asset-status-${slot}-${wp.id}`;
+    status.textContent = attachedFilename(authoring, wp, slot);
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.className = "visual-tile-input";
+    fileInput.dataset["testid"] = `asset-${slot}-${wp.id}`;
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (file) deps.session.attachAsset(wp.id, slot, file);
+    });
+
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "visual-tile-clear";
+    clear.dataset["testid"] = `clear-${slot}-${wp.id}`;
+    clear.innerHTML = ICONS.x;
+    clear.addEventListener("click", (event) => {
+      event.preventDefault(); // don't let the <label> forward the click into the file input
+      if (assetId) deps.dispatch(removeAsset(assetId));
+    });
+
+    tile.append(icon, label, status, fileInput, clear);
+    return tile;
+  }
+
+  function buildAudioTile(
+    authoring: AuthoringSliceState,
+    wp: AuthoringSliceState["waypoints"][number],
+  ): HTMLElement {
+    const assetId = wp.content.audio;
+    const active = assetId !== undefined;
+
+    const tile = document.createElement("label");
+    tile.className = `audio-tile${active ? " audio-tile-active" : ""}`;
+
+    const icon = document.createElement("span");
+    icon.className = "audio-tile-icon";
+    icon.innerHTML = ICONS.audio;
+
+    const label = document.createElement("span");
+    label.className = "audio-tile-label";
+    label.textContent = "Audio narration";
+
+    const status = document.createElement("span");
+    status.className = "audio-tile-status";
+    status.dataset["testid"] = "asset-status-audio-" + wp.id;
+    status.textContent = attachedFilename(authoring, wp, "audio");
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.className = "audio-tile-input";
+    fileInput.dataset["testid"] = `asset-audio-${wp.id}`;
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (file) deps.session.attachAsset(wp.id, "audio", file);
+    });
+
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "audio-tile-clear";
+    clear.dataset["testid"] = `clear-audio-${wp.id}`;
+    clear.innerHTML = ICONS.x;
+    clear.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (assetId) deps.dispatch(removeAsset(assetId));
+    });
+
+    tile.append(icon, label, status, fileInput, clear);
+    return tile;
+  }
+
+  /** One icon per attached content type, in the collapsed header. Trimmed so
+   *  a whitespace-only transcript doesn't count as "written". */
+  function buildSummary(
+    wp: AuthoringSliceState["waypoints"][number],
+  ): HTMLElement {
+    const summary = document.createElement("span");
+    summary.className = "wp-summary";
+
+    const visualIcon =
+      wp.content.model !== undefined
+        ? ICONS.cube
+        : wp.content.sprite !== undefined
+          ? ICONS.photo
+          : null;
+    const hasAudio = wp.content.audio !== undefined;
+    const hasTranscript = (wp.content.transcript ?? "").trim().length > 0;
+
+    if (visualIcon === null && !hasAudio && !hasTranscript) {
+      const empty = document.createElement("span");
+      empty.className = "wp-summary-empty";
+      empty.textContent = "empty";
+      summary.append(empty);
+      return summary;
+    }
+
+    if (visualIcon !== null) {
+      const span = document.createElement("span");
+      span.innerHTML = visualIcon;
+      summary.append(span);
+    }
+    if (hasAudio) {
+      const span = document.createElement("span");
+      span.innerHTML = ICONS.audio;
+      summary.append(span);
+    }
+    if (hasTranscript) {
+      const span = document.createElement("span");
+      span.innerHTML = ICONS.text;
+      summary.append(span);
+    }
+    return summary;
+  }
+
   function renderWaypointCard(
     authoring: AuthoringSliceState,
     wp: AuthoringSliceState["waypoints"][number],
     index: number,
   ): HTMLElement {
+    const isOpen = wp.id === expandedId;
+
     const card = document.createElement("div");
-    card.className = "waypoint-card";
-    card.dataset.testid = `waypoint-${wp.id}`;
+    card.className = `waypoint-card${isOpen ? " open" : ""}`;
+    card.dataset["testid"] = `waypoint-${wp.id}`;
 
     const header = document.createElement("div");
-    header.className = "waypoint-card-header";
+    header.className = "wp-header";
+    header.dataset["testid"] = `wp-toggle-${wp.id}`;
+    header.addEventListener("click", () => {
+      expandedId = isOpen ? null : wp.id;
+      render();
+    });
+
+    const chevron = document.createElement("span");
+    chevron.className = "wp-chevron";
+    chevron.innerHTML = ICONS.chevron;
+
     const title = document.createElement("h3");
     title.textContent = `Waypoint ${index + 1}`;
-    const badge = document.createElement("span");
-    badge.className = "id-badge";
-    badge.textContent = wp.id;
+
     const removeButton = document.createElement("button");
-    removeButton.dataset.testid = `remove-waypoint-${wp.id}`;
-    removeButton.textContent = "Remove";
-    removeButton.addEventListener("click", () => {
+    removeButton.type = "button";
+    removeButton.className = "icon-btn";
+    removeButton.dataset["testid"] = `remove-waypoint-${wp.id}`;
+    removeButton.setAttribute("aria-label", "Remove waypoint");
+    removeButton.innerHTML = ICONS.x;
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation(); // don't also toggle the accordion
       deps.dispatch(removeWaypoint(wp.id));
     });
-    header.append(title, badge, removeButton);
+
+    header.append(chevron, title, buildSummary(wp), removeButton);
     card.append(header);
+
+    const body = document.createElement("div");
+    body.className = "wp-body";
+    const bodyIn = document.createElement("div");
+    bodyIn.className = "wp-body-in";
+    body.append(bodyIn);
+    card.append(body);
 
     const prefetchInput = document.createElement("input");
     prefetchInput.type = "number";
-    prefetchInput.dataset.testid = `prefetch-radius-${wp.id}`;
+    prefetchInput.dataset["testid"] = `prefetch-radius-${wp.id}`;
     prefetchInput.value = String(wp.prefetchRadius);
     prefetchInput.addEventListener("change", () => {
       deps.dispatch(
@@ -123,13 +284,18 @@ export function mountAuthoringView(
         }),
       );
     });
-    card.append(
-      labeledField("Prefetch radius (m)", prefetchInput, `prefetch-${wp.id}`),
+    bodyIn.append(
+      buildLabeledField(
+        "Prefetch (m)",
+        prefetchInput,
+        `prefetch-${wp.id}`,
+        PREFETCH_HINT,
+      ),
     );
 
     const activeInput = document.createElement("input");
     activeInput.type = "number";
-    activeInput.dataset.testid = `active-radius-${wp.id}`;
+    activeInput.dataset["testid"] = `active-radius-${wp.id}`;
     activeInput.value = String(wp.activeRadius);
     activeInput.addEventListener("change", () => {
       deps.dispatch(
@@ -139,91 +305,41 @@ export function mountAuthoringView(
         }),
       );
     });
-    card.append(
-      labeledField("Active radius (m)", activeInput, `active-${wp.id}`),
+    bodyIn.append(
+      buildLabeledField(
+        "Active (m)",
+        activeInput,
+        `active-${wp.id}`,
+        ACTIVE_HINT,
+      ),
     );
-
-    function buildAssetRow(slot: AssetSlot): HTMLElement {
-      const row = document.createElement("div");
-      row.className = "asset-row";
-
-      const fileLabel = document.createElement("label");
-      const fileLabelText = document.createElement("span");
-      fileLabelText.textContent = ASSET_SLOT_LABEL[slot];
-      const fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.dataset.testid = `asset-${slot}-${wp.id}`;
-      fileInput.addEventListener("change", () => {
-        const file = fileInput.files?.[0];
-        if (file) deps.session.attachAsset(wp.id, slot, file);
-      });
-      fileLabel.append(fileLabelText, fileInput);
-
-      const status = document.createElement("span");
-      status.className = "asset-status";
-      status.dataset.testid = `asset-status-${slot}-${wp.id}`;
-      status.textContent = attachedFilename(authoring, wp, slot);
-
-      row.append(fileLabel, status);
-      return row;
-    }
-
-    // Model and sprite are mutually exclusive (a waypoint has at-most-one
-    // visual — see selectWaypointVisual): grouped together with a shared
-    // heading, an "or" divider, and a live hint so it reads as ONE choice
-    // instead of two independent optional uploads (attaching either one
-    // silently clears the other, enforced by the authoring-slice reducer).
-    const visualGroup = document.createElement("div");
-    visualGroup.className = "visual-group";
 
     const visualLabel = document.createElement("p");
-    visualLabel.className = "visual-group-label";
-    visualLabel.textContent = "Visual — choose one";
-    visualGroup.append(visualLabel);
+    visualLabel.className = "section-label";
+    visualLabel.textContent = "Visual";
+    bodyIn.append(visualLabel);
 
-    const activeVisualSlot: AssetSlot | null =
-      wp.content.model !== undefined
-        ? "model"
-        : wp.content.sprite !== undefined
-          ? "sprite"
-          : null;
-
-    const visualHint = document.createElement("p");
-    visualHint.className = "visual-group-hint";
-    visualHint.textContent =
-      activeVisualSlot === "model"
-        ? "Using the Model below. Attaching a Picture instead will remove it."
-        : activeVisualSlot === "sprite"
-          ? "Using the Picture below. Attaching a Model instead will remove it."
-          : "Attach a Model or a Picture, not both — whichever you attach becomes the waypoint's visual.";
-    visualGroup.append(visualHint);
-
-    const modelRow = buildAssetRow("model");
-    const spriteRow = buildAssetRow("sprite");
-    modelRow.classList.add(
-      activeVisualSlot === "model" ? "asset-row-active" : "asset-row-inactive",
+    const tiles = document.createElement("div");
+    tiles.className = "visual-tiles";
+    tiles.append(
+      buildVisualTile("model", authoring, wp),
+      buildVisualTile("sprite", authoring, wp),
     );
-    spriteRow.classList.add(
-      activeVisualSlot === "sprite"
-        ? "asset-row-active"
-        : "asset-row-inactive",
-    );
-    if (activeVisualSlot === null) {
-      modelRow.classList.remove("asset-row-inactive");
-      spriteRow.classList.remove("asset-row-inactive");
-    }
+    bodyIn.append(tiles);
 
-    const divider = document.createElement("span");
-    divider.className = "visual-divider";
-    divider.textContent = "or";
+    const hint = document.createElement("p");
+    hint.className = "visual-hint";
+    hint.textContent =
+      "Choose a model or a picture for this waypoint. Attaching one clears the other.";
+    bodyIn.append(hint);
 
-    visualGroup.append(modelRow, divider, spriteRow);
-    card.append(visualGroup);
-
-    card.append(buildAssetRow("audio"));
+    const audioLabel = document.createElement("p");
+    audioLabel.className = "section-label";
+    audioLabel.textContent = "Audio";
+    bodyIn.append(audioLabel, buildAudioTile(authoring, wp));
 
     const transcriptInput = document.createElement("textarea");
-    transcriptInput.dataset.testid = `transcript-${wp.id}`;
+    transcriptInput.dataset["testid"] = `transcript-${wp.id}`;
     transcriptInput.value = wp.content.transcript ?? "";
     transcriptInput.addEventListener("change", () => {
       deps.dispatch(
@@ -233,8 +349,8 @@ export function mountAuthoringView(
         }),
       );
     });
-    card.append(
-      labeledField("Transcript", transcriptInput, `transcript-${wp.id}`),
+    bodyIn.append(
+      buildLabeledField("Transcript", transcriptInput, `transcript-${wp.id}`),
     );
 
     return card;
@@ -244,24 +360,29 @@ export function mountAuthoringView(
     const section = document.createElement("section");
     section.className = "authoring-section";
 
-    const heading = document.createElement("h2");
-    heading.textContent = "Waypoints";
-    section.append(heading);
-
+    const heading = document.createElement("div");
+    heading.className = "waypoints-heading";
+    const h2 = document.createElement("h2");
+    h2.textContent = `Waypoints · ${authoring.waypoints.length}`;
     const dropButton = document.createElement("button");
     dropButton.className = "primary";
-    dropButton.dataset.testid = "drop-waypoint";
+    dropButton.dataset["testid"] = "drop-waypoint";
     dropButton.textContent = "+ Drop Waypoint";
     dropButton.addEventListener("click", () => {
-      deps.session.dropWaypoint();
+      const newId = deps.session.dropWaypoint();
+      if (newId !== null) {
+        expandedId = newId;
+        render();
+      }
     });
-    section.append(dropButton);
+    heading.append(h2, dropButton);
+    section.append(heading);
 
     if (authoring.waypoints.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.dataset.testid = "waypoints-empty";
-      empty.textContent = "No waypoints yet — drop one to get started.";
+      empty.dataset["testid"] = "waypoints-empty";
+      empty.textContent = "No waypoints yet. Drop one to get started.";
       section.append(empty);
     } else {
       const list = document.createElement("div");
@@ -286,7 +407,7 @@ export function mountAuthoringView(
     section.append(heading);
 
     const nameInput = document.createElement("input");
-    nameInput.dataset.testid = "tour-name";
+    nameInput.dataset["testid"] = "tour-name";
     nameInput.value = authoring.name;
     nameInput.addEventListener("change", () => {
       deps.dispatch(
@@ -296,10 +417,10 @@ export function mountAuthoringView(
         }),
       );
     });
-    section.append(labeledField("Name", nameInput, "tour-name"));
+    section.append(buildLabeledField("Name", nameInput, "tour-name"));
 
     const descriptionInput = document.createElement("input");
-    descriptionInput.dataset.testid = "tour-description";
+    descriptionInput.dataset["testid"] = "tour-description";
     descriptionInput.value = authoring.description;
     descriptionInput.addEventListener("change", () => {
       deps.dispatch(
@@ -310,7 +431,7 @@ export function mountAuthoringView(
       );
     });
     section.append(
-      labeledField("Description", descriptionInput, "tour-description"),
+      buildLabeledField("Description", descriptionInput, "tour-description"),
     );
 
     return section;
@@ -326,12 +447,34 @@ export function mountAuthoringView(
 
     const exportButton = document.createElement("button");
     exportButton.className = "primary";
-    exportButton.dataset.testid = "export";
+    exportButton.dataset["testid"] = "export";
     exportButton.textContent = "Export & Pack";
-    exportButton.addEventListener("click", () => {
-      deps.onExport(deps.session.exportTour());
-    });
     section.append(exportButton);
+
+    const status = document.createElement("p");
+    status.dataset["testid"] = "export-status";
+    section.append(status);
+
+    exportButton.addEventListener("click", () => {
+      void (async () => {
+        exportButton.disabled = true;
+        status.textContent = "";
+        status.dataset["state"] = "";
+        const result = deps.session.exportTour();
+        try {
+          await deps.packAndDownload(result.tour, result.assetFiles);
+        } catch (error) {
+          status.textContent =
+            error instanceof Error ? error.message : String(error);
+          status.dataset["state"] = "error";
+          exportButton.disabled = false;
+          return;
+        }
+        status.textContent = "Download started.";
+        status.dataset["state"] = "ok";
+        deps.onExport(result);
+      })();
+    });
 
     return section;
   }
