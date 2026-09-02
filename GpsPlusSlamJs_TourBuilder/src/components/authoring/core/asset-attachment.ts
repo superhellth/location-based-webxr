@@ -30,3 +30,25 @@ export function buildAssetEntry(
     filename: assetFilename(id, file),
   };
 }
+
+/** File extensions each slot accepts (contract: `AssetType` is `sprite |
+ *  model | audio` = image | GLTF/GLB | MP3/OGG — plans/Shared-Contract.md
+ *  §2.1). Also drives each tile's `accept` attribute in the view. */
+export const ALLOWED_EXTENSIONS: Record<AssetSlot, readonly string[]> = {
+  model: [".glb", ".gltf"],
+  sprite: [".jpg", ".jpeg", ".png", ".webp", ".gif"],
+  audio: [".mp3", ".ogg"],
+};
+
+/**
+ * True if `file`'s extension matches what `slot` accepts. Checked by
+ * extension rather than `file.type`: browsers report an empty or generic
+ * MIME type for GLB/GLTF (and often for OGG) depending on OS, so the
+ * filename is the only reliable signal here — same reasoning `assetFilename`
+ * already uses for the in-zip name.
+ */
+export function isAllowedAssetFile(slot: AssetSlot, file: File): boolean {
+  const dot = file.name.lastIndexOf(".");
+  const ext = dot > 0 ? file.name.slice(dot).toLowerCase() : "";
+  return ALLOWED_EXTENSIONS[slot].includes(ext);
+}

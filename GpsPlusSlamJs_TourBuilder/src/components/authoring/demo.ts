@@ -167,13 +167,21 @@ function viewDeps() {
     subscribe: store.subscribe,
     getState: store.getState,
     dispatch,
-    onExport: async (
-      result: Awaited<ReturnType<typeof session.exportTour>>,
+    // mountAuthoringView's own Export button now packs+downloads itself
+    // (see plans/2026-09-02-authoring-composition-ui-refresh-design.md) and
+    // shows/re-enables on failure on its own — this demo's packAndDownload
+    // still updates its own byte-count status line, and rethrows so the
+    // view's built-in error handling also kicks in.
+    packAndDownload: async (
+      tour: Awaited<ReturnType<typeof session.exportTour>>["tour"],
+      assetFiles: Awaited<
+        ReturnType<typeof session.exportTour>
+      >["assetFiles"],
     ) => {
       try {
-        const blob = await packTour(result.tour, new Map(result.assetFiles));
+        const blob = await packTour(tour, new Map(assetFiles));
         await downloadZip(blob, "tour.zip");
-        exportStatusEl.textContent = `Packed tour.zip — ${blob.size.toLocaleString()} bytes, ${result.tour.waypoints.length} waypoint(s).`;
+        exportStatusEl.textContent = `Packed tour.zip: ${blob.size.toLocaleString()} bytes, ${tour.waypoints.length} waypoint(s).`;
         exportStatusEl.dataset["state"] = "ok";
       } catch (error) {
         exportStatusEl.textContent =
@@ -183,7 +191,12 @@ function viewDeps() {
               ? error.message
               : String(error);
         exportStatusEl.dataset["state"] = "error";
+        throw error;
       }
+    },
+    onExport: () => {
+      // packAndDownload already handled packing, downloading, and this
+      // demo's own status line — nothing else to do (no share panel here).
     },
   };
 }

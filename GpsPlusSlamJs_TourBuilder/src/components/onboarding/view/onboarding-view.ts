@@ -5,9 +5,18 @@
  * Goal-2 composition for both Authoring and Viewing bootstrap, not just the
  * demo (plan §Architecture).
  *
+ * Rows are built once and updated in place on every state change (icon
+ * class/content, status text, explanation) rather than torn down and
+ * rebuilt — a freshly-created DOM node can't CSS-transition from a prior
+ * state, and permission status changes are rare enough per session that the
+ * small extra bookkeeping here is worth it (see
+ * plans/2026-09-02-authoring-composition-ui-refresh-design.md, Onboarding
+ * gate section).
+ *
  * @see plans/2026-08-07-onboarding-plan.md
  */
 
+import { ICONS } from "../../shared/icons.js";
 import {
   canGrantAccess,
   canStart,
@@ -17,6 +26,7 @@ import {
   type GateAction,
   type GateState,
   type PermissionState,
+  type PermissionKind,
 } from "../core/permission-gate.js";
 import {
   checkExistingPermissions,
@@ -43,21 +53,69 @@ export interface OnboardingGate {
   readonly destroy: () => void;
 }
 
-const PERMISSION_LABEL: Record<"camera" | "gps", string> = {
+const PERMISSION_LABEL: Record<PermissionKind, string> = {
   camera: "Camera",
   gps: "Location",
 };
 
-function statusText(status: PermissionState): string {
-  switch (status) {
-    case "unknown":
-      return "Not yet requested";
-    case "requesting":
-      return "Waiting for permission…";
-    case "granted":
-      return "Granted";
-    case "denied":
-      return "Denied";
+const ROW_TESTID: Record<PermissionKind, string> = {
+  camera: "row-camera",
+  gps: "row-gps",
+};
+
+interface RowElements {
+  readonly root: HTMLElement;
+  readonly icon: HTMLElement;
+  readonly explanation: HTMLParagraphElement;
+}
+
+function buildRow(kind: PermissionKind): RowElements {
+  const row = document.createElement("div");
+  row.className = "perm-row";
+  row.dataset["testid"] = ROW_TESTID[kind];
+
+  const icon = document.createElement("div");
+  icon.className = "perm-icon";
+
+  const body = document.createElement("div");
+  body.className = "perm-body";
+
+  const name = document.createElement("div");
+  name.className = "perm-name";
+  name.textContent = PERMISSION_LABEL[kind];
+
+  const explanation = document.createElement("p");
+  explanation.className = "perm-explanation";
+  explanation.dataset["testid"] = `explanation-${kind}`;
+  explanation.hidden = true;
+
+  body.append(name, explanation);
+  row.append(icon, body);
+
+  return { root: row, icon, explanation };
+}
+
+function updateRow(
+  row: RowElements,
+  state: PermissionState,
+  message: string | null,
+): void {
+  row.icon.className = `perm-icon perm-icon-${state}`;
+  row.icon.innerHTML =
+    state === "requesting"
+      ? ICONS.spinner
+      : state === "granted"
+        ? ICONS.check
+        : state === "denied"
+          ? ICONS.x
+          : "";
+
+  if (message !== null) {
+    row.explanation.hidden = false;
+    row.explanation.textContent = message;
+  } else {
+    row.explanation.hidden = true;
+    row.explanation.textContent = "";
   }
 }
 
@@ -67,6 +125,20 @@ export function mountOnboardingGate(
 ): OnboardingGate {
   let state: GateState = initialGateState;
   let destroyed = false;
+
+  const cameraRow = buildRow("camera");
+  const gpsRow = buildRow("gps");
+
+  const grantButton = document.createElement("button");
+  grantButton.dataset["testid"] = "grant-access";
+  grantButton.textContent = "Grant Access";
+
+  const startButton = document.createElement("button");
+  startButton.className = "primary";
+  startButton.dataset["testid"] = "start";
+  startButton.textContent = "Start";
+
+  root.append(cameraRow.root, gpsRow.root, grantButton, startButton);
 
   const dispatch = (action: GateAction): void => {
     if (destroyed) return;
@@ -83,47 +155,17 @@ export function mountOnboardingGate(
     dispatch,
   };
 
-  function renderRow(kind: "camera" | "gps"): HTMLElement {
-    const row = document.createElement("div");
-    row.dataset.testid = `row-${kind}`;
-
-    const label = document.createElement("span");
-    label.textContent = `${PERMISSION_LABEL[kind]}: ${statusText(state[kind])}`;
-    row.append(label);
-
-    const explanation = explanationFor(state, kind);
-    if (explanation) {
-      const warning = document.createElement("p");
-      warning.dataset.testid = `explanation-${kind}`;
-      warning.style.color = "red";
-      warning.textContent = explanation;
-      row.append(warning);
-    }
-
-    return row;
-  }
-
   function render(): void {
-    root.innerHTML = "";
-
-    root.append(renderRow("camera"), renderRow("gps"));
-
-    const grantButton = document.createElement("button");
-    grantButton.dataset.testid = "grant-access";
-    grantButton.textContent = "Grant Access";
+    updateRow(cameraRow, state.camera, explanationFor(state, "camera"));
+    updateRow(gpsRow, state.gps, explanationFor(state, "gps"));
     grantButton.disabled = !canGrantAccess(state);
-    grantButton.addEventListener("click", () => {
-      void requestPermissions(adapterDeps);
-    });
-    root.append(grantButton);
-
-    const startButton = document.createElement("button");
-    startButton.dataset.testid = "start";
-    startButton.textContent = "Start";
     startButton.disabled = !canStart(state);
-    startButton.addEventListener("click", handleStart);
-    root.append(startButton);
   }
+
+  grantButton.addEventListener("click", () => {
+    void requestPermissions(adapterDeps);
+  });
+  startButton.addEventListener("click", handleStart);
 
   function handleStart(): void {
     const audioContext = deps.createAudioContext();

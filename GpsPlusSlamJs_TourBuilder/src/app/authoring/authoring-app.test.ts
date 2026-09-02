@@ -179,15 +179,6 @@ describe("Authoring mode composed flow", () => {
 
     root.querySelector<HTMLButtonElement>('[data-testid="export"]')!.click();
 
-    const packButton = await vi.waitFor(() => {
-      const button = root.querySelector<HTMLButtonElement>(
-        '[data-testid="pack-tour"]',
-      );
-      expect(button).not.toBeNull();
-      return button!;
-    });
-    packButton.click();
-
     await vi.waitFor(() => {
       expect(downloadBlobMock).toHaveBeenCalledOnce();
     });
@@ -235,5 +226,35 @@ describe("Authoring mode composed flow", () => {
     )!;
     expect(startButton.disabled).toBe(true);
     expect(root.querySelector('[data-testid="drop-waypoint"]')).toBeNull();
+  });
+
+  it("keeps the author on the authoring screen with an inline error if packing fails", async () => {
+    downloadBlobMock.mockRejectedValueOnce(new Error("disk full"));
+    const { mountAuthoringApp } = await import("./authoring-app.js");
+    mountAuthoringApp(root);
+
+    await completeOnboarding(root);
+    onGpsPosition!(toGpsPosition(track.track[0]!, Date.now()));
+    root
+      .querySelector<HTMLButtonElement>('[data-testid="drop-waypoint"]')!
+      .click();
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-testid^="waypoint-"]')).not.toBeNull();
+    });
+
+    const exportButton = root.querySelector<HTMLButtonElement>(
+      '[data-testid="export"]',
+    )!;
+    exportButton.click();
+
+    await vi.waitFor(() => {
+      expect(
+        root.querySelector('[data-testid="export-status"]')?.textContent,
+      ).toBe("disk full");
+    });
+    expect(exportButton.disabled).toBe(false);
+    // Never navigated away — the export screen (and its Export button) is
+    // still the one in the DOM, not the pack-and-share panel.
+    expect(root.querySelector('[data-testid="export"]')).not.toBeNull();
   });
 });
