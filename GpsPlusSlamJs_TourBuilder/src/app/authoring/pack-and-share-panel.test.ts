@@ -35,7 +35,8 @@ function setup() {
     tour: fakeTour,
     assetFiles: new Map(),
   });
-  const urlInputs = root.querySelectorAll<HTMLInputElement>('input[type="url"]');
+  const urlInputs =
+    root.querySelectorAll<HTMLInputElement>('input[type="url"]');
   const zipUrlInput = urlInputs[1]!;
   const notesEl = root.querySelector<HTMLParagraphElement>(
     '[data-testid="url-notes"]',

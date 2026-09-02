@@ -115,7 +115,10 @@ export function mountPackAndSharePanel(
         return;
       }
 
-      const prepared = prepareHostedZipUrl(zipUrlInput.value, import.meta.env.DEV);
+      const prepared = prepareHostedZipUrl(
+        zipUrlInput.value,
+        import.meta.env.DEV,
+      );
       urlNotes.textContent = prepared.notes.join(" · ");
 
       try {

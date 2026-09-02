@@ -52,8 +52,6 @@ const ASSET_SLOT_LABEL: Record<AssetSlot, string> = {
   sprite: "Sprite (image)",
   audio: "Audio (.mp3/.ogg)",
 };
-const ASSET_SLOTS: readonly AssetSlot[] = ["model", "sprite", "audio"];
-
 function labeledField(
   labelText: string,
   input: HTMLElement,
@@ -145,7 +143,7 @@ export function mountAuthoringView(
       labeledField("Active radius (m)", activeInput, `active-${wp.id}`),
     );
 
-    for (const slot of ASSET_SLOTS) {
+    function buildAssetRow(slot: AssetSlot): HTMLElement {
       const row = document.createElement("div");
       row.className = "asset-row";
 
@@ -167,8 +165,62 @@ export function mountAuthoringView(
       status.textContent = attachedFilename(authoring, wp, slot);
 
       row.append(fileLabel, status);
-      card.append(row);
+      return row;
     }
+
+    // Model and sprite are mutually exclusive (a waypoint has at-most-one
+    // visual — see selectWaypointVisual): grouped together with a shared
+    // heading, an "or" divider, and a live hint so it reads as ONE choice
+    // instead of two independent optional uploads (attaching either one
+    // silently clears the other, enforced by the authoring-slice reducer).
+    const visualGroup = document.createElement("div");
+    visualGroup.className = "visual-group";
+
+    const visualLabel = document.createElement("p");
+    visualLabel.className = "visual-group-label";
+    visualLabel.textContent = "Visual — choose one";
+    visualGroup.append(visualLabel);
+
+    const activeVisualSlot: AssetSlot | null =
+      wp.content.model !== undefined
+        ? "model"
+        : wp.content.sprite !== undefined
+          ? "sprite"
+          : null;
+
+    const visualHint = document.createElement("p");
+    visualHint.className = "visual-group-hint";
+    visualHint.textContent =
+      activeVisualSlot === "model"
+        ? "Using the Model below. Attaching a Picture instead will remove it."
+        : activeVisualSlot === "sprite"
+          ? "Using the Picture below. Attaching a Model instead will remove it."
+          : "Attach a Model or a Picture, not both — whichever you attach becomes the waypoint's visual.";
+    visualGroup.append(visualHint);
+
+    const modelRow = buildAssetRow("model");
+    const spriteRow = buildAssetRow("sprite");
+    modelRow.classList.add(
+      activeVisualSlot === "model" ? "asset-row-active" : "asset-row-inactive",
+    );
+    spriteRow.classList.add(
+      activeVisualSlot === "sprite"
+        ? "asset-row-active"
+        : "asset-row-inactive",
+    );
+    if (activeVisualSlot === null) {
+      modelRow.classList.remove("asset-row-inactive");
+      spriteRow.classList.remove("asset-row-inactive");
+    }
+
+    const divider = document.createElement("span");
+    divider.className = "visual-divider";
+    divider.textContent = "or";
+
+    visualGroup.append(modelRow, divider, spriteRow);
+    card.append(visualGroup);
+
+    card.append(buildAssetRow("audio"));
 
     const transcriptInput = document.createElement("textarea");
     transcriptInput.dataset.testid = `transcript-${wp.id}`;
