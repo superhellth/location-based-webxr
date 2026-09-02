@@ -678,8 +678,38 @@ p[data-testid="qr-status"] {
 
 .panel h2 {
   margin: 0;
-  font-size: 15px;
-  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.qr-host {
+  width: 0;
+  height: 0;
+  margin: 0 auto;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out),
+    width var(--duration-base) var(--ease-out),
+    height var(--duration-base) var(--ease-out);
+}
+
+.qr-host-show {
+  width: 200px;
+  height: 200px;
+  margin-top: var(--space-3);
+  opacity: 1;
+  transform: scale(1);
+}
+
+.field-error {
+  border-color: var(--error);
+  transition: border-color var(--duration-base) var(--ease-out);
 }
 
 /* ── Viewing mode ─────────────────────────────────────────────────────── */

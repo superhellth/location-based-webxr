@@ -29,6 +29,9 @@ import { mountAuthoringView } from "../../components/authoring/view/authoring-vi
 import { computeMarkerViewModels } from "../../components/map/core/map-marker-state.js";
 import { createTourMap } from "../../components/map/view/tour-map.js";
 import { mountPackAndSharePanel } from "./pack-and-share-panel.js";
+import { packTour } from "../../components/packaging/core/pack-tour.js";
+import { downloadZip } from "gps-plus-slam-app-framework/storage";
+import { swapScreen } from "./screen-transition.js";
 import {
   disableBeforeUnloadWarning,
   enableBeforeUnloadWarning,
@@ -54,9 +57,10 @@ export function mountAuthoringApp(root: HTMLElement): { destroy(): void } {
     requestGeolocationPermission,
     createAudioContext: () => new AudioContext(),
     onComplete: () => {
-      gate.destroy();
-      gateHost.remove();
-      void startAuthoringFlow(root);
+      swapScreen(gateHost, () => {
+        gate.destroy();
+        void startAuthoringFlow(root);
+      });
     },
   });
 
@@ -94,14 +98,16 @@ async function startAuthoringFlow(root: HTMLElement): Promise<void> {
   root.appendChild(promptHost);
 
   resumeButton.addEventListener("click", () => {
-    promptHost.remove();
-    void mountAuthoringTools(root, resumableSessionName);
+    swapScreen(promptHost, () => {
+      void mountAuthoringTools(root, resumableSessionName);
+    });
   });
   discardButton.addEventListener("click", () => {
-    promptHost.remove();
-    void discardDraft(resumableSessionName).then(() =>
-      mountAuthoringTools(root),
-    );
+    swapScreen(promptHost, () => {
+      void discardDraft(resumableSessionName).then(() =>
+        mountAuthoringTools(root),
+      );
+    });
   });
 }
 
@@ -110,7 +116,7 @@ async function mountAuthoringTools(
   resumeSessionName?: string,
 ): Promise<void> {
   const toolsHost = document.createElement("div");
-  toolsHost.className = "tools-shell";
+  toolsHost.className = "tools-shell screen-enter";
   root.appendChild(toolsHost);
 
   const store = createAuthoringStore();
@@ -148,21 +154,27 @@ async function mountAuthoringTools(
     return draft.waypoints.length > 0 || draft.breadcrumb.length > 0;
   });
 
-  // AC13: explicit waiting state until the first live GPS fix arrives —
-  // Drop Waypoint has nothing to drop at until then.
-  const gpsStatus = document.createElement("p");
-  gpsStatus.className = "status-banner";
-  gpsStatus.textContent = "Waiting for a live GPS fix…";
-  toolsHost.appendChild(gpsStatus);
+  // `.map-shell` never touches Leaflet's own DOM subtree — the GPS badge is
+  // its sibling, not a child of `.map-card`, so Leaflet's internal rendering
+  // can never clobber it. `.map-card` stays the direct element passed to
+  // createTourMap, exactly as before (see tour-map.ts / app.css).
+  const mapShell = document.createElement("div");
+  mapShell.className = "map-shell";
+  toolsHost.appendChild(mapShell);
 
-  // `.map-card` is the Leaflet container element itself (see tour-map.ts /
-  // app.css) — no wrapper div — so it must be the element passed to
-  // createTourMap directly, not a plain child of a `.map-card` section.
   const mapHost = document.createElement("div");
-  mapHost.className = "map-card";
-  toolsHost.appendChild(mapHost);
+  mapHost.className = "map-card map-card-flush";
+  mapShell.appendChild(mapHost);
   const tourMap = createTourMap(mapHost);
   tourMap?.show();
+
+  // AC13: explicit waiting state until the first live GPS fix arrives —
+  // Drop Waypoint has nothing to drop at until then.
+  const gpsBadge = document.createElement("div");
+  gpsBadge.className = "map-badge map-badge-waiting";
+  gpsBadge.dataset["testid"] = "gps-status";
+  gpsBadge.textContent = "Waiting for GPS…";
+  mapShell.appendChild(gpsBadge);
 
   function refreshMapWaypoints(): void {
     tourMap?.setWaypoints(
@@ -176,7 +188,8 @@ async function mountAuthoringTools(
   function updateMapPosition(pos: TourCoord): void {
     if (!hasGpsFix) {
       hasGpsFix = true;
-      gpsStatus.textContent = "";
+      gpsBadge.className = "map-badge map-badge-live";
+      gpsBadge.textContent = "Live";
     }
     tourMap?.setGpsPosition(pos.lat, pos.lon);
     tourMap?.render(
@@ -210,17 +223,23 @@ async function mountAuthoringTools(
     subscribe: store.subscribe,
     getState: store.getState,
     dispatch,
-    onExport: (result: ReturnType<typeof session.exportTour>) => {
+    packAndDownload: async (tour, assetFiles) => {
+      const blob = await packTour(tour, new Map(assetFiles));
+      await downloadZip(blob, "tour.zip");
+    },
+    // The share panel needs neither the tour nor the asset files (only
+    // packaging did, and that already ran in packAndDownload above), so
+    // the parameter below is intentionally unused.
+    onExport: (_result: ReturnType<typeof session.exportTour>) => {
       exported = true;
       disableBeforeUnloadWarning();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       wakeLockHandle?.release();
       void durable.discard(); // packed successfully — nothing left to resume
-      view.destroy();
-      authoringRoot.remove();
-      mountPackAndSharePanel(toolsHost, {
-        tour: result.tour,
-        assetFiles: result.assetFiles,
+      swapScreen(authoringRoot, () => {
+        view.destroy();
+        const shareHost = mountPackAndSharePanel(toolsHost);
+        shareHost.root.classList.add("screen-enter");
       });
     },
   });
