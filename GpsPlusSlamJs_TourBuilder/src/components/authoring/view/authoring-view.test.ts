@@ -234,6 +234,84 @@ describe("mountAuthoringView", () => {
     expect(session.attachAsset).toHaveBeenCalledWith("wp-1", slot, file);
   });
 
+  it("model input only accepts GLTF/GLB, per the contract", () => {
+    const { root } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+    expect(byTestId(root, "asset-model-wp-1").getAttribute("accept")).toBe(
+      ".glb,.gltf",
+    );
+  });
+
+  it("rejects a file with the wrong extension for the slot, shows an inline error, and does not call attachAsset", () => {
+    const { root, session } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+    const input = byTestId(root, "asset-model-wp-1") as HTMLInputElement;
+    const file = new File(["x"], "story.mp3");
+    Object.defineProperty(input, "files", { value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(session.attachAsset).not.toHaveBeenCalled();
+    expect(byTestId(root, "visual-error-wp-1").textContent).toContain(
+      "story.mp3",
+    );
+    expect(input.value).toBe("");
+  });
+
+  it("clears a prior visual-tile error once a valid file is picked", () => {
+    const { root, session } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+    const modelInput = byTestId(root, "asset-model-wp-1") as HTMLInputElement;
+    Object.defineProperty(modelInput, "files", {
+      value: [new File(["x"], "story.mp3")],
+      configurable: true,
+    });
+    modelInput.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(byTestId(root, "visual-error-wp-1").textContent).not.toBe("");
+
+    Object.defineProperty(modelInput, "files", {
+      value: [new File(["x"], "knight.glb")],
+      configurable: true,
+    });
+    modelInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(session.attachAsset).toHaveBeenCalledTimes(1);
+    expect(byTestId(root, "visual-error-wp-1").textContent).toBe("");
+  });
+
+  it("rejects a wrong-type audio file and shows its own inline error", () => {
+    const { root, session } = harness(
+      draft({
+        waypoints: [
+          { id: "wp-1", position: { lat: 1, lon: 2 }, prefetchRadius: 25, activeRadius: 10, content: {} },
+        ],
+      }),
+    );
+    const input = byTestId(root, "asset-audio-wp-1") as HTMLInputElement;
+    const file = new File(["x"], "facade.png");
+    Object.defineProperty(input, "files", { value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(session.attachAsset).not.toHaveBeenCalled();
+    expect(byTestId(root, "audio-error-wp-1").textContent).toContain(
+      "facade.png",
+    );
+  });
+
   it("editing a waypoint's transcript dispatches updateWaypoint with a merged content patch", () => {
     const { root, store } = harness(
       draft({

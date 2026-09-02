@@ -23,7 +23,11 @@ import {
   type AuthoringSliceState,
 } from "../../../store/authoring-slice.js";
 import type { AuthoringStateShape } from "../../../store/selectors.js";
-import type { AssetSlot } from "../core/asset-attachment.js";
+import {
+  ALLOWED_EXTENSIONS,
+  isAllowedAssetFile,
+  type AssetSlot,
+} from "../core/asset-attachment.js";
 import type { AssetId, Tour } from "../../../store/types.js";
 import { ICONS } from "../../shared/icons.js";
 import { buildLabeledField } from "../../shared/labeled-field.js";
@@ -67,6 +71,29 @@ const PREFETCH_HINT =
 const ACTIVE_HINT =
   "Distance at which this waypoint's content actually plays. Must be smaller than the prefetch distance.";
 
+const ACCEPT: Record<AssetSlot, string> = {
+  model: ALLOWED_EXTENSIONS.model.join(","),
+  sprite: ALLOWED_EXTENSIONS.sprite.join(","),
+  audio: ALLOWED_EXTENSIONS.audio.join(","),
+};
+
+const SLOT_NOUN: Record<AssetSlot, string> = {
+  model: "model",
+  sprite: "picture",
+  audio: "audio",
+};
+
+function formatAllowedExtensions(slot: AssetSlot): string {
+  const exts = ALLOWED_EXTENSIONS[slot];
+  return exts.length === 1
+    ? exts[0]!
+    : `${exts.slice(0, -1).join(", ")} or ${exts.at(-1)}`;
+}
+
+function rejectionMessage(slot: AssetSlot, file: File): string {
+  return `${file.name} isn't a supported ${SLOT_NOUN[slot]} file. Use ${formatAllowedExtensions(slot)}.`;
+}
+
 export function mountAuthoringView(
   root: HTMLElement,
   deps: AuthoringViewDeps,
@@ -93,6 +120,7 @@ export function mountAuthoringView(
     slot: Extract<AssetSlot, "model" | "sprite">,
     authoring: AuthoringSliceState,
     wp: AuthoringSliceState["waypoints"][number],
+    errorEl: HTMLElement,
   ): HTMLElement {
     const assetId = wp.content[slot];
     const active = assetId !== undefined;
@@ -115,11 +143,19 @@ export function mountAuthoringView(
 
     const fileInput = document.createElement("input");
     fileInput.type = "file";
+    fileInput.accept = ACCEPT[slot];
     fileInput.className = "visual-tile-input";
     fileInput.dataset["testid"] = `asset-${slot}-${wp.id}`;
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
-      if (file) deps.session.attachAsset(wp.id, slot, file);
+      if (!file) return;
+      if (!isAllowedAssetFile(slot, file)) {
+        errorEl.textContent = rejectionMessage(slot, file);
+        fileInput.value = "";
+        return;
+      }
+      errorEl.textContent = "";
+      deps.session.attachAsset(wp.id, slot, file);
     });
 
     const clear = document.createElement("button");
@@ -139,6 +175,7 @@ export function mountAuthoringView(
   function buildAudioTile(
     authoring: AuthoringSliceState,
     wp: AuthoringSliceState["waypoints"][number],
+    errorEl: HTMLElement,
   ): HTMLElement {
     const assetId = wp.content.audio;
     const active = assetId !== undefined;
@@ -161,11 +198,19 @@ export function mountAuthoringView(
 
     const fileInput = document.createElement("input");
     fileInput.type = "file";
+    fileInput.accept = ACCEPT.audio;
     fileInput.className = "audio-tile-input";
     fileInput.dataset["testid"] = `asset-audio-${wp.id}`;
     fileInput.addEventListener("change", () => {
       const file = fileInput.files?.[0];
-      if (file) deps.session.attachAsset(wp.id, "audio", file);
+      if (!file) return;
+      if (!isAllowedAssetFile("audio", file)) {
+        errorEl.textContent = rejectionMessage("audio", file);
+        fileInput.value = "";
+        return;
+      }
+      errorEl.textContent = "";
+      deps.session.attachAsset(wp.id, "audio", file);
     });
 
     const clear = document.createElement("button");
@@ -319,13 +364,17 @@ export function mountAuthoringView(
     visualLabel.textContent = "Visual";
     bodyIn.append(visualLabel);
 
+    const visualError = document.createElement("p");
+    visualError.className = "field-error-text";
+    visualError.dataset["testid"] = `visual-error-${wp.id}`;
+
     const tiles = document.createElement("div");
     tiles.className = "visual-tiles";
     tiles.append(
-      buildVisualTile("model", authoring, wp),
-      buildVisualTile("sprite", authoring, wp),
+      buildVisualTile("model", authoring, wp, visualError),
+      buildVisualTile("sprite", authoring, wp, visualError),
     );
-    bodyIn.append(tiles);
+    bodyIn.append(tiles, visualError);
 
     const hint = document.createElement("p");
     hint.className = "visual-hint";
@@ -333,10 +382,18 @@ export function mountAuthoringView(
       "Choose a model or a picture for this waypoint. Attaching one clears the other.";
     bodyIn.append(hint);
 
+    const audioError = document.createElement("p");
+    audioError.className = "field-error-text";
+    audioError.dataset["testid"] = `audio-error-${wp.id}`;
+
     const audioLabel = document.createElement("p");
     audioLabel.className = "section-label";
     audioLabel.textContent = "Audio";
-    bodyIn.append(audioLabel, buildAudioTile(authoring, wp));
+    bodyIn.append(
+      audioLabel,
+      buildAudioTile(authoring, wp, audioError),
+      audioError,
+    );
 
     const transcriptInput = document.createElement("textarea");
     transcriptInput.dataset["testid"] = `transcript-${wp.id}`;
