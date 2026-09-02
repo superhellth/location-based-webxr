@@ -20,6 +20,7 @@ import { buildTourUrl } from "../../components/packaging/core/build-tour-url.js"
 import { generateQr } from "../../components/packaging/core/generate-qr.js";
 import { downloadZip } from "gps-plus-slam-app-framework/storage";
 import { renderQrSvg } from "../../components/packaging/view/qr-view.js";
+import { prepareHostedZipUrl } from "../../components/shared/hosted-zip-url.js";
 
 export interface PackAndSharePanelDeps {
   readonly tour: Tour;
@@ -62,6 +63,10 @@ export function mountPackAndSharePanel(
   zipUrlLabel.appendChild(zipUrlInput);
   section.appendChild(zipUrlLabel);
 
+  const urlNotes = document.createElement("p");
+  urlNotes.dataset.testid = "url-notes";
+  section.appendChild(urlNotes);
+
   const generateButton = document.createElement("button");
   generateButton.className = "primary";
   generateButton.dataset.testid = "generate-qr";
@@ -98,20 +103,23 @@ export function mountPackAndSharePanel(
     void (async () => {
       qrStatus.textContent = "";
       qrStatus.dataset["state"] = "";
+      urlNotes.textContent = "";
 
       // AC13: buildTourUrl only validates appBaseUrl — a garbage zipUrl would
       // otherwise silently produce a QR pointing at a broken "?tour=" link.
-      let zipUrl: string;
       try {
-        zipUrl = new URL(zipUrlInput.value).toString();
+        new URL(zipUrlInput.value);
       } catch {
         qrStatus.textContent = "Enter a valid hosted ZIP URL first.";
         qrStatus.dataset["state"] = "error";
         return;
       }
 
+      const prepared = prepareHostedZipUrl(zipUrlInput.value, import.meta.env.DEV);
+      urlNotes.textContent = prepared.notes.join(" · ");
+
       try {
-        const url = buildTourUrl(appBaseInput.value, zipUrl);
+        const url = buildTourUrl(appBaseInput.value, prepared.url);
         renderQrSvg(qrHost, await generateQr(url));
         qrStatus.textContent = url;
         qrStatus.dataset["state"] = "ok";
