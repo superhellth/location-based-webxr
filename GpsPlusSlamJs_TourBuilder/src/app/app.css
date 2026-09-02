@@ -273,28 +273,61 @@ p[data-testid="qr-status"] {
   border-radius: var(--radius-md);
 }
 
-.gate-card [data-testid^="row-"] {
+.perm-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
+}
+
+.perm-row:last-of-type {
+  border-bottom: none;
+}
+
+.perm-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 4%);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition:
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+}
+
+.perm-icon-requesting {
+  background: rgb(158 193 255 / 12%);
+  color: var(--accent);
+}
+
+.perm-icon-granted {
+  background: rgb(110 231 168 / 14%);
+  color: var(--success);
+}
+
+.perm-icon-denied {
+  background: rgb(248 113 113 / 14%);
+  color: var(--error);
+}
+
+.perm-body {
+  flex: 1;
+}
+
+.perm-name {
   font-size: 14px;
+  font-weight: 500;
 }
 
-.gate-card [data-testid^="explanation-"] {
-  flex-basis: 100%;
-  margin: 0;
+.perm-explanation {
+  margin: 1px 0 0;
   font-size: 12px;
-  /* overrides the inline style="color: red" component 9 sets directly, so
-     the warning matches this theme's error tone instead of a raw browser
-     red (component 9's own source is untouched — this is a CSS override) */
-  color: var(--error) !important;
-}
-
-.gate-card > div[data-testid^="row-"] {
-  flex-wrap: wrap;
+  color: var(--error);
+  transition: color var(--duration-base) var(--ease-out);
 }
 
 .gate-card button {

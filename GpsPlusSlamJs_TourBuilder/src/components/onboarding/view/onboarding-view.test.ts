@@ -213,4 +213,23 @@ describe("mountOnboardingGate", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(root.innerHTML).toBe("");
   });
+
+  it("updates rows in place rather than rebuilding them (so CSS transitions on the icon/status can run)", async () => {
+    const { root, gate } = harness({
+      checkCameraPermission: () =>
+        Promise.resolve<PermissionStatus>({ supported: true, granted: false }),
+      checkGeolocationPermission: () =>
+        Promise.resolve<PermissionStatus>({ supported: true, granted: false }),
+    });
+
+    const rowBefore = root.querySelector('[data-testid="row-camera"]');
+    await vi.waitFor(() => expect(grantButton(root).disabled).toBe(false));
+    grantButton(root).click();
+
+    await vi.waitFor(() => expect(startButton(root).disabled).toBe(false));
+    const rowAfter = root.querySelector('[data-testid="row-camera"]');
+
+    expect(rowAfter).toBe(rowBefore);
+    gate.destroy();
+  });
 });
