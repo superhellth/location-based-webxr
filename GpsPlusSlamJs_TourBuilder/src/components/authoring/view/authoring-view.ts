@@ -329,14 +329,6 @@ export function mountAuthoringView(
         }),
       );
     });
-    bodyIn.append(
-      buildLabeledField(
-        "Prefetch (m)",
-        prefetchInput,
-        `prefetch-${wp.id}`,
-        PREFETCH_HINT,
-      ),
-    );
 
     const activeInput = document.createElement("input");
     activeInput.type = "number";
@@ -350,7 +342,16 @@ export function mountAuthoringView(
         }),
       );
     });
-    bodyIn.append(
+
+    const radiusRow = document.createElement("div");
+    radiusRow.className = "radius-row";
+    radiusRow.append(
+      buildLabeledField(
+        "Prefetch (m)",
+        prefetchInput,
+        `prefetch-${wp.id}`,
+        PREFETCH_HINT,
+      ),
       buildLabeledField(
         "Active (m)",
         activeInput,
@@ -358,6 +359,7 @@ export function mountAuthoringView(
         ACTIVE_HINT,
       ),
     );
+    bodyIn.append(radiusRow);
 
     const visualLabel = document.createElement("p");
     visualLabel.className = "section-label";
