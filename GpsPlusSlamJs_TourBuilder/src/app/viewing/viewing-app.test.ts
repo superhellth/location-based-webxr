@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TourLoadError } from "../../components/cloud-loader/core/errors.js";
+import { markWaypointVisited } from "../../store/tour-progress-slice.js";
 import type { AssetProvider, Tour } from "../../store/types.js";
 import { mountViewingApp, type ViewingAppDeps } from "./viewing-app.js";
 import type { ProgressStorage } from "./progress-store.js";
@@ -859,5 +860,47 @@ describe("Viewing mode screen flow", () => {
       "already visited",
     );
     expect(storage.getItem("tour:tour-castle")).not.toBeNull();
+  });
+
+  it("shows a dismissible notice in the HUD the moment the last stop is visited mid-session", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate"]}',
+    });
+    const { controller } = fakeController();
+    const startArScene = vi.fn(
+      (options: {
+        store: { dispatch: (action: { type: string; payload?: unknown }) => void };
+      }) => {
+        queueMicrotask(() => {
+          options.store.dispatch(markWaypointVisited("wp-tower"));
+        });
+        return { scene: {} as never, dispose: vi.fn() };
+      },
+    );
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        progressStorage: storage,
+        startArScene: startArScene as unknown as ViewingAppDeps["startArScene"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      const notice = query(root, "viewing-hud-notice");
+      expect(notice).not.toBeNull();
+      expect(notice!.hidden).toBe(false);
+    });
+    expect(query(root, "viewing-hud-notice")!.textContent).toContain(
+      "every stop",
+    );
+    // Still in the AR session — nothing forced the visitor out.
+    expect(query(root, "viewing-hud")).not.toBeNull();
   });
 });

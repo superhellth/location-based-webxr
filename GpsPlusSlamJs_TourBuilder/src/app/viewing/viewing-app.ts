@@ -565,12 +565,21 @@ export function mountViewingApp(
   /** VC14: persist as the walk progresses, not only at the end. */
   function subscribeProgress(): void {
     let lastVisited = selectVisitedWaypointIds(store.getState());
+    let wasComplete = isTourComplete();
     unsubscribeProgress = store.subscribe(() => {
       const visited = selectVisitedWaypointIds(store.getState());
       if (visited === lastVisited || tour === null) return;
       lastVisited = visited;
       persistProgress(tour.id, [...visited], deps.progressStorage);
       refreshMapMarkers();
+
+      const complete = isTourComplete();
+      if (complete && !wasComplete) {
+        hud?.showNotice(
+          "That's every stop! Explore this one, then tap End Tour whenever you're ready.",
+        );
+      }
+      wasComplete = complete;
     });
   }
 
