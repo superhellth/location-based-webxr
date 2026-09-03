@@ -551,6 +551,38 @@ describe("Viewing mode screen flow", () => {
     expect(query(root, "viewing-enter-preview")).toBeNull();
   });
 
+  it("hides the desktop preview on a touch-primary device even when AR is unsupported", async () => {
+    const { controller } = fakeController({ status: "unsupported" });
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ isTouchPrimaryDevice: () => true }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    expect(query(root, "viewing-enter-preview")).toBeNull();
+  });
+
+  it("still offers the preview on a touch-primary device when the link forces it", async () => {
+    const { controller } = fakeController({ status: "unsupported" });
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ isTouchPrimaryDevice: () => true, forcePreview: true }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    expect(query(root, "viewing-enter-preview")).not.toBeNull();
+  });
+
   it("offers the preview on any device when the link asks for it", async () => {
     const { controller } = fakeController({ status: "ready" });
 

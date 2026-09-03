@@ -102,6 +102,9 @@ export interface ViewingAppDeps {
    * preview can be checked on the same phone the tour is authored on.
    */
   readonly forcePreview: boolean;
+  /** True on a touch-primary device (phone/tablet) — gates the desktop
+   *  preview's keyboard-driven Auto-walk off of AR-unsupported phones. */
+  readonly isTouchPrimaryDevice: () => boolean;
 }
 
 const defaultArRuntime: ArRuntime = {
@@ -130,6 +133,9 @@ function defaultDeps(): ViewingAppDeps {
     arRuntime: defaultArRuntime,
     progressStorage: undefined,
     forcePreview: false,
+    isTouchPrimaryDevice: () =>
+      typeof matchMedia === "function" &&
+      matchMedia("(pointer: coarse)").matches,
   };
 }
 
@@ -377,8 +383,17 @@ export function mountViewingApp(
   function applyControllerState(entry: TourEntryScreen): void {
     const { status, error } = controller.getState();
     // VC25: without AR the tour is not over — the same scene runs in the
-    // desktop preview, so offer it rather than leaving a dead end.
-    entry.setPreviewOffered(deps.forcePreview || status === "unsupported");
+    // desktop preview, so offer it rather than leaving a dead end. But the
+    // preview's keyboard-driven "Auto-walk" stand-in for legs only makes
+    // sense on desktop — a phone without AR should still be told AR isn't
+    // available, not steered into a screen built for a keyboard.
+    // `forcePreview` (the explicit `?preview=1`) still overrides this, since
+    // it exists precisely so an author can sanity-check the preview on
+    // their own phone.
+    entry.setPreviewOffered(
+      deps.forcePreview ||
+        (status === "unsupported" && !deps.isTouchPrimaryDevice()),
+    );
     switch (status) {
       case "unsupported":
         entry.setEnterArEnabled(false);
