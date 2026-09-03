@@ -814,6 +814,14 @@ p[data-testid="qr-status"] {
   gap: var(--space-2);
 }
 
+/* `display: flex` above otherwise always wins over the `hidden` attribute's
+   UA-default `display: none` — same specificity, but author styles beat the
+   UA stylesheet regardless of source order — so toggling `.hidden` on this
+   element would silently stop hiding it without this. */
+.ar-hud-notice[hidden] {
+  display: none;
+}
+
 .ar-hud-notice p {
   flex: 1;
   margin: 0;
