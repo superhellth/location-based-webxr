@@ -66,11 +66,7 @@ import { createPreviewSession } from "../../components/desktop-preview/view/prev
 import type { PreviewSession } from "../../components/desktop-preview/view/preview-session.js";
 import { computePreviewStart } from "../../components/desktop-preview/core/preview-start.js";
 import { requestWakeLock, type WakeLockHandle } from "../wake-lock.js";
-import {
-  startArScene,
-  type ArRuntime,
-  type ArSceneHandle,
-} from "./ar-scene-runtime.js";
+import { startArScene, type ArRuntime, type ArSceneHandle } from "./ar-scene-runtime.js";
 import { mountHud, type Hud } from "./hud.js";
 import {
   clearProgress,
@@ -264,10 +260,7 @@ export function mountViewingApp(
     }
 
     clearScreen();
-    screen = mountLoadingScreen(
-      arHost,
-      "Reading the tour from its hosting link…",
-    );
+    screen = mountLoadingScreen(arHost, "Reading the tour from its hosting link…");
     void acquireWakeLock();
 
     try {
@@ -295,6 +288,8 @@ export function mountViewingApp(
   function mountGate(): void {
     clearScreen();
     const gateHost = document.createElement("div");
+    // Matches mountAuthoringApp's gate host
+    gateHost.className = "gate-card";
     arHost.appendChild(gateHost);
     const gate = mountOnboardingGate(gateHost, {
       checkCameraPermission: deps.checkCameraPermission,
@@ -339,9 +334,7 @@ export function mountViewingApp(
       onTileError: () => {
         // VC24: tiles are not in the tour zip, so they fail exactly when the
         // cache warm has made everything else work offline. Say so once.
-        hud?.showNotice(
-          "Map tiles are unavailable offline — stops and your position still work.",
-        );
+        hud?.showNotice("Map tiles are unavailable offline — stops and your position still work.");
       },
     });
     refreshMapMarkers();
@@ -401,8 +394,7 @@ export function mountViewingApp(
       case "error":
         entry.setEnterArEnabled(true);
         entry.setArStatus(
-          error ??
-            "AR could not be started. Check camera and location access, then try again.",
+          error ?? "AR could not be started. Check camera and location access, then try again.",
           "error",
         );
         break;
@@ -512,9 +504,7 @@ export function mountViewingApp(
         }
       },
       onEndTour: options.onEndTour,
-      ...(options.onToggleAutopilot
-        ? { onToggleAutopilot: options.onToggleAutopilot }
-        : {}),
+      ...(options.onToggleAutopilot ? { onToggleAutopilot: options.onToggleAutopilot } : {}),
     });
     arHost.appendChild(mapHost);
     map?.hide();
@@ -551,11 +541,8 @@ export function mountViewingApp(
     // VC23: until the alignment converges nothing can be anchored, so tell the
     // visitor what to do instead of showing an empty camera feed.
     const applyGuidance = (): void => {
-      const guidance = computeOnboardingGuidance(
-        selectTrackingQuality(store.getState()),
-      );
-      const aligned =
-        deps.arRuntime.selectAlignmentMatrix(store.getState()) !== null;
+      const guidance = computeOnboardingGuidance(selectTrackingQuality(store.getState()));
+      const aligned = deps.arRuntime.selectAlignmentMatrix(store.getState()) !== null;
       hud?.setStatus(
         aligned && guidance.phase === "ready"
           ? ""
@@ -620,9 +607,7 @@ export function mountViewingApp(
       },
     });
 
-    hud?.setStatus(
-      "Preview — walk with W A S D, drag to look around, click a stop to hear it.",
-    );
+    hud?.setStatus("Preview — walk with W A S D, drag to look around, click a stop to hear it.");
     subscribeProgress();
   }
 
