@@ -134,8 +134,7 @@ function defaultDeps(): ViewingAppDeps {
     progressStorage: undefined,
     forcePreview: false,
     isTouchPrimaryDevice: () =>
-      typeof matchMedia === "function" &&
-      matchMedia("(pointer: coarse)").matches,
+      typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches,
   };
 }
 
@@ -391,8 +390,7 @@ export function mountViewingApp(
     // it exists precisely so an author can sanity-check the preview on
     // their own phone.
     entry.setPreviewOffered(
-      deps.forcePreview ||
-        (status === "unsupported" && !deps.isTouchPrimaryDevice()),
+      deps.forcePreview || (status === "unsupported" && !deps.isTouchPrimaryDevice()),
     );
     switch (status) {
       case "unsupported":
@@ -623,7 +621,9 @@ export function mountViewingApp(
       },
     });
 
-    hud?.setStatus("Preview — walk with W A S D, drag to look around, click a stop to hear it.");
+    hud?.setStatus(
+      "Preview: walk with W A S D (hold Shift to sprint), drag to look around, click a stop to hear it.",
+    );
     subscribeProgress();
   }
 
