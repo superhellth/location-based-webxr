@@ -418,6 +418,11 @@ export function mountViewingApp(
     store.dispatch(clearTour());
     store.dispatch(loadTour(tour));
     mountEntry();
+    // mountEntry()'s ensureMap() is a no-op once `map` already exists (the
+    // common case here — a restart never nulls it out), so without this the
+    // map keeps showing the previous run's visited/next highlighting until
+    // a full page reload re-creates everything from scratch.
+    refreshMapMarkers();
   }
 
   // ── The AR session ────────────────────────────────────────────────────────

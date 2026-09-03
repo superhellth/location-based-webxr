@@ -599,4 +599,47 @@ describe("Viewing mode screen flow", () => {
     });
     expect(storage.getItem("tour:tour-castle")).toBeNull();
   });
+
+  it("refreshes the map's waypoint markers on Restart tour, not just the tour summary text", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate"]}',
+    });
+    const { controller } = fakeController();
+    const map = fakeMap();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        progressStorage: storage,
+        createTourMap: (() =>
+          map) as unknown as ViewingAppDeps["createTourMap"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+
+    // The initial map render (still showing wp-gate as visited, restored
+    // from storage) is the one call so far.
+    expect(map.setWaypoints).toHaveBeenCalledTimes(1);
+    expect(map.setWaypoints.mock.calls[0]![0]).toContainEqual(
+      expect.objectContaining({ id: "wp-gate", status: "visited" }),
+    );
+
+    (query(root, "viewing-restart") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-tour-summary")!.textContent).toBe(
+        "2 stops",
+      );
+    });
+
+    // The map must be told about the reset progress too — otherwise it
+    // keeps showing wp-gate as visited until a full page reload.
+    expect(map.setWaypoints.mock.calls.at(-1)![0]).not.toContainEqual(
+      expect.objectContaining({ id: "wp-gate", status: "visited" }),
+    );
+  });
 });
