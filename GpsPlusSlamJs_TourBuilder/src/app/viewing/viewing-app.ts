@@ -77,6 +77,7 @@ import {
 import {
   mountErrorScreen,
   mountLoadingScreen,
+  mountTourCompleteScreen,
   mountTourEntryScreen,
   type Screen,
   type TourEntryScreen,
@@ -430,6 +431,42 @@ export function mountViewingApp(
     refreshMapMarkers();
   }
 
+  function isTourComplete(): boolean {
+    return (
+      selectNextUnvisitedWaypoint(store.getState()) === null &&
+      selectVisitedWaypointIds(store.getState()).length > 0
+    );
+  }
+
+  function mountComplete(): void {
+    if (tour === null) return;
+    clearScreen();
+    void acquireWakeLock();
+
+    const complete = mountTourCompleteScreen(arHost, {
+      waypointCount: tour.waypoints.length,
+      mapHost,
+      onRestartTour: () => restartTour(),
+      onBackToOverview: () => mountEntry(),
+    });
+    screen = complete;
+
+    // mapHost is now parented at its final layout position (inside
+    // `complete`'s element) — only now does Leaflet's size measurement give
+    // a real box.
+    ensureMap();
+    map?.show();
+    map?.resize();
+    mapVisible = true;
+  }
+
+  /** Where a session hands back to after it ends (VC13/VC25): the normal
+   *  overview, unless the visitor has now visited every stop. */
+  function returnToOverview(): void {
+    if (isTourComplete()) mountComplete();
+    else mountEntry();
+  }
+
   // ── The AR session ────────────────────────────────────────────────────────
 
   async function enterAr(): Promise<void> {
@@ -636,7 +673,7 @@ export function mountViewingApp(
     preview = null;
     hud?.destroy();
     hud = null;
-    if (!destroyed) mountEntry();
+    if (!destroyed) returnToOverview();
   }
 
   /**
@@ -657,7 +694,7 @@ export function mountViewingApp(
     if (reason === "user") {
       void controller.disable();
     }
-    if (!destroyed) mountEntry();
+    if (!destroyed) returnToOverview();
   }
 
   void openTour();

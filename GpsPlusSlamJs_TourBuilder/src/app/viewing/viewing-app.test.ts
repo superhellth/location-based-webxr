@@ -735,4 +735,129 @@ describe("Viewing mode screen flow", () => {
     // Dismissing the notice does not end the session.
     expect(query(root, "viewing-hud")).not.toBeNull();
   });
+
+  it("shows the tour-complete screen when every stop was already visited before the session started", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate","wp-tower"]}',
+    });
+    const { controller, endSessionExternally } = fakeController();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ progressStorage: storage }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    endSessionExternally();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-tour-complete")).not.toBeNull();
+    });
+    expect(query(root, "viewing-entry")).toBeNull();
+  });
+
+  it("returns to the normal entry screen when the tour is not yet complete", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate"]}',
+    });
+    const { controller, endSessionExternally } = fakeController();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ progressStorage: storage }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    endSessionExternally();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-entry")).not.toBeNull();
+    });
+    expect(query(root, "viewing-tour-complete")).toBeNull();
+  });
+
+  it("Restart tour on the complete screen clears progress and returns to a fresh entry screen", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate","wp-tower"]}',
+    });
+    const { controller, endSessionExternally } = fakeController();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ progressStorage: storage }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    endSessionExternally();
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-tour-complete")).not.toBeNull();
+    });
+
+    (query(root, "viewing-restart") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-tour-summary")!.textContent).toBe(
+        "2 stops",
+      );
+    });
+    expect(storage.getItem("tour:tour-castle")).toBeNull();
+  });
+
+  it("Back to overview on the complete screen returns to the entry screen with progress intact", async () => {
+    const storage = fakeStorage({
+      "tour:tour-castle": '{"visited":["wp-gate","wp-tower"]}',
+    });
+    const { controller, endSessionExternally } = fakeController();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({ progressStorage: storage }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    endSessionExternally();
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-tour-complete")).not.toBeNull();
+    });
+
+    (query(root, "viewing-back-to-overview") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-entry")).not.toBeNull();
+    });
+    expect(query(root, "viewing-tour-summary")!.textContent).toContain(
+      "already visited",
+    );
+    expect(storage.getItem("tour:tour-castle")).not.toBeNull();
+  });
 });

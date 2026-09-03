@@ -191,3 +191,48 @@ export function mountTourEntryScreen(
     },
   };
 }
+
+export interface TourCompleteScreenOptions {
+  readonly waypointCount: number;
+  /** Where the 2D map (component 7) is mounted — kept across screens. */
+  readonly mapHost: HTMLElement;
+  readonly onRestartTour: () => void;
+  readonly onBackToOverview: () => void;
+}
+
+export function mountTourCompleteScreen(
+  root: HTMLElement,
+  options: TourCompleteScreenOptions,
+): Screen {
+  const element = panel("viewing-tour-complete");
+
+  const title = heading("Tour complete!");
+  const summary = paragraph(
+    `You visited all ${options.waypointCount} stops.`,
+    "muted",
+  );
+
+  const backToOverview = document.createElement("button");
+  backToOverview.className = "primary";
+  backToOverview.textContent = "Back to overview";
+  backToOverview.dataset.testid = "viewing-back-to-overview";
+  backToOverview.addEventListener("click", () => options.onBackToOverview());
+
+  const restart = document.createElement("button");
+  restart.textContent = "Restart tour";
+  restart.dataset.testid = "viewing-restart";
+  restart.addEventListener("click", () => options.onRestartTour());
+
+  element.append(title, summary, options.mapHost, backToOverview, restart);
+  root.appendChild(element);
+
+  return {
+    destroy() {
+      // The map host is owned by the caller and outlives this screen.
+      if (options.mapHost.parentElement === element) {
+        options.mapHost.remove();
+      }
+      element.remove();
+    },
+  };
+}
