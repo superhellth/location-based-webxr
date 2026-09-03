@@ -10,6 +10,8 @@
  * in and reacts to the callbacks.
  */
 
+import { ICONS } from "../../components/shared/icons.js";
+
 export interface HudOptions {
   readonly onToggleMap: () => void;
   readonly onEndTour: () => void;
@@ -38,10 +40,25 @@ export function mountHud(container: HTMLElement, options: HudOptions): Hud {
   status.dataset.testid = "viewing-hud-status";
   status.hidden = true;
 
-  const notice = document.createElement("p");
-  notice.className = "error-banner";
-  notice.dataset.testid = "viewing-hud-notice";
-  notice.hidden = true;
+  const noticeWrap = document.createElement("div");
+  noticeWrap.className = "ar-hud-notice";
+  noticeWrap.dataset.testid = "viewing-hud-notice";
+  noticeWrap.hidden = true;
+
+  const noticeText = document.createElement("p");
+  noticeText.className = "error-banner";
+
+  const noticeDismiss = document.createElement("button");
+  noticeDismiss.type = "button";
+  noticeDismiss.className = "icon-btn";
+  noticeDismiss.innerHTML = ICONS.x;
+  noticeDismiss.setAttribute("aria-label", "Dismiss");
+  noticeDismiss.dataset.testid = "viewing-hud-notice-dismiss";
+  noticeDismiss.addEventListener("click", () => {
+    noticeWrap.hidden = true;
+  });
+
+  noticeWrap.append(noticeText, noticeDismiss);
 
   const controls = document.createElement("div");
   controls.className = "ar-hud-controls";
@@ -65,7 +82,7 @@ export function mountHud(container: HTMLElement, options: HudOptions): Hud {
   }
 
   controls.append(mapToggle, endTour);
-  element.append(status, notice, controls);
+  element.append(status, noticeWrap, controls);
   container.appendChild(element);
 
   return {
@@ -74,8 +91,8 @@ export function mountHud(container: HTMLElement, options: HudOptions): Hud {
       status.hidden = message === "";
     },
     showNotice(message) {
-      notice.textContent = message;
-      notice.hidden = false;
+      noticeText.textContent = message;
+      noticeWrap.hidden = false;
     },
     setMapToggleLabel(label) {
       mapToggle.textContent = label;

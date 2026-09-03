@@ -808,6 +808,17 @@ p[data-testid="qr-status"] {
   justify-content: flex-end;
 }
 
+.ar-hud-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.ar-hud-notice p {
+  flex: 1;
+  margin: 0;
+}
+
 /* Desktop preview: the rendered world stands in for the camera feed, so it
    fills the viewport and sits BELOW the HUD and the map in the stack, exactly
    where the camera feed sits in a real session. */

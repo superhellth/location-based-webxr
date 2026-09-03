@@ -698,4 +698,41 @@ describe("Viewing mode screen flow", () => {
       expect.objectContaining({ id: "wp-gate", status: "visited" }),
     );
   });
+
+  it("the HUD notice can be dismissed without ending the session", async () => {
+    const { controller } = fakeController();
+    let triggerNotice: (() => void) | undefined;
+    const startArScene = vi.fn(
+      (options: { onAudioBlocked?: () => void }) => {
+        triggerNotice = options.onAudioBlocked;
+        return { scene: {} as never, dispose: vi.fn() };
+      },
+    );
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        startArScene: startArScene as unknown as ViewingAppDeps["startArScene"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    triggerNotice?.();
+
+    const notice = query(root, "viewing-hud-notice") as HTMLElement;
+    expect(notice.hidden).toBe(false);
+
+    (query(root, "viewing-hud-notice-dismiss") as HTMLButtonElement).click();
+    expect(notice.hidden).toBe(true);
+    // Dismissing the notice does not end the session.
+    expect(query(root, "viewing-hud")).not.toBeNull();
+  });
 });
