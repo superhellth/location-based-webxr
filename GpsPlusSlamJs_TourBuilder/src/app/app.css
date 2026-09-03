@@ -433,6 +433,11 @@ p[data-testid="qr-status"] {
 
 /* ── Authoring view (component 10 — styled via its own classNames) ──────── */
 
+.authoring-sections {
+  display: grid;
+  gap: var(--space-4);
+}
+
 .authoring-section {
   padding: var(--space-4);
   background: var(--surface);
@@ -459,6 +464,15 @@ p[data-testid="qr-status"] {
 
 .waypoints-heading h2 {
   margin: 0;
+}
+
+.export-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  text-align: center;
 }
 
 .empty-state {

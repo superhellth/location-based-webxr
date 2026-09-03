@@ -495,23 +495,19 @@ export function mountAuthoringView(
     return section;
   }
 
-  function renderExportSection(): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "authoring-section";
-
-    const heading = document.createElement("h2");
-    heading.textContent = "Export";
-    section.append(heading);
+  function renderExportAction(): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "export-action";
 
     const exportButton = document.createElement("button");
     exportButton.className = "primary";
     exportButton.dataset["testid"] = "export";
     exportButton.textContent = "Export & Pack";
-    section.append(exportButton);
+    wrapper.append(exportButton);
 
     const status = document.createElement("p");
     status.dataset["testid"] = "export-status";
-    section.append(status);
+    wrapper.append(status);
 
     exportButton.addEventListener("click", () => {
       void (async () => {
@@ -534,7 +530,7 @@ export function mountAuthoringView(
       })();
     });
 
-    return section;
+    return wrapper;
   }
 
   // A field's blur-triggered `change` dispatch (e.g. tabbing/clicking out of
@@ -612,7 +608,7 @@ export function mountAuthoringView(
     }
 
     if (exportSectionEl === null) {
-      exportSectionEl = renderExportSection();
+      exportSectionEl = renderExportAction();
       root.append(exportSectionEl);
     }
   }

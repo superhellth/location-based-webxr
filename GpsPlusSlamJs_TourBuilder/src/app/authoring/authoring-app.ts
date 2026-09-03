@@ -216,6 +216,7 @@ async function mountAuthoringTools(
   });
 
   const authoringRoot = document.createElement("div");
+  authoringRoot.className = "authoring-sections";
   toolsHost.appendChild(authoringRoot);
 
   const view = mountAuthoringView(authoringRoot, {
