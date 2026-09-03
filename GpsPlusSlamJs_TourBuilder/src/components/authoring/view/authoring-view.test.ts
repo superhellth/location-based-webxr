@@ -132,7 +132,31 @@ describe("mountAuthoringView", () => {
       }),
     );
 
-    expect(root.querySelectorAll('[data-testid^="waypoint-"]')).toHaveLength(1);
+    expect(root.querySelectorAll('[data-testid^="waypoint-"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it("a store notification from an unrelated section (e.g. the tour name field's blur-triggered change) never touches the Waypoints section's DOM, so a click in flight on Drop Waypoint isn't swallowed", () => {
+    const { root, store } = harness();
+    const dropButtonBefore = byTestId(root, "drop-waypoint");
+
+    // Simulates the tour-name input's blur firing `change` — which
+    // dispatches — mid-mousedown on "Drop Waypoint": the resulting render
+    // only rebuilds the Tour Details section (name/description changed);
+    // the Waypoints section — and the button's node identity the browser's
+    // pending click is matched against — must be completely untouched, at
+    // any point after the dispatch, not just within the same task.
+    //
+    // Spreading the previous state (rather than building a fresh `draft()`)
+    // mirrors what the real Immer-backed reducer does: untouched slices
+    // (`waypoints`, `assets`) keep their exact array reference.
+    store.setState({
+      ...store.getState().authoring,
+      name: "typed while focused elsewhere",
+    });
+
+    expect(byTestId(root, "drop-waypoint")).toBe(dropButtonBefore);
   });
 
   it("Drop Waypoint button calls session.dropWaypoint()", () => {

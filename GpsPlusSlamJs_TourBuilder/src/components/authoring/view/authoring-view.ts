@@ -98,7 +98,6 @@ export function mountAuthoringView(
   root: HTMLElement,
   deps: AuthoringViewDeps,
 ): AuthoringView {
-  let destroyed = false;
   /** Which waypoint card is expanded (accordion: at most one at a time).
    *  Local UI state, deliberately never dispatched — a store round trip on
    *  every collapse/expand would defeat the whole point of keeping it
@@ -534,24 +533,93 @@ export function mountAuthoringView(
     return wrapper;
   }
 
-  function render(): void {
-    const authoring = deps.getState().authoring;
-    root.innerHTML = "";
-    root.append(
-      renderTourDetailsSection(authoring),
-      renderWaypointsSection(authoring),
-      renderExportAction(),
+  // A field's blur-triggered `change` dispatch (e.g. tabbing/clicking out of
+  // the transcript textarea into "Drop Waypoint") lands mid-mousedown, before
+  // the browser has resolved the in-flight click's mouseup. A real mousedown
+  // -to-mouseup gap is tens of milliseconds even for a fast click — far
+  // longer than any macrotask deferral — so delaying a full DOM teardown
+  // doesn't stop it from landing mid-gesture and destroying the click's
+  // target out from under it, silently swallowing that click (AC: reported
+  // as "have to click twice"). The actual fix is to not tear down elements
+  // the change didn't touch: each section only gets rebuilt when the slice
+  // of state it renders from has actually changed (reference inequality —
+  // Immer/RTK keep untouched slices referentially stable), so editing the
+  // tour name never disturbs the Waypoints section's DOM (or vice versa),
+  // regardless of timing.
+  let renderedName: string | undefined;
+  let renderedDescription: string | undefined;
+  let tourDetailsEl: HTMLElement | null = null;
+
+  let renderedWaypoints: AuthoringSliceState["waypoints"] | undefined;
+  let renderedAssets: AuthoringSliceState["assets"] | undefined;
+  let renderedExpandedId: string | null | undefined;
+  let waypointsEl: HTMLElement | null = null;
+
+  let exportSectionEl: HTMLElement | null = null;
+
+  /** Swaps `current` for `next` in place (or appends, on first render) and
+   *  returns `next` so callers can update their "last rendered" ref in one line. */
+  function replaceSection(
+    current: HTMLElement | null,
+    next: HTMLElement,
+  ): HTMLElement {
+    if (current === null) root.append(next);
+    else current.replaceWith(next);
+    return next;
+  }
+
+  function tourDetailsIsStale(authoring: AuthoringSliceState): boolean {
+    return (
+      tourDetailsEl === null ||
+      authoring.name !== renderedName ||
+      authoring.description !== renderedDescription
     );
   }
 
+  function waypointsSectionIsStale(authoring: AuthoringSliceState): boolean {
+    return (
+      waypointsEl === null ||
+      authoring.waypoints !== renderedWaypoints ||
+      authoring.assets !== renderedAssets ||
+      expandedId !== renderedExpandedId
+    );
+  }
+
+  function render(): void {
+    const authoring = deps.getState().authoring;
+
+    if (tourDetailsIsStale(authoring)) {
+      tourDetailsEl = replaceSection(
+        tourDetailsEl,
+        renderTourDetailsSection(authoring),
+      );
+      renderedName = authoring.name;
+      renderedDescription = authoring.description;
+    }
+
+    if (waypointsSectionIsStale(authoring)) {
+      waypointsEl = replaceSection(
+        waypointsEl,
+        renderWaypointsSection(authoring),
+      );
+      renderedWaypoints = authoring.waypoints;
+      renderedAssets = authoring.assets;
+      renderedExpandedId = expandedId;
+    }
+
+    if (exportSectionEl === null) {
+      exportSectionEl = renderExportAction();
+      root.append(exportSectionEl);
+    }
+  }
+
   const unsubscribe = deps.subscribe(() => {
-    if (!destroyed) render();
+    render();
   });
   render();
 
   return {
     destroy(): void {
-      destroyed = true;
       unsubscribe();
       root.innerHTML = "";
     },
