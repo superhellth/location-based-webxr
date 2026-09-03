@@ -409,6 +409,30 @@ describe("Viewing mode screen flow", () => {
     expect(config.container?.contains(query(root, "viewing-hud"))).toBe(true);
   });
 
+  it("shows the map by default once an AR session starts, not hidden until toggled", async () => {
+    const { controller } = fakeController();
+    const map = fakeMap();
+
+    mountViewingApp(root, "https://host.example/tour.zip", {
+      ...testDeps({
+        createTourMap: (() =>
+          map) as unknown as ViewingAppDeps["createTourMap"],
+      }),
+      createController: () => controller as never,
+    });
+
+    await vi.waitFor(() => {
+      expect(query(root, "grant-access")).not.toBeNull();
+    });
+    await completeOnboarding(root);
+    (query(root, "viewing-enter-ar") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(query(root, "viewing-hud")).not.toBeNull();
+    });
+    expect(map.hide).not.toHaveBeenCalled();
+  });
+
   it("returns to the entry screen with progress intact when the session ends externally", async () => {
     const { controller, endSessionExternally } = fakeController();
     const startArScene = vi.fn(() => ({

@@ -507,8 +507,9 @@ export function mountViewingApp(
       ...(options.onToggleAutopilot ? { onToggleAutopilot: options.onToggleAutopilot } : {}),
     });
     arHost.appendChild(mapHost);
-    map?.hide();
-    mapVisible = false;
+    map?.show();
+    map?.resize();
+    mapVisible = true;
   }
 
   /** VC14: persist as the walk progresses, not only at the end. */
