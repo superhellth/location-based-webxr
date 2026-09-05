@@ -125,6 +125,10 @@ export default defineConfig({
   server: {
     port: 8185,
     host: true,
+    // Dev-only: lets a localtunnel/cloudflared/etc. HTTPS tunnel through
+    // Vite's Host-header allowlist (DNS-rebinding guard) for phone testing
+    // over a secure context. Covers both tunnel providers' random subdomains.
+    allowedHosts: [".loca.lt", ".trycloudflare.com"],
   },
   build: {
     rollupOptions: {

@@ -17,9 +17,10 @@ import { renderQrSvg } from "../../components/packaging/view/qr-view.js";
 import { prepareHostedZipUrl } from "../../components/shared/hosted-zip-url.js";
 import { buildLabeledField } from "../../components/shared/labeled-field.js";
 
-export function mountPackAndSharePanel(
-  root: HTMLElement,
-): { destroy(): void; root: HTMLElement } {
+export function mountPackAndSharePanel(root: HTMLElement): {
+  destroy(): void;
+  root: HTMLElement;
+} {
   const section = document.createElement("section");
   section.className = "panel";
 
@@ -91,7 +92,15 @@ export function mountPackAndSharePanel(
         const url = buildTourUrl(appBaseInput.value, prepared.url);
         renderQrSvg(qrHost, await generateQr(url));
         qrHost.classList.add("qr-host-show");
-        qrStatus.textContent = url;
+        // A real link, not just displayed text: the author (or whoever they
+        // forward this to) can tap it directly instead of only scanning.
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = url;
+        qrStatus.textContent = "";
+        qrStatus.appendChild(link);
         qrStatus.dataset["state"] = "ok";
       } catch (error) {
         qrStatus.textContent =

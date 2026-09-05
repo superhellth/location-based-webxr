@@ -40,16 +40,42 @@
   --space-6: 24px;
   --space-8: 32px;
 
+  /* Fluid tokens: scale continuously from a 320px phone (iPhone SE) up to
+     560px (this app's own `max-width` — everything above that already
+     looks the same as today, nothing here touches it). Replaces the old
+     single `@media (max-width: 400px)` hard jump with a smooth scale
+     across the real range of phone widths.
+     clamp(min, intercept + slope*vw, max), where for a given (min, max):
+       slope (vw per 1%) = (max - min) / (560 - 320) * 100
+       intercept         = min - slope/100 * 320
+     so the preferred value equals `min` at a 320px viewport and `max` at
+     560px, scaling linearly between. */
+  --space-fluid-3: clamp(8px, 2.667px + 1.6667vw, 12px);
+  --space-fluid-4: clamp(12px, 6.667px + 1.6667vw, 16px);
+  --space-fluid-5: clamp(14px, 6px + 2.5vw, 20px);
+  --text-fluid-sm: clamp(12px, 10.667px + 0.4167vw, 13px);
+  --text-fluid-base: clamp(13px, 11.667px + 0.4167vw, 14px);
+
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --duration-fast: 140ms;
   --duration-base: 200ms;
+}
+
+/* Without this, padding/border add to (rather than subtract from) a
+   `width: 100%` box — every card below (`.gate-card`, `.panel`,
+   `.authoring-section`, `.resume-prompt`) overflows the viewport on narrow
+   phones as soon as it has both `width: 100%` and its own padding. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 /* ── Shell ─────────────────────────────────────────────────────────────── */
 
 #app-root {
   min-height: 100dvh;
-  padding: var(--space-5) var(--space-4) var(--space-8);
+  padding: var(--space-fluid-5) var(--space-fluid-4) var(--space-8);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -140,7 +166,9 @@ button.primary:hover:not(:disabled),
   padding: 0;
   background: transparent;
   border: none;
-  font-size: 14px;
+  /* 16px floor, not the fluid text token: below 16px iOS Safari zooms the
+     viewport in on focus. */
+  font-size: max(16px, var(--text-fluid-base));
   color: var(--text);
 }
 
@@ -270,8 +298,8 @@ p[data-testid="qr-status"] {
 
 .gate-card {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-5);
+  gap: var(--space-fluid-3);
+  padding: var(--space-fluid-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -342,8 +370,8 @@ p[data-testid="qr-status"] {
 
 .resume-prompt {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-5);
+  gap: var(--space-fluid-3);
+  padding: var(--space-fluid-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -377,7 +405,7 @@ p[data-testid="qr-status"] {
      needs to size tiles against, not a `> div` child selector. `.map-shell`
      is the wrapper: it never touches Leaflet's own DOM subtree, so the GPS
      badge can sit as its sibling instead of a child of the map. */
-  height: 260px;
+  height: clamp(180px, 46vw, 260px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -439,7 +467,7 @@ p[data-testid="qr-status"] {
 }
 
 .authoring-section {
-  padding: var(--space-4);
+  padding: var(--space-fluid-4);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -715,8 +743,8 @@ p[data-testid="qr-status"] {
 
 .panel {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-fluid-3);
+  padding: var(--space-fluid-4);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -751,6 +779,15 @@ p[data-testid="qr-status"] {
   margin-top: var(--space-3);
   opacity: 1;
   transform: scale(1);
+}
+
+/* generateQr() fixes the SVG's own width/height at 512 (for scan quality at
+   arm's length) regardless of host size, so without this it only shows the
+   cropped top-left corner of the code inside the 200px host. */
+.qr-host svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .field-error {
@@ -826,21 +863,24 @@ p[data-testid="qr-status"] {
    layout above. */
 .ar-container > .map-card {
   position: fixed;
-  top: var(--space-4);
-  right: var(--space-4);
+  top: var(--space-fluid-4);
+  right: var(--space-fluid-4);
   left: auto;
   z-index: 6;
-  width: 200px;
-  height: 200px;
+  /* Fluid so a 320px phone doesn't lose most of its width to the overlay:
+     scales from ~110px up to the original fixed 200px. */
+  width: clamp(110px, 34vw, 200px);
+  height: clamp(110px, 34vw, 200px);
 }
 
 /* ── Small screens ────────────────────────────────────────────────────── */
 
-@media (max-width: 400px) {
-  .map-card {
-    height: 200px;
-  }
-
+/* `.map-card` height and the shell/card paddings above are already fluid
+   (`clamp()`), so they need no breakpoint. Grid column *counts* can't be
+   expressed with `clamp()`, so the narrowest phones still get one explicit
+   rule: stack the resume-prompt's two buttons instead of squeezing them
+   side by side. */
+@media (max-width: 360px) {
   .resume-prompt-actions {
     grid-template-columns: 1fr;
   }

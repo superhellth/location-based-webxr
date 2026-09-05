@@ -187,6 +187,20 @@ function describeLoadFailure(error: unknown): {
   };
 }
 
+/**
+ * A touch-primary device (no physical keyboard/mouse) — the desktop
+ * preview's manual walk needs both, so this decides whether to default it
+ * into the breadcrumb autopilot instead. `maxTouchPoints` alone would also
+ * match a touch-enabled laptop that still has a keyboard; requiring "no
+ * hover" too excludes that case.
+ */
+function isTouchPrimaryDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (navigator.maxTouchPoints <= 0) return false;
+  if (typeof globalThis.matchMedia !== "function") return true;
+  return !globalThis.matchMedia("(hover: hover)").matches;
+}
+
 /** Mounts the composed Viewing-mode flow into `root`. */
 export function mountViewingApp(
   root: HTMLElement,
@@ -295,6 +309,7 @@ export function mountViewingApp(
   function mountGate(): void {
     clearScreen();
     const gateHost = document.createElement("div");
+    gateHost.className = "gate-card";
     arHost.appendChild(gateHost);
     const gate = mountOnboardingGate(gateHost, {
       checkCameraPermission: deps.checkCameraPermission,
@@ -615,9 +630,21 @@ export function mountViewingApp(
       },
     });
 
-    hud?.setStatus(
-      "Preview — walk with W A S D, drag to look around, click a stop to hear it.",
-    );
+    // A touch-primary device has no WASD: default to the breadcrumb autopilot
+    // instead of a manual walk it has no way to drive (VC25 offers this
+    // preview specifically when AR — the phone's normal way in — is
+    // unavailable, so most visitors landing here are on a phone).
+    if (isTouchPrimaryDevice()) {
+      session.setAutopilot(true);
+      hud?.setAutopilotLabel("Stop auto-walk");
+      hud?.setStatus(
+        "Preview — auto-walking the route, drag to look around, tap a stop to hear it.",
+      );
+    } else {
+      hud?.setStatus(
+        "Preview — walk with W A S D, drag to look around, click a stop to hear it.",
+      );
+    }
     subscribeProgress();
   }
 
