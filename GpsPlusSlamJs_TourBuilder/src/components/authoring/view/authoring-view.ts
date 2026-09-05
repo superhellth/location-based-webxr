@@ -431,6 +431,18 @@ export function mountAuthoringView(
       if (newId !== null) {
         expandedId = newId;
         render();
+        // The new card is appended at the end of the list and auto-expanded,
+        // so with any other waypoints already present it renders off-screen
+        // below the fold with nothing to bring it into view — the visitor
+        // has to already know to scroll down to find what they just created.
+        const newCard = waypointsEl?.querySelector(
+          `[data-testid="waypoint-${newId}"]`,
+        );
+        // jsdom (unit tests) has no scrollIntoView at all, unlike most DOM
+        // APIs it at least stubs.
+        if (typeof newCard?.scrollIntoView === "function") {
+          newCard.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       }
     });
     heading.append(h2, dropButton);
